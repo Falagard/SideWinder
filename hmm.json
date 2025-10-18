@@ -1,0 +1,25 @@
+{
+  "dependencies": [
+    {
+      "name": "lime",
+      "type": "haxelib",
+      "version": null
+    },
+    {
+      "name": "snake-server",
+      "type": "haxelib",
+      "version": null
+    },
+    {
+      "name": "tink_await",
+      "type": "haxelib",
+      "version": null
+    },
+    {
+      "name": "tink_core",
+      "type": "haxelib",
+      "version": null
+    }
+
+  ]
+}

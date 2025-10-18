@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<project>
+
+	<meta title="SideWinder" package="com.sample.sidewinder" version="1.0.0" company="Company Name" />
+	<app main="Main" path="Export" file="SideWinder" />
+
+	<source path="Source" />
+	
+	<haxelib name="lime" />
+	<haxelib name="snake-server" />
+	
+	<assets path="static" />
+	
+</project>
