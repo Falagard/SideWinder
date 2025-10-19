@@ -1,5 +1,7 @@
 package;
 
+import haxe.ds.StringMap;
+import haxe.Json;
 import hl.Bytes;
 import snake.server.*;
 import snake.socket.*;
@@ -8,11 +10,9 @@ import sys.net.Socket;
 import sys.io.*;
 import haxe.io.Path;
 import snake.http.*;
-
 import Router;
 
 class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
-
 	public static var corsEnabled = false;
 	public static var cacheEnabled = true;
 	public static var silent = false;
@@ -33,30 +33,77 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		return result;
 	}
 
-	function dispatch(method:String):Void {
-		var path = this.path; 
-		var routeResult = SideWinderRequestHandler.router.find(method, path);
-		if (routeResult != null) {
-			// build Request, Response
-			var req = {
-				method: method,
-				path: path,
-				headers: this.headers,
-				query: parseQuery(path),
-				body: readRequestBodyIfAny()
-			};
-			var res = {
-				write: (s) -> this.wfile.writeString(s),
-				setHeader: (k, v) -> this.sendHeader(k, v),
-				sendStatus: (code) -> this.sendError(code),
-				end: () -> {}
-			};
-			routeResult.route.handler(req, res);
-			// after handler returns, ensure response is flushed / connection closed
-		} else {
-			// fallback: static file 
-			handleStatic();
+	function readBody():String {
+		var len = Std.parseInt(headers.get("Content-Length"));
+		if (len == null || len <= 0)
+			return "";
+		var bytes = haxe.io.Bytes.alloc(len);
+		rfile.readFullBytes(bytes, 0, len);
+		return bytes.toString();
+	}
+
+	function parseBody(headers:StringMap<String>, body:String):Dynamic {
+		var ct = headers.get("Content-Type");
+		if (ct == null)
+			return null;
+		if (ct.indexOf("application/json") != -1) {
+			try
+				return Json.parse(body)
+			catch (e:Dynamic)
+				return null;
 		}
+		if (ct.indexOf("application/x-www-form-urlencoded") != -1) {
+			var map = new StringMap<String>();
+			for (pair in body.split("&")) {
+				var kv = pair.split("=");
+				if (kv.length == 2)
+					map.set(StringTools.urlDecode(kv[0]), StringTools.urlDecode(kv[1]));
+			}
+			return map;
+		}
+		return null;
+	}
+
+	/// --- Request Dispatch ---
+	// Read body and parse query parameters
+	// Construct Request and Response objects
+	// Find matching route and invoke handler
+
+	function dispatch(method:String):Void {
+		   var pathOnly = this.path.split("?")[0];
+		   var match = router.find(method, pathOnly);
+		   if (match == null) {
+			   handleStatic();
+			   return;
+		   }
+
+		   var body = readBody();
+		   var query = parseQuery(this.path);
+		   var parsed = parseBody(headers, body);
+
+		   var req:Request = {
+			   method: method,
+			   path: pathOnly,
+			   headers: headers,
+			   query: query,
+			   body: body
+		   };
+
+		   var res:Response = {
+			   write: (s) -> wfile.writeString(s),
+			   setHeader: (k, v) -> sendHeader(k, v),
+			   sendError: (c) -> sendError(c),
+			   sendResponse: (r) -> sendResponse(r),
+			   endHeaders: () -> endHeaders(),
+			   end: () -> {}
+		   };
+
+		   try {
+			   router.handle(req, res, match.route);
+		   } catch (e:Dynamic) {
+			   sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR, "Internal Server Error");
+			   trace("Middleware/Handler error: " + Std.string(e));
+		   }
 	}
 
 	function handleStatic() {
@@ -79,18 +126,6 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 			}
 			this.directory = oldDir;
 		}
-	}
-	
-	function readRequestBodyIfAny():String {
-		// if (this.command == "POST" || this.command == "PUT") {
-		// 	var length = Std.parseInt(this.headers.get("Content-Length"));
-		// 	if (length != null && length > 0) {
-		// 		var buf = Bytes.alloc(length);
-		// 		this.rfile.readBytes(buf, 0, length);
-		// 		return buf.toString();
-		// 	}
-		// }
-		return "";
 	}
 
 	// --- REST API Setup ---
@@ -116,15 +151,16 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 	private function sendJson(code:snake.http.HTTPStatus, obj:Dynamic) {
 		var json = haxe.format.JsonPrinter.print(obj);
 
-        sendResponse(code);
-        sendHeader('Content-Type', 'application/json');
-        endHeaders();
+		sendResponse(code);
+		sendHeader('Content-Type', 'application/json');
+		endHeaders();
 
 		wfile.writeString(json);
 	}
 
 	// --- WebSocket Broadcast (to be called from main server) ---
 	public static var onStateChange:Void->Void = function() {};
+
 	public static function broadcastState() {
 		onStateChange(); // This will be set up in the main server file to broadcast via WebSocket
 	}
@@ -145,5 +181,4 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		}
 		super.logRequest(code, size);
 	}
-
 }

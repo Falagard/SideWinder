@@ -14,7 +14,9 @@ typedef Request = {
 typedef Response = {
     var write: (String) -> Void;
     var setHeader: (String, String) -> Void;
-    var sendStatus: (HTTPStatus) -> Void;
+    var sendError: (HTTPStatus) -> Void;
+    var sendResponse: (HTTPStatus) -> Void;
+    var endHeaders: () -> Void;
     var end: () -> Void;
   // maybe convenience methods: json(), sendFile(), etc
 };
@@ -59,7 +61,7 @@ class Route {
 
 
 
-typedef Middleware = Request->Response->Void->Void; // (req, res, next)
+typedef Middleware = (Request, Response, Void->Void) -> Void;
 
 typedef Handler = Request->Response->Void;
 
@@ -69,15 +71,19 @@ typedef RouteResult = {
 }
 
 class Router {
-  public var routes:Array<Route>;
+  public var routes:Array<Route> = [];
+  public var middleware:Array<Middleware> = [];
 
 
   public function new() {
-    routes = [];
   }
 
   public function add(method:String, pattern:String, handler:Handler):Void {
     routes.push(new Route(method, pattern, handler));
+  }
+
+  public function use(mw:Middleware):Void {
+    middleware.push(mw);
   }
 
   public function find(method:String, path:String):Null<RouteResult> {
@@ -92,8 +98,19 @@ class Router {
     return null;
   }
 
-  public function dispatch(req:Request, res:Response, route:Route):Void {
-    // maybe call middleware, then route.handler
-    route.handler(req, res);
+  public function handle(req:Request, res:Response, route:Route):Void {
+    var index = 0;
+
+    function runNext() {
+      if (index < middleware.length) {
+        var mw = middleware[index++];
+        mw(req, res, runNext);
+      } else {
+        // after all middleware, run the final handler
+        route.handler(req, res);
+      }
+    }
+
+    runNext();
   }
 }

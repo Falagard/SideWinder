@@ -42,15 +42,20 @@ class Main extends Application
 			//if we wanted to send out realtime updates via WebSocket here's where it would happen
 		};
 
-		SideWinderRequestHandler.router.add("GET", "/hello", (req, res) -> {
+		// Example middleware: logging
+		App.use((req, res, next) -> {
+			trace('${req.method} ${req.path}');
+			next();
+			});
+
+		App.get("/hello", (req, res) -> {
+			res.sendResponse(snake.http.HTTPStatus.OK);
 			res.setHeader("Content-Type", "text/plain");
+			res.endHeaders();
 			res.write("Hello, world!");
 			res.end();
-			});
-	}
+		});
 
-	public static function get(path:String, handler:Request->Response->Void):Void {
-    	router.add("GET", path, handler);
 	}
   	
 	public static function main() {
