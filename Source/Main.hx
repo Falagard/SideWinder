@@ -56,6 +56,34 @@ class Main extends Application
 			res.end();
 		});
 
+		// New route: /goodbye
+		App.get("/goodbye", (req, res) -> {
+			res.sendResponse(snake.http.HTTPStatus.OK);
+			res.setHeader("Content-Type", "text/plain");
+			res.endHeaders();
+			res.write("Goodbye, world!");
+			res.end();
+		});
+
+		App.get("/private", (req, res) -> {
+			res.sendResponse(snake.http.HTTPStatus.OK);
+			res.setHeader("Content-Type", "text/plain");
+			res.endHeaders();
+			res.write("Private content accessed!");
+			res.end();
+		});
+
+		// Example middleware: auth simulation
+    	App.use((req, res, next) -> {
+			if (StringTools.startsWith(req.path, "/private")) {
+				res.sendError(HTTPStatus.UNAUTHORIZED);
+				res.setHeader("Content-Type", "text/plain");
+				res.endHeaders();
+				res.write("Unauthorized");	
+			} else next();
+		});
+
+
 	}
   	
 	public static function main() {
