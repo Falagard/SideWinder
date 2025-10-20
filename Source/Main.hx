@@ -1,5 +1,6 @@
 package;
 
+import haxe.Timer;
 import tink.core.Future;
 import tink.core.Noise;
 import Router.Response;
@@ -81,6 +82,8 @@ class Main extends Application
 			return Future.sync(Noise);
 		});
 
+		//App.get("/async", getAsync);
+
 		// Example middleware: auth simulation
     	App.use(@await (req, res, next) -> {
 			if (StringTools.startsWith(req.path, "/private")) {
@@ -93,6 +96,14 @@ class Main extends Application
 		});
 
 
+	}
+
+	@async public function getAsync(req:Request, res:Response) {
+		return @await getValue( "Hello from async function!", 1000 );
+	}
+
+	static function getValue( message:String, delay:Int ) {
+		return Future.irreversible( callback -> Timer.delay(() -> callback( message ), delay ));
 	}
   	
 	public static function main() {
