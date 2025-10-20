@@ -1,5 +1,6 @@
 package;
 
+import haxe.Json;
 import haxe.Http;
 import haxe.Timer;
 import Router.Response;
@@ -73,6 +74,17 @@ class Main extends Application
 			res.setHeader("Content-Type", "text/plain");
 			res.endHeaders();
 			res.write("Private content accessed!");
+			res.end();
+		});
+
+		App.get("/users/:id", (req, res) -> {
+            //req.params stores the dynamic segments from the URL pattern
+			var id = req.params.get("id");
+			res.sendResponse(snake.http.HTTPStatus.OK);
+			res.setHeader("Content-Type", "application/json");
+			res.endHeaders();
+			var content = Json.stringify({ id: id, name: "Alice", email: "alice@example.com" });
+			res.write(content);
 			res.end();
 		});
 

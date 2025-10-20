@@ -97,7 +97,8 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 			query: query,
 			body: body,
 			jsonBody: parsed,
-			formBody: formBody
+			formBody: formBody,
+			params: match.params
 		};
 
 		var res:Response = {
