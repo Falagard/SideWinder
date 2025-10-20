@@ -8,9 +8,6 @@
 	
 	<haxelib name="lime" />
 	<haxelib name="snake-server-async" />
-	<haxelib name="tink_core" />
-	<haxelib name="tink_await" />
-	
 	<assets path="static" />
 	
 </project>

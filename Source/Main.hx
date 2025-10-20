@@ -1,8 +1,6 @@
 package;
 
 import haxe.Timer;
-import tink.core.Future;
-import tink.core.Noise;
 import Router.Response;
 import Router.Request;
 import sys.thread.Thread;
@@ -17,7 +15,6 @@ import snake.server.*;
 import lime.ui.Gamepad;
 import lime.ui.GamepadButton;
 import Date;
-import tink.await.*;
 
 class Main extends Application
 {
@@ -47,63 +44,60 @@ class Main extends Application
 		};
 
 		// Example middleware: logging
-		App.use(@await (req, res, next) -> {
+		App.use((req, res, next) -> {
 			trace('${req.method} ${req.path}');
 			next();
-			return Future.sync(Noise);
 		});
 
 		// Example route: /hello
-		App.get("/hello", @await (req, res) -> {
+		App.get("/hello", (req, res) -> {
 			res.sendResponse(snake.http.HTTPStatus.OK);
 			res.setHeader("Content-Type", "text/plain");
 			res.endHeaders();
 			res.write("Hello, world!");
 			res.end();
-			return Future.sync(Noise);
 		});
 
 		// New route: /goodbye
-		App.get("/goodbye", @await (req, res) -> {
+		App.get("/goodbye", (req, res) -> {
 			res.sendResponse(snake.http.HTTPStatus.OK);
 			res.setHeader("Content-Type", "text/plain");
 			res.endHeaders();
 			res.write("Goodbye, world!");
 			res.end();
-			return Future.sync(Noise);
 		});
 
-		App.get("/private", @await (req, res) -> {
+		App.get("/private", (req, res) -> {
 			res.sendResponse(snake.http.HTTPStatus.OK);
 			res.setHeader("Content-Type", "text/plain");
 			res.endHeaders();
 			res.write("Private content accessed!");
 			res.end();
-			return Future.sync(Noise);
+		});
+
+		App.get("/async", (req, res) -> {
+			
+			res.sendResponse(snake.http.HTTPStatus.OK);
+			res.setHeader("Content-Type", "text/plain");
+			res.endHeaders();
+			res.write("Async response");
+			res.end();
+
 		});
 
 		//App.get("/async", getAsync);
 
 		// Example middleware: auth simulation
-    	App.use(@await (req, res, next) -> {
+    	App.use((req, res, next) -> {
 			if (StringTools.startsWith(req.path, "/private")) {
 				res.sendError(HTTPStatus.UNAUTHORIZED);
 				res.setHeader("Content-Type", "text/plain");
 				res.endHeaders();
 				res.write("Unauthorized");
 			} else next();
-			return Future.sync(Noise);
 		});
 
 
-	}
-
-	@async public function getAsync(req:Request, res:Response) {
-		return @await getValue( "Hello from async function!", 1000 );
-	}
-
-	static function getValue( message:String, delay:Int ) {
-		return Future.irreversible( callback -> Timer.delay(() -> callback( message ), delay ));
 	}
   	
 	public static function main() {

@@ -1,7 +1,5 @@
 package;
 
-import tink.core.Noise;
-import tink.core.Future;
 import snake.http.*;
 
 typedef Request = {
@@ -29,9 +27,9 @@ class Route {
   public var regex:EReg;
   public var paramNames:Array<String>;
   //public var handler: Request->Response->Void;
-  public var handler:AsyncHandler;
+  public var handler:Handler;
 
-  public function new(method:String, pattern:String, handler:AsyncHandler) {
+  public function new(method:String, pattern:String, handler:Handler) {
     this.method = method;
     this.pattern = pattern;
     this.handler = handler;
@@ -68,9 +66,9 @@ typedef Middleware = (Request, Response, Void->Void) -> Void;
 
 typedef Handler = Request->Response->Void;
 
-typedef AsyncHandler = Request->Response->Future<Noise>;
+//typedef AsyncHandler = Request->Response->Future<Noise>;
 
-typedef AsyncMiddleware = (Request, Response, Void->Future<Noise>) -> Future<Noise>;
+//typedef AsyncMiddleware = (Request, Response, Void->Future<Noise>) -> Future<Noise>;
 
 typedef RouteResult = {
   route:Route,
@@ -79,17 +77,17 @@ typedef RouteResult = {
 
 class Router {
   public var routes:Array<Route> = [];
-  //public var middleware:Array<Middleware> = [];
-  public var middleware:Array<AsyncMiddleware> = [];
+  public var middleware:Array<Middleware> = [];
+  //public var middleware:Array<AsyncMiddleware> = [];
 
   public function new() {
   }
 
-  public function add(method:String, pattern:String, handler:AsyncHandler):Void {
+  public function add(method:String, pattern:String, handler:Handler):Void {
     routes.push(new Route(method, pattern, handler));
   }
 
-  public function use(mw:AsyncMiddleware):Void {
+  public function use(mw:Middleware):Void {
     middleware.push(mw);
   }
 
@@ -105,11 +103,11 @@ class Router {
     return null;
   }
 
-  public function handle(req:Request, res:Response, route:Route):Future<Noise> {
+  public function handle(req:Request, res:Response, route:Route) {
     return runMiddleware(0, req, res, route);
   }
 
-  function runMiddleware(index:Int, req:Request, res:Response, route:Route):Future<Noise> {
+  function runMiddleware(index:Int, req:Request, res:Response, route:Route) {
     if (index < middleware.length) {
       var mw = middleware[index];
       return mw(req, res, () -> runMiddleware(index + 1, req, res, route));

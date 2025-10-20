@@ -69,7 +69,7 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 	// Construct Request and Response objects
 	// Find matching route and invoke handler
 
-	@async override function handleCommand(method:String):Void {
+	override function handleCommand(method:String):Void {
 		   var pathOnly = this.path.split("?")[0];
 		   var match = router.find(method, pathOnly);
 		   if (match == null) {
@@ -99,7 +99,7 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		   };
 
 		   try {
-			   @await router.handle(req, res, match.route);
+			   router.handle(req, res, match.route);
 		   } catch (e:Dynamic) {
 			   sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR, "Internal Server Error");
 			   trace("Middleware/Handler error: " + Std.string(e));

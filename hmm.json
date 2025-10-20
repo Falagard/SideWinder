@@ -11,16 +11,6 @@
       "dir": "",
       "ref": "main",
       "url": "https://github.com/Falagard/snake-server-async"
-    },
-    {
-      "name": "tink_await",
-      "type": "haxelib",
-      "version": null
-    },
-    {
-      "name": "tink_core",
-      "type": "haxelib",
-      "version": null
     }
   ]
 }
