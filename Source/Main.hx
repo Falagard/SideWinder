@@ -1,5 +1,7 @@
 package;
 
+import tink.core.Future;
+import tink.core.Noise;
 import Router.Response;
 import Router.Request;
 import sys.thread.Thread;
@@ -14,6 +16,7 @@ import snake.server.*;
 import lime.ui.Gamepad;
 import lime.ui.GamepadButton;
 import Date;
+import tink.await.*;
 
 class Main extends Application
 {
@@ -43,46 +46,50 @@ class Main extends Application
 		};
 
 		// Example middleware: logging
-		App.use((req, res, next) -> {
+		App.use(@await (req, res, next) -> {
 			trace('${req.method} ${req.path}');
 			next();
-			});
+			return Future.sync(Noise);
+		});
 
-		App.get("/hello", (req, res) -> {
+		// Example route: /hello
+		App.get("/hello", @await (req, res) -> {
 			res.sendResponse(snake.http.HTTPStatus.OK);
 			res.setHeader("Content-Type", "text/plain");
 			res.endHeaders();
 			res.write("Hello, world!");
 			res.end();
+			return Future.sync(Noise);
 		});
 
 		// New route: /goodbye
-		App.get("/goodbye", (req, res) -> {
+		App.get("/goodbye", @await (req, res) -> {
 			res.sendResponse(snake.http.HTTPStatus.OK);
 			res.setHeader("Content-Type", "text/plain");
 			res.endHeaders();
 			res.write("Goodbye, world!");
 			res.end();
+			return Future.sync(Noise);
 		});
 
-		App.get("/private", (req, res) -> {
+		App.get("/private", @await (req, res) -> {
 			res.sendResponse(snake.http.HTTPStatus.OK);
 			res.setHeader("Content-Type", "text/plain");
 			res.endHeaders();
 			res.write("Private content accessed!");
 			res.end();
+			return Future.sync(Noise);
 		});
 
-		
-
 		// Example middleware: auth simulation
-    	App.use((req, res, next) -> {
+    	App.use(@await (req, res, next) -> {
 			if (StringTools.startsWith(req.path, "/private")) {
 				res.sendError(HTTPStatus.UNAUTHORIZED);
 				res.setHeader("Content-Type", "text/plain");
 				res.endHeaders();
-				res.write("Unauthorized");	
+				res.write("Unauthorized");
 			} else next();
+			return Future.sync(Noise);
 		});
 
 

@@ -99,7 +99,7 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		   };
 
 		   try {
-			   router.handle(req, res, match.route);
+			   @await router.handle(req, res, match.route);
 		   } catch (e:Dynamic) {
 			   sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR, "Internal Server Error");
 			   trace("Middleware/Handler error: " + Std.string(e));
