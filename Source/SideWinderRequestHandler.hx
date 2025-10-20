@@ -42,7 +42,7 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		return bytes.toString();
 	}
 
-	function parseBody(headers:StringMap<String>, body:String):Dynamic {
+	function parseJsonFromBody(headers:StringMap<String>, body:String):Dynamic {
 		var ct = headers.get("Content-Type");
 		if (ct == null)
 			return null;
@@ -52,58 +52,69 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 			catch (e:Dynamic)
 				return null;
 		}
-		if (ct.indexOf("application/x-www-form-urlencoded") != -1) {
-			var map = new StringMap<String>();
-			for (pair in body.split("&")) {
-				var kv = pair.split("=");
-				if (kv.length == 2)
-					map.set(StringTools.urlDecode(kv[0]), StringTools.urlDecode(kv[1]));
-			}
-			return map;
-		}
 		return null;
 	}
 
-	/// --- Request Dispatch ---
+	function parseFormFromBody(headers:StringMap<String>, body:String):StringMap<String> {
+		var ct = headers.get("Content-Type");
+		if (ct == null)
+			return new StringMap<String>();
+		var form = new StringMap<String>();
+		if (ct.indexOf("application/x-www-form-urlencoded") != -1) {
+			for (pair in body.split("&")) {
+				var kv = pair.split("=");
+				if (kv.length == 2) {
+					form.set(StringTools.urlDecode(kv[0]), StringTools.urlDecode(kv[1]));
+				}
+			}
+		}
+		return form;
+	}
+
+	// --- Request Handling ---
+	// Override handleCommand to dispatch based on method
 	// Read body and parse query parameters
 	// Construct Request and Response objects
 	// Find matching route and invoke handler
 
 	override function handleCommand(method:String):Void {
-		   var pathOnly = this.path.split("?")[0];
-		   var match = router.find(method, pathOnly);
-		   if (match == null) {
-			   handleStatic();
-			   return;
-		   }
+		var pathOnly = this.path.split("?")[0];
+		var match = router.find(method, pathOnly);
+		if (match == null) {
+			handleStatic();
+			return;
+		}
 
-		   var body = readBody();
-		   var query = parseQuery(this.path);
-		   var parsed = parseBody(headers, body);
+		var body = readBody();
+		var query = parseQuery(this.path);
+		var parsed = parseJsonFromBody(headers, body);
+		var formBody = parseFormFromBody(headers, body);
 
-		   var req:Request = {
-			   method: method,
-			   path: pathOnly,
-			   headers: headers,
-			   query: query,
-			   body: body
-		   };
+		var req:Request = {
+			method: method,
+			path: pathOnly,
+			headers: headers,
+			query: query,
+			body: body,
+			jsonBody: parsed,
+			formBody: formBody
+		};
 
-		   var res:Response = {
-			   write: (s) -> wfile.writeString(s),
-			   setHeader: (k, v) -> sendHeader(k, v),
-			   sendError: (c) -> sendError(c),
-			   sendResponse: (r) -> sendResponse(r),
-			   endHeaders: () -> endHeaders(),
-			   end: () -> {}
-		   };
+		var res:Response = {
+			write: (s) -> wfile.writeString(s),
+			setHeader: (k, v) -> sendHeader(k, v),
+			sendError: (c) -> sendError(c),
+			sendResponse: (r) -> sendResponse(r),
+			endHeaders: () -> endHeaders(),
+			end: () -> {}
+		};
 
-		   try {
-			   router.handle(req, res, match.route);
-		   } catch (e:Dynamic) {
-			   sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR, "Internal Server Error");
-			   trace("Middleware/Handler error: " + Std.string(e));
-		   }
+		try {
+			router.handle(req, res, match.route);
+		} catch (e:Dynamic) {
+			sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR, "Internal Server Error");
+			trace("Middleware/Handler error: " + Std.string(e));
+		}
 	}
 
 	function handleStatic() {
@@ -134,18 +145,6 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		serverVersion = 'SideWinder/0.0.1';
 		//commandHandlers.set("POST", do_POST);
 	}
-
-	// override private function do_GET():Void {
-	// 	dispatch("GET");
-	// }
-
-	// override private function do_HEAD():Void {
-	// 	dispatch("HEAD");
-	// }
-
-	// private function do_POST():Void {
-	// 	dispatch("POST");
-	// }
 
 	// --- Utility: Send JSON ---
 	private function sendJson(code:snake.http.HTTPStatus, obj:Dynamic) {

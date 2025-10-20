@@ -1,5 +1,6 @@
 package;
 
+import haxe.ds.StringMap;
 import snake.http.*;
 
 typedef Request = {
@@ -7,7 +8,9 @@ typedef Request = {
     var path: String;
     var headers: Map<String, String>;
     var query: Map<String, String>;
-    var body: String; // or Bytes
+    var body: String;
+    var jsonBody: Dynamic;
+    var formBody: StringMap<String>;
   // maybe pathParams: Map<String, String> for dynamic segments
 };
 
