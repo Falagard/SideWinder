@@ -5,6 +5,7 @@ import snake.socket.*;
 import sys.net.Host;
 import sys.net.Socket;
 import snake.http.*;
+import tink.await.*;
 
 class SideWinderServer extends HTTPServer {
 	
@@ -21,11 +22,7 @@ class SideWinderServer extends HTTPServer {
 		//if we wanted to update a WebSocket server each tick, this is where it would happen
 	}
 
-	override private function finishRequest(request:Socket, clientAddress:{host:Host, port:Int}):Void {
-		Type.createInstance(requestHandlerClass, [request, clientAddress, this, directory]);
-	}
-
-	public function serve(pollInterval:Float = 0.5):Void {
+	@async public function serve(pollInterval:Float = 0.5):Void {
 		__isShutDown.acquire();
 		try {
 			if (!__shutdownRequest) {
@@ -34,7 +31,7 @@ class SideWinderServer extends HTTPServer {
 					// bpo-35017: shutdown() called during select(), exit immediately.
 				}
 				if (ready.read.length == 1) {
-					handleRequestNoBlock();
+					@await handleRequestNoBlock();
 				}
 				serviceActions();
 			}

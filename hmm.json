@@ -6,9 +6,11 @@
       "version": null
     },
     {
-      "name": "snake-server",
-      "type": "haxelib",
-      "version": null
+      "name": "snake-server-async",
+      "type": "git",
+      "dir": "",
+      "ref": "main",
+      "url": "https://github.com/Falagard/snake-server-async"
     },
     {
       "name": "tink_await",
@@ -20,6 +22,5 @@
       "type": "haxelib",
       "version": null
     }
-
   ]
 }

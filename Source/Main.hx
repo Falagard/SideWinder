@@ -73,6 +73,8 @@ class Main extends Application
 			res.end();
 		});
 
+		
+
 		// Example middleware: auth simulation
     	App.use((req, res, next) -> {
 			if (StringTools.startsWith(req.path, "/private")) {

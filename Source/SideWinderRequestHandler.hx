@@ -69,7 +69,7 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 	// Construct Request and Response objects
 	// Find matching route and invoke handler
 
-	function dispatch(method:String):Void {
+	@async override function handleCommand(method:String):Void {
 		   var pathOnly = this.path.split("?")[0];
 		   var match = router.find(method, pathOnly);
 		   if (match == null) {
@@ -132,20 +132,20 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 	override private function setup():Void {
 		super.setup();
 		serverVersion = 'SideWinder/0.0.1';
-		commandHandlers.set("POST", do_POST);
+		//commandHandlers.set("POST", do_POST);
 	}
 
-	override private function do_GET():Void {
-		dispatch("GET");
-	}
+	// override private function do_GET():Void {
+	// 	dispatch("GET");
+	// }
 
-	override private function do_HEAD():Void {
-		dispatch("HEAD");
-	}
+	// override private function do_HEAD():Void {
+	// 	dispatch("HEAD");
+	// }
 
-	private function do_POST():Void {
-		dispatch("POST");
-	}
+	// private function do_POST():Void {
+	// 	dispatch("POST");
+	// }
 
 	// --- Utility: Send JSON ---
 	private function sendJson(code:snake.http.HTTPStatus, obj:Dynamic) {
