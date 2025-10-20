@@ -78,17 +78,20 @@ class Main extends Application
 
 		App.get("/async", (req, res) -> {
 
+			// Requests run in their own thread, so we can block here. 
+			// In fact, async operations must block the request thread to avoid issues, because otherwise the request may finish before the async operation completes.
+
+			var currentTime = Date.now().toString();
+			trace("Starting async operation at " + currentTime);
+
 			// Simulate an asynchronous operation using AsyncBlockerPool
 			var html = AsyncBlockerPool.run(cb -> {
-				Sys.sleep(20);
-				var http = new Http("https://www.google.com");
-				http.onData = data -> cb(data);
-				http.onError = msg -> cb('Error: $msg');
-				http.request(false);
+				Sys.sleep(5); // Simulate a blocking operation, e.g., network call
+				cb("<html><body><h1>Asynchronous Response</h1><p>" + currentTime + "</p><p>This response was generated after a simulated async operation.</p></body></html>");
 			});
 			
 			res.sendResponse(snake.http.HTTPStatus.OK);
-			res.setHeader("Content-Type", "text/plain");
+			res.setHeader("Content-Type", "text/html");
 			res.endHeaders();
 			res.write(html);
 			res.end();
