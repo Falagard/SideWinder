@@ -1,5 +1,6 @@
 package;
 
+import haxe.Http;
 import haxe.Timer;
 import Router.Response;
 import Router.Request;
@@ -37,7 +38,7 @@ class Main extends Application
 		SideWinderRequestHandler.silent = false;
 
 		httpServer = new SideWinderServer(new Host(DEFAULT_ADDRESS), DEFAULT_PORT, SideWinderRequestHandler, true, directory);
-		httpServer.threading = false;
+		httpServer.threading = true;
 
 		SideWinderRequestHandler.onStateChange = function() {
 			//if we wanted to send out realtime updates via WebSocket here's where it would happen
@@ -76,16 +77,23 @@ class Main extends Application
 		});
 
 		App.get("/async", (req, res) -> {
+
+			// Simulate an asynchronous operation using AsyncBlockerPool
+			var html = AsyncBlockerPool.run(cb -> {
+				Sys.sleep(20);
+				var http = new Http("https://www.google.com");
+				http.onData = data -> cb(data);
+				http.onError = msg -> cb('Error: $msg');
+				http.request(false);
+			});
 			
 			res.sendResponse(snake.http.HTTPStatus.OK);
 			res.setHeader("Content-Type", "text/plain");
 			res.endHeaders();
-			res.write("Async response");
+			res.write(html);
 			res.end();
 
 		});
-
-		//App.get("/async", getAsync);
 
 		// Example middleware: auth simulation
     	App.use((req, res, next) -> {
