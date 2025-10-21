@@ -136,6 +136,7 @@ class Main extends Application
     // Override update to serve HTTP requests
 	public override function update(deltaTime:Int):Void
 	{
+        //trace("Main update at " + Sys.time());
 		httpServer.serve(0);
 	}
 

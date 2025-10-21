@@ -5,50 +5,50 @@ import Date;
 import Sys;
 
 typedef Entry = {
-        var key:String;
-        var value:Dynamic;
-        var expiresAt:Null<Float>;
-        var prev:Null<Entry>;
-        var next:Null<Entry>;
-        var shard:Shard;
-    };
+    var key:String;
+    var value:Dynamic;
+    var expiresAt:Null<Float>;
+    var prev:Null<Entry>;
+    var next:Null<Entry>;
+};
 
-    class Shard {
-        public var mutex:Mutex;
-        public var map:StringMap<Entry>;
-        public var locks:StringMap<Mutex>;
-        public var head:Null<Entry>;
-        public var tail:Null<Entry>;
+// Shard of the cache
+// This allows us to reduce lock contention by partitioning the cache into multiple independent shards
+private class Shard {
+    public var mutex:Mutex;
+    public var map:StringMap<Entry>;
+    public var head:Null<Entry>;
+    public var tail:Null<Entry>;
+    public var maxEntries:Int;
 
-        public function new() {
-            mutex = new Mutex();
-            map = new StringMap<Entry>();
-            locks = new StringMap<Mutex>();
-        }
+    public function new(maxEntries:Int) {
+        this.mutex = new Mutex();
+        this.map = new StringMap<Entry>();
+        this.head = null;
+        this.tail = null;
+        this.maxEntries = maxEntries;
     }
+}
 
+/**
+ * Thread-safe, sharded LRU + TTL cache.
+ */
 class Cache {
 
-    
 
     private var shards:Array<Shard>;
     private var shardCount:Int;
-    private var globalMutex:Mutex;
-    private var totalEntries:Int = 0;
-    private var maxEntries:Int;
 
-    
-
-    public function new(maxEntries:Int, shardCount:Int = 16) {
+    public function new(shardCount:Int = 16, maxEntriesPerShard:Int = 512) {
         this.shardCount = shardCount;
-        this.maxEntries = maxEntries;
         this.shards = [];
-        for (i in 0...shardCount) shards.push(new Shard());
-        this.globalMutex = new Mutex();
+        for (i in 0...shardCount)
+            shards.push(new Shard(maxEntriesPerShard));
 
+        // start TTL sweeper thread
         Thread.create(() -> {
             while (true) {
-                Sys.sleep(60);
+                Sys.sleep(60); // once per minute
                 sweepExpired();
             }
         });
@@ -59,13 +59,15 @@ class Cache {
         return shards[idx];
     }
 
-    // LRU Helpers
+    // Move entry to head of LRU list
     private function moveToHead(shard:Shard, e:Entry):Void {
         if (shard.head == e) return;
+        // unlink
         if (e.prev != null) e.prev.next = e.next;
         if (e.next != null) e.next.prev = e.prev;
         if (shard.tail == e) shard.tail = e.prev;
 
+        // move to head
         e.prev = null;
         e.next = shard.head;
         if (shard.head != null) shard.head.prev = e;
@@ -81,40 +83,48 @@ class Cache {
         if (shard.tail == null) shard.tail = e;
     }
 
-    private function removeTail(shard:Shard):Null<Entry> {
+    private function removeTail(shard:Shard):Void {
         var tail = shard.tail;
-        if (tail == null) return null;
-        removeEntry(shard, tail);
-        return tail;
+        if (tail == null) return;
+        shard.map.remove(tail.key);
+        if (tail.prev != null) tail.prev.next = null;
+        shard.tail = tail.prev;
+        if (shard.tail == null) shard.head = null;
     }
 
-    // Core methods
     public function set(key:String, value:Dynamic, ttlMs:Null<Int> = null):Void {
         var shard = shardFor(key);
-        var expires = (ttlMs == null ? null : Date.now().getTime() + ttlMs);
-
         shard.mutex.acquire();
         try {
             var e = shard.map.get(key);
+            var expires = (ttlMs == null ? null : Date.now().getTime() + ttlMs);
+
             if (e != null) {
                 e.value = value;
                 e.expiresAt = expires;
                 moveToHead(shard, e);
+                shard.mutex.release();
                 return;
             }
 
-            e = { key: key, value: value, expiresAt: expires, prev: null, next: null, shard: shard };
+            e = { key: key, value: value, expiresAt: expires, prev: null, next: null };
+
             shard.map.set(key, e);
             insertAtHead(shard, e);
 
-            globalMutex.acquire();
-            totalEntries++;
-            var over = totalEntries > maxEntries;
-            globalMutex.release();
+            // Evict if too large
+            var count = 0;
+            var it = shard.map.keys();
+            while (it.hasNext()) {
+                it.next();
 
-            if (over) evictGlobal();
+                count++;
+            }
+            if (count > shard.maxEntries)
+                removeTail(shard);
+
             shard.mutex.release();
-        } catch (e) {
+        } catch(e) {
             shard.mutex.release();
         }
     }
@@ -124,11 +134,18 @@ class Cache {
         shard.mutex.acquire();
         try {
             var e = shard.map.get(key);
-            if (e == null) return null;
+            if (e == null)
+            {
+                shard.mutex.release();
+            } return null;
+
+            // check TTL
             if (e.expiresAt != null && e.expiresAt <= Date.now().getTime()) {
                 removeEntry(shard, e);
+                shard.mutex.release();
                 return null;
             }
+
             moveToHead(shard, e);
             shard.mutex.release();
             return e.value;
@@ -140,47 +157,26 @@ class Cache {
 
     public function getOrCompute(key:String, computeFn:Void->Dynamic, ?ttlMs:Int):Dynamic {
         var shard = shardFor(key);
-        var keyLock = getKeyLock(shard, key);
-        keyLock.acquire();
-        try {
-            var val = get(key);
-            if (val != null) return val;
-            val = computeFn();
-            set(key, val, ttlMs);
-            keyLock.release();
-            cleanupKeyLock(shard, key);
-            return val;
-
-        } catch(e) {
-            keyLock.release();
-            cleanupKeyLock(shard, key);
-            return null;
-        }
-    }
-
-    private function getKeyLock(shard:Shard, key:String):Mutex {
         shard.mutex.acquire();
         try {
-            var lock = shard.locks.get(key);
-            if (lock == null) {
-                lock = new Mutex();
-                shard.locks.set(key, lock);
+            var e = shard.map.get(key);
+            if (e != null) {
+                if (e.expiresAt == null || e.expiresAt > Date.now().getTime()) {
+                    moveToHead(shard, e);
+                    shard.mutex.release();
+                    return e.value;
+                } else {
+                    removeEntry(shard, e);
+                }
             }
+
+            var val = computeFn();
+            set(key, val, ttlMs);
             shard.mutex.release();
-            return lock;
+            return val;
         } catch(e) {
             shard.mutex.release();
             return null;
-        }
-    }
-
-    private function cleanupKeyLock(shard:Shard, key:String):Void {
-        shard.mutex.acquire();
-        try {
-            shard.locks.remove(key);
-            shard.mutex.release();
-        } catch(e) {
-            shard.mutex.release();
         }
     }
 
@@ -190,39 +186,6 @@ class Cache {
         if (e.next != null) e.next.prev = e.prev;
         if (shard.head == e) shard.head = e.next;
         if (shard.tail == e) shard.tail = e.prev;
-
-        globalMutex.acquire();
-        totalEntries--;
-        globalMutex.release();
-    }
-
-    // 🔥 Global eviction: remove oldest entry across all shards
-    private function evictGlobal():Void {
-        var oldest:Null<Entry> = null;
-        for (shard in shards) {
-            shard.mutex.acquire();
-            try {
-                var t = shard.tail;
-                if (t != null) {
-                    if (oldest == null || (t.expiresAt ?? 0) < (oldest.expiresAt ?? 0))
-                        oldest = t;
-                }
-                shard.mutex.release();
-            } catch(e) shard.mutex.release();
-        }
-
-        if (oldest != null) {
-            var shard = oldest.shard;
-            shard.mutex.acquire();
-            try 
-            {
-                removeEntry(shard, oldest);
-                shard.mutex.release();
-            }
-            catch(e) {
-                shard.mutex.release();
-            }
-        }
     }
 
     public function sweepExpired():Void {
@@ -230,8 +193,8 @@ class Cache {
         for (shard in shards) {
             shard.mutex.acquire();
             try {
-                var expired:Array<Entry> = [];
                 var it = shard.map.keys();
+                var expired = [];
                 while (it.hasNext()) {
                     var k = it.next();
                     var e = shard.map.get(k);
@@ -239,19 +202,11 @@ class Cache {
                         expired.push(e);
                 }
                 for (e in expired) removeEntry(shard, e);
+            
                 shard.mutex.release();
-            } catch(e) shard.mutex.release();
+            } catch(e) {
+                shard.mutex.release();
+            }
         }
-    }
-
-    public function stats():Dynamic {
-        globalMutex.acquire();
-        var total = totalEntries;
-        globalMutex.release();
-        return {
-            shards: shardCount,
-            totalEntries: total,
-            maxEntries: maxEntries
-        };
     }
 }

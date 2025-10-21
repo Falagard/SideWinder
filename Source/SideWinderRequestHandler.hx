@@ -78,6 +78,9 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 	// Find matching route and invoke handler
 
 	override function handleCommand(method:String):Void {
+
+        trace("handleCommand called at " + Sys.time());
+
 		var pathOnly = this.path.split("?")[0];
 		var match = router.find(method, pathOnly);
 		if (match == null) {
@@ -116,6 +119,8 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 			sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR, "Internal Server Error");
 			trace("Middleware/Handler error: " + Std.string(e));
 		}
+
+        trace("handleCommand completed at " + Sys.time());
 	}
 
 	function handleStatic() {
