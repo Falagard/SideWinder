@@ -14,6 +14,7 @@ class SideWinderServer extends HTTPServer {
 		this.directory = directory;
 		super(serverHost, serverPort, requestHandlerClass, bindAndActivate);
 		Sys.print('Serving HTTP on ${serverAddress.host} port ${serverAddress.port} (http://${serverAddress.host}:${serverAddress.port})\n');
+        threading = true; //SideWinder requires threading set to true
 	}
 
 	override function serviceActions() {

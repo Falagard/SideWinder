@@ -26,29 +26,38 @@ class Main extends Application
 
 	private var httpServer:SideWinderServer;
 	public static var router = SideWinderRequestHandler.router;
+    public var cache:Cache; 
 
 	public function new()
 	{
 		super();
 
+        cache = new Cache(1024); // Example cache with max 1024 entries
+
 		var directory:String = null;
 
+        // Configure SideWinderRequestHandler
 		BaseHTTPRequestHandler.protocolVersion = DEFAULT_PROTOCOL;
 		SideWinderRequestHandler.corsEnabled = false;
 		SideWinderRequestHandler.cacheEnabled = true;
 		SideWinderRequestHandler.silent = false;
 
 		httpServer = new SideWinderServer(new Host(DEFAULT_ADDRESS), DEFAULT_PORT, SideWinderRequestHandler, true, directory);
-		httpServer.threading = true;
-
-		SideWinderRequestHandler.onStateChange = function() {
-			//if we wanted to send out realtime updates via WebSocket here's where it would happen
-		};
 
 		// Example middleware: logging
 		App.use((req, res, next) -> {
 			trace('${req.method} ${req.path}');
 			next();
+		});
+
+        // Example middleware: auth simulation
+    	App.use((req, res, next) -> {
+			if (StringTools.startsWith(req.path, "/private")) {
+				res.sendError(HTTPStatus.UNAUTHORIZED);
+				res.setHeader("Content-Type", "text/plain");
+				res.endHeaders();
+				res.write("Unauthorized");
+			} else next();
 		});
 
 		// Example route: /hello
@@ -80,10 +89,17 @@ class Main extends Application
 		App.get("/users/:id", (req, res) -> {
             //req.params stores the dynamic segments from the URL pattern
 			var id = req.params.get("id");
+
+            var user = cache.getOrCompute("user:" + id, function() {
+                trace('Loading user ' + id);
+                return { id: id, name: "Alice", email: "alice@example.com" };
+            }, 60000); // cache 60s
+
+
 			res.sendResponse(snake.http.HTTPStatus.OK);
 			res.setHeader("Content-Type", "application/json");
 			res.endHeaders();
-			var content = Json.stringify({ id: id, name: "Alice", email: "alice@example.com" });
+			var content = Json.stringify(user);
 			res.write(content);
 			res.end();
 		});
@@ -109,32 +125,22 @@ class Main extends Application
 			res.end();
 
 		});
-
-		// Example middleware: auth simulation
-    	App.use((req, res, next) -> {
-			if (StringTools.startsWith(req.path, "/private")) {
-				res.sendError(HTTPStatus.UNAUTHORIZED);
-				res.setHeader("Content-Type", "text/plain");
-				res.endHeaders();
-				res.write("Unauthorized");
-			} else next();
-		});
-
-
 	}
   	
+    // Entry point
 	public static function main() {
 		var app:Main = new Main();
 		app.exec();
 	}
 
+    // Override update to serve HTTP requests
 	public override function update(deltaTime:Int):Void
 	{
 		httpServer.serve(0);
 	}
 
+    // Override createWindow to prevent Lime from creating a window
 	override public function createWindow(attributes:WindowAttributes): Window {
-		trace("Hello Headless World");
 		return null;
 	}
 }
