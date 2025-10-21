@@ -79,7 +79,8 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 
 	override function handleCommand(method:String):Void {
 
-        trace("handleCommand called at " + Sys.time());
+        //var randInt = Std.random(10000);
+        //trace("handleCommand called at " + Sys.time() + " [rand=" + randInt + "]");
 
 		var pathOnly = this.path.split("?")[0];
 		var match = router.find(method, pathOnly);
@@ -120,7 +121,7 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 			trace("Middleware/Handler error: " + Std.string(e));
 		}
 
-        trace("handleCommand completed at " + Sys.time());
+        //trace("handleCommand completed at " + Sys.time() + " [rand=" + randInt + "]");
 	}
 
 	function handleStatic() {
