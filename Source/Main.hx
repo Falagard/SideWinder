@@ -45,10 +45,10 @@ class Main extends Application
 		httpServer = new SideWinderServer(new Host(DEFAULT_ADDRESS), DEFAULT_PORT, SideWinderRequestHandler, true, directory);
 
 		// Example middleware: logging
-		//App.use((req, res, next) -> {
-			//trace('${req.method} ${req.path} ' + Sys.time());
-			//next();
-		//});
+		App.use((req, res, next) -> {
+			trace('${req.method} ${req.path} ' + Sys.time());
+			next();
+		});
 
         // Example middleware: auth simulation
     	App.use((req, res, next) -> {
@@ -142,11 +142,6 @@ class Main extends Application
   	
     // Entry point
 	public static function main() {    
-        
-        #if hl
-		//hl.Gc.flags = hl.Gc.flags | hl.Gc.GcFlag.NoThreads;
-        #end
-        
 		var app:Main = new Main();
 		app.exec();
 	}
@@ -154,13 +149,7 @@ class Main extends Application
     // Override update to serve HTTP requests
 	public override function update(deltaTime:Int):Void
 	{
-        //trace("update start at " + Sys.time());
-        var start = Sys.time();
 		httpServer.handleRequest();
-        if(httpServer.requestHandled) {
-            var end = Sys.time();
-            trace("Request handled in " + (end - start) + " seconds");
-        }
 	}
 
     // Override createWindow to prevent Lime from creating a window
