@@ -20,7 +20,7 @@ import Date;
 
 class Main extends Application
 {
-	private static final DEFAULT_PROTOCOL = "HTTP/1.0";
+	private static final DEFAULT_PROTOCOL = "HTTP/1.0"; //snake-server needs more work for 1.1 connections
 	private static final DEFAULT_ADDRESS = "127.0.0.1";
 	private static final DEFAULT_PORT = 8000;
 
@@ -45,10 +45,10 @@ class Main extends Application
 		httpServer = new SideWinderServer(new Host(DEFAULT_ADDRESS), DEFAULT_PORT, SideWinderRequestHandler, true, directory);
 
 		// Example middleware: logging
-		App.use((req, res, next) -> {
-			trace('${req.method} ${req.path} ' + Sys.time());
-			next();
-		});
+		//App.use((req, res, next) -> {
+			//trace('${req.method} ${req.path} ' + Sys.time());
+			//next();
+		//});
 
         // Example middleware: auth simulation
     	App.use((req, res, next) -> {
@@ -62,10 +62,12 @@ class Main extends Application
 
 		// Example route: /hello
 		App.get("/hello", (req, res) -> {
+            var html = "Hello, world!" + Sys.time();
 			res.sendResponse(snake.http.HTTPStatus.OK);
 			res.setHeader("Content-Type", "text/plain");
+            res.setHeader('Content-Length', Std.string(html.length));
 			res.endHeaders();
-			res.write("Hello, world!" + Sys.time());
+			res.write(html);
 			res.end();
 
             // Simulate an asynchronous operation using AsyncBlockerPool
@@ -115,13 +117,17 @@ class Main extends Application
 			// Requests run in their own thread, so we can block here. 
 			// In fact, async operations must block the request thread to avoid issues, because otherwise the request may finish before the async operation completes.
 
-			var currentTime = Date.now().toString();
-			trace("Starting async operation at " + currentTime);
-
-			// Simulate an asynchronous operation using AsyncBlockerPool
+    		// Simulate an asynchronous operation using AsyncBlockerPool, create a new thread aysncOperationSimulation which takes some time to complete and then calls the cb 
+            // callback with the result
 			var html = AsyncBlockerPool.run(cb -> {
-				Sys.sleep(5); // Simulate a blocking operation, e.g., network call
-				cb("<html><body><h1>Asynchronous Response</h1><p>" + currentTime + "</p><p>This response was generated after a simulated async operation.</p></body></html>");
+                //do some async work, call cb when done 
+				Thread.create(() -> {
+					asyncOperationSimulation( function(result:String) {
+                        cb(result);
+                    }, function() {
+                        cb("failed");
+                    });
+				});
 			});
 			
 			res.sendResponse(snake.http.HTTPStatus.OK);
@@ -133,6 +139,12 @@ class Main extends Application
 		});
 
 	}
+
+    private function asyncOperationSimulation(onSuccess:(String) -> Void, onFailure:() -> Void):Void {
+        // Simulate a long-running operation
+        Sys.sleep(3);
+        onSuccess("<html><body><p>This response was generated after a simulated async operation.</p></body></html>");
+    }
   	
     // Entry point
 	public static function main() {    

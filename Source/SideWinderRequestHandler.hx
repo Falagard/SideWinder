@@ -94,6 +94,8 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		var parsed = parseJsonFromBody(headers, body);
 		var formBody = parseFormFromBody(headers, body);
 
+        //trace(pathOnly + " " + method);
+
 		var req:Request = {
 			method: method,
 			path: pathOnly,
