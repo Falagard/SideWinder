@@ -2,7 +2,7 @@ package;
 
 import haxe.ds.StringMap;
 import haxe.Json;
-import hl.Bytes;
+//import hl.Bytes;
 import snake.server.*;
 import snake.socket.*;
 import sys.net.Host;
@@ -106,12 +106,12 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		};
 
 		var res:Response = {
-			write: (s) -> wfile.writeString(s),
+			write: (s) -> wfile.writeString(s), /* connection.write(s), */
 			setHeader: (k, v) -> sendHeader(k, v),
 			sendError: (c) -> sendError(c),
 			sendResponse: (r) -> sendResponse(r),
 			endHeaders: () -> endHeaders(),
-			end: () -> {}
+			end: () -> wfile.flush()
 		};
 
 		try {
@@ -148,6 +148,7 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 
 	// --- REST API Setup ---
 	override private function setup():Void {
+        //disableNagleAlgorithm = true;
 		super.setup();
 		serverVersion = 'SideWinder/0.0.1';
 		//commandHandlers.set("POST", do_POST);

@@ -46,7 +46,7 @@ class Main extends Application
 
 		// Example middleware: logging
 		App.use((req, res, next) -> {
-			trace('${req.method} ${req.path}');
+			trace('${req.method} ${req.path} ' + Sys.time());
 			next();
 		});
 
@@ -65,8 +65,14 @@ class Main extends Application
 			res.sendResponse(snake.http.HTTPStatus.OK);
 			res.setHeader("Content-Type", "text/plain");
 			res.endHeaders();
-			res.write("Hello, world!");
+			res.write("Hello, world!" + Sys.time());
 			res.end();
+
+            // Simulate an asynchronous operation using AsyncBlockerPool
+			//var html = AsyncBlockerPool.run(cb -> {
+			//	Sys.sleep(1); // Simulate a blocking operation, e.g., network call
+			//	cb("test");
+			//});
 		});
 
 		// New route: /goodbye
@@ -125,10 +131,16 @@ class Main extends Application
 			res.end();
 
 		});
+
 	}
   	
     // Entry point
-	public static function main() {
+	public static function main() {    
+        
+        #if hl
+		//hl.Gc.flags = hl.Gc.flags | hl.Gc.GcFlag.NoThreads;
+        #end
+        
 		var app:Main = new Main();
 		app.exec();
 	}
@@ -136,13 +148,18 @@ class Main extends Application
     // Override update to serve HTTP requests
 	public override function update(deltaTime:Int):Void
 	{
-        //trace("Main update at " + Sys.time());
-		httpServer.serve(0);
+        //trace("update start at " + Sys.time());
+        var start = Sys.time();
+		httpServer.handleRequest();
+        if(httpServer.requestHandled) {
+            var end = Sys.time();
+            trace("Request handled in " + (end - start) + " seconds");
+        }
 	}
 
     // Override createWindow to prevent Lime from creating a window
 	override public function createWindow(attributes:WindowAttributes): Window {
-		return null;
+	    return null;
 	}
 }
 
