@@ -6,11 +6,11 @@
       "version": null
     },
     {
-      "name": "snake-server-async",
+      "name": "snake-server",
       "type": "git",
       "dir": "",
       "ref": "main",
-      "url": "https://github.com/Falagard/snake-server-async"
+      "url": "https://github.com/Falagard/snake-server"
     }
   ]
 }

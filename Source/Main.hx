@@ -92,6 +92,7 @@ class Main extends Application
             //req.params stores the dynamic segments from the URL pattern
 			var id = req.params.get("id");
 
+            // Use cache to get user data, simulating a database fetch
             var user = cache.getOrCompute("user:" + id, function() {
                 trace('Loading user ' + id);
                 return { id: id, name: "Alice", email: "alice@example.com" };
@@ -119,7 +120,8 @@ class Main extends Application
 					asyncOperationSimulation( function(result:String) {
                         cb(result);
                     }, function() {
-                        cb("failed");
+                        //failure callback simulation
+                        cb("<html><body><p>Async operation failed.</p></body></html>");
                     });
 				});
 			});
@@ -137,7 +139,12 @@ class Main extends Application
     private function asyncOperationSimulation(onSuccess:(String) -> Void, onFailure:() -> Void):Void {
         // Simulate a long-running operation
         Sys.sleep(3);
-        onSuccess("<html><body><p>This response was generated after a simulated async operation.</p></body></html>");
+        
+        //comment this out to simulate success
+        return onSuccess("<html><body><p>This response was generated after a simulated async operation.</p></body></html>");
+
+        //uncomment below to simulate failure
+        //onFailure();
     }
   	
     // Entry point
