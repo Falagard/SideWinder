@@ -40,7 +40,7 @@ class Main extends Application
 		BaseHTTPRequestHandler.protocolVersion = DEFAULT_PROTOCOL;
 		SideWinderRequestHandler.corsEnabled = false;
 		SideWinderRequestHandler.cacheEnabled = true;
-		SideWinderRequestHandler.silent = false;
+		SideWinderRequestHandler.silent = true;
 
 		httpServer = new SideWinderServer(new Host(DEFAULT_ADDRESS), DEFAULT_PORT, SideWinderRequestHandler, true, directory);
 
@@ -69,12 +69,6 @@ class Main extends Application
 			res.endHeaders();
 			res.write(html);
 			res.end();
-
-            // Simulate an asynchronous operation using AsyncBlockerPool
-			//var html = AsyncBlockerPool.run(cb -> {
-			//	Sys.sleep(1); // Simulate a blocking operation, e.g., network call
-			//	cb("test");
-			//});
 		});
 
 		// New route: /goodbye

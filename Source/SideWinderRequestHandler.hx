@@ -184,10 +184,11 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		super.endHeaders();
 	}
 
-	override private function logRequest(?code:Any, ?size:Any):Void {
-		if (silent) {
+    override private function logMessage(message:String):Void {
+        if (silent) {
 			return;
 		}
-		super.logRequest(code, size);
+
+		super.logMessage(message);
 	}
 }
