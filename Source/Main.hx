@@ -88,18 +88,6 @@ class Main extends Application
 			res.end();
 		});
 
-        App.get("/session", (req, res) -> {
-			
-			// Set a cookie in the response
-			res.sendResponse(snake.http.HTTPStatus.OK);
-			res.setHeader("Content-Type", "text/plain");
-            // setCookie must be called before endHeaders
-            res.setCookie("session_id", "abc123", { path: "/", domain: "", maxAge: "3600", httpOnly: true, secure: false });
-			res.endHeaders();
-			res.write("Cookie set");
-			res.end();
-        });
-
         App.get("/cookie", (req, res) -> {
             // Read a cookie from the request
             var sessionId = req.cookies.get("session_id");

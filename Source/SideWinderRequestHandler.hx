@@ -28,7 +28,7 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 	public static var corsEnabled = false;
 	public static var cacheEnabled = true;
 	public static var silent = false;
-
+    private var currentSessionId:String = null;
 	public static var router:Router = new Router();
 
 	static function parseQuery(url:String):Map<String, String> {
@@ -110,6 +110,14 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 
 
 		var cookies = parseCookies(headers.get("Cookie"));
+		var sessionId = cookies.get("session_id");
+		if (sessionId == null) {
+			// Generate a simple random session id
+			sessionId = Std.string(Math.floor(Math.random() * 1000000000)) + "_" + Std.string(Sys.time());
+			cookies.set("session_id", sessionId);
+            // Set cookie in response 
+            currentSessionId = sessionId;
+		}
 
 		var req:Request = {
 			method: method,
@@ -209,6 +217,10 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		if (!cacheEnabled) {
 			sendHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
 		}
+        if(currentSessionId != null) {
+            sendHeader("Set-Cookie", "session_id=" + currentSessionId + "; Path=/; HttpOnly");
+        }
+
 		super.endHeaders();
 	}
 
