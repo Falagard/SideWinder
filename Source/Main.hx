@@ -93,6 +93,7 @@ class Main extends Application
 			// Set a cookie in the response
 			res.sendResponse(snake.http.HTTPStatus.OK);
 			res.setHeader("Content-Type", "text/plain");
+            // setCookie must be called before endHeaders
             res.setCookie("session_id", "abc123", { path: "/", domain: "", maxAge: "3600", httpOnly: true, secure: false });
 			res.endHeaders();
 			res.write("Cookie set");
@@ -100,11 +101,12 @@ class Main extends Application
         });
 
         App.get("/cookie", (req, res) -> {
-			var cookies = req.cookies;
+            // Read a cookie from the request
+            var sessionId = req.cookies.get("session_id");
 			res.sendResponse(snake.http.HTTPStatus.OK);
 			res.setHeader("Content-Type", "text/plain");
 			res.endHeaders();
-			res.write(cookies.get("session_id") != null ? "Cookie: " + cookies.get("session_id") : "No session_id cookie found");
+			res.write(sessionId != null ? "Cookie: " + sessionId : "No session_id cookie found");
 			res.end();
         });
 
