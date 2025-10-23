@@ -7,7 +7,7 @@
 	<source path="Source" />
 	
 	<haxelib name="lime" />
-	<haxelib name="snake-server-async" />
+	<haxelib name="snake-server" />
 	<assets path="static" />
 	
 </project>
