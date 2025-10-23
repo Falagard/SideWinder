@@ -13,6 +13,18 @@ import snake.http.*;
 import Router;
 
 class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
+	// ...existing code...
+	static function parseCookies(header:String):StringMap<String> {
+		var cookies = new StringMap<String>();
+		if (header == null) return cookies;
+		for (pair in header.split(";")) {
+			var kv = pair.split("=");
+			if (kv.length == 2) {
+				cookies.set(StringTools.trim(kv[0]), StringTools.trim(kv[1]));
+			}
+		}
+		return cookies;
+	}
 	public static var corsEnabled = false;
 	public static var cacheEnabled = true;
 	public static var silent = false;
@@ -96,6 +108,9 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 
         //trace(pathOnly + " " + method);
 
+
+		var cookies = parseCookies(headers.get("Cookie"));
+
 		var req:Request = {
 			method: method,
 			path: pathOnly,
@@ -104,16 +119,29 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 			body: body,
 			jsonBody: parsed,
 			formBody: formBody,
-			params: match.params
+			params: match.params,
+			cookies: cookies
 		};
 
+
 		var res:Response = {
-			write: (s) -> wfile.writeString(s), /* connection.write(s), */
+			write: (s) -> wfile.writeString(s),
 			setHeader: (k, v) -> sendHeader(k, v),
 			sendError: (c) -> sendError(c),
 			sendResponse: (r) -> sendResponse(r),
 			endHeaders: () -> endHeaders(),
-			end: () -> wfile.flush()
+			end: () -> wfile.flush(),
+			setCookie: function(name:String, value:String, ?options:{path:String, domain:String, maxAge:String, httpOnly:Bool, secure:Bool}) {
+				var cookie = name + "=" + value;
+				if (options != null) {
+					if (options.path != null) cookie += "; Path=" + options.path;
+					if (options.domain != null) cookie += "; Domain=" + options.domain;
+					if (options.maxAge != null) cookie += "; Max-Age=" + options.maxAge;
+					if (options.httpOnly) cookie += "; HttpOnly";
+					if (options.secure) cookie += "; Secure";
+				}
+				sendHeader("Set-Cookie", cookie);
+			}
 		};
 
 		try {

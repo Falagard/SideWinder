@@ -8,10 +8,11 @@ typedef Request = {
 	var path:String;
 	var headers:Map<String, String>;
 	var query:Map<String, String>;
-    var params:Map<String, String>;
+	var params:Map<String, String>;
 	var body:String;
 	var jsonBody:Dynamic;
 	var formBody:StringMap<String>;
+	var cookies:StringMap<String>;
 	// maybe pathParams: Map<String, String> for dynamic segments
 };
 
@@ -22,6 +23,7 @@ typedef Response = {
 	var sendResponse:(HTTPStatus) -> Void;
 	var endHeaders:() -> Void;
 	var end:() -> Void;
+	var setCookie:(name:String, value:String, ?options:{path:String, domain:String, maxAge:String, httpOnly:Bool, secure:Bool}) -> Void;
 	// maybe convenience methods: json(), sendFile(), etc
 };
 

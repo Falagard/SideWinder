@@ -88,6 +88,26 @@ class Main extends Application
 			res.end();
 		});
 
+        App.get("/session", (req, res) -> {
+			
+			// Set a cookie in the response
+			res.sendResponse(snake.http.HTTPStatus.OK);
+			res.setHeader("Content-Type", "text/plain");
+            res.setCookie("session_id", "abc123", { path: "/", domain: "", maxAge: "3600", httpOnly: true, secure: false });
+			res.endHeaders();
+			res.write("Cookie set");
+			res.end();
+        });
+
+        App.get("/cookie", (req, res) -> {
+			var cookies = req.cookies;
+			res.sendResponse(snake.http.HTTPStatus.OK);
+			res.setHeader("Content-Type", "text/plain");
+			res.endHeaders();
+			res.write(cookies.get("session_id") != null ? "Cookie: " + cookies.get("session_id") : "No session_id cookie found");
+			res.end();
+        });
+
 		App.get("/users/:id", (req, res) -> {
             //req.params stores the dynamic segments from the URL pattern
 			var id = req.params.get("id");
