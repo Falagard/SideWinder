@@ -17,6 +17,7 @@ import snake.server.*;
 import lime.ui.Gamepad;
 import lime.ui.GamepadButton;
 import Date;
+import Database;
 
 class Main extends Application
 {
@@ -32,6 +33,10 @@ class Main extends Application
 	{
 		super();
 
+        // Initialize database and run migrations 
+        Database.runMigrations();
+        HybridLogger.init(true, HybridLogger.LogLevel.DEBUG);
+
         cache = new Cache(1024); // Example cache with max 1024 entries
 
 		var directory:String = null;
@@ -44,9 +49,18 @@ class Main extends Application
 
 		httpServer = new SideWinderServer(new Host(DEFAULT_ADDRESS), DEFAULT_PORT, SideWinderRequestHandler, true, directory);
 
+        // var userService = new UserService(); // or from Container.build() if using DI
+
+        // var services = [
+        //     { iface: IUserService, impl: userService }
+        // ];
+
+        //AutoRouter.build(router, services);
+
 		// Example middleware: logging
 		App.use((req, res, next) -> {
-			trace('${req.method} ${req.path} ' + Sys.time());
+            // 
+			HybridLogger.info('${req.method} ${req.path} ' + Sys.time());
 			next();
 		});
 
@@ -102,10 +116,43 @@ class Main extends Application
             //req.params stores the dynamic segments from the URL pattern
 			var id = req.params.get("id");
 
-            // Use cache to get user data, simulating a database fetch
-            var user = cache.getOrCompute("user:" + id, function() {
-                trace('Loading user ' + id);
-                return { id: id, name: "Alice", email: "alice@example.com" };
+            // Use cache to get user data - the function will only be called if the item is not in the cache or has expired
+            var cacheKey = "user:" + id;
+            var user = cache.getOrCompute(cacheKey, function() {
+
+                // Acquire a database connection
+                var conn = Database.acquire();
+
+                // Fetch user data from the database
+                var sql = "SELECT * FROM users WHERE id = " + Std.string(id) + ";";
+                var rs = conn.request(sql);
+                // Get the first record
+                var record = rs.next();
+                // Release the connection back to the pool
+                Database.release(conn);
+
+                if (record == null) {
+                    return {
+                        success: false,
+                        message: "User not found",
+                        data: null
+                    }
+                }
+
+                return {
+                    success: true,
+                    message: "",
+                    data: {
+                        id: record.id,
+                        email: record.email,
+                        username: record.username,
+                        display_name: record.display_name,
+                        bio: record.bio,
+                        password_hash: record.password_hash,
+                        avatar_path: record.avatar_path,
+                        created_at: record.created_at
+                    }
+                };
             }, 60000); // cache 60s
 
 

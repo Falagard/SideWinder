@@ -9,5 +9,6 @@
 	<haxelib name="lime" />
 	<haxelib name="snake-server" />
 	<assets path="static" />
+    <assets path="migrations" />
 	
 </project>
