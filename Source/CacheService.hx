@@ -1,3 +1,5 @@
+package;
+
 import sys.thread.Mutex;
 import sys.thread.Thread;
 import haxe.ds.StringMap;
@@ -33,14 +35,20 @@ private class Shard {
 /**
  * Thread-safe, sharded LRU + TTL cache.
  */
-class Cache {
-
+class CacheService implements ICacheService {
 
     private var shards:Array<Shard>;
     private var shardCount:Int;
+    private var maxEntriesPerShard:Int;
 
-    public function new(shardCount:Int = 16, maxEntriesPerShard:Int = 512) {
-        this.shardCount = shardCount;
+    // Parameterless constructor for DI. Uses defaults; can expose configure() later if needed.
+    public function new() {
+        this.shardCount = 16;
+        this.maxEntriesPerShard = 512;
+        init();
+    }
+
+    private function init():Void {
         this.shards = [];
         for (i in 0...shardCount)
             shards.push(new Shard(maxEntriesPerShard));
@@ -117,7 +125,6 @@ class Cache {
             var it = shard.map.keys();
             while (it.hasNext()) {
                 it.next();
-
                 count++;
             }
             if (count > shard.maxEntries)
@@ -134,10 +141,10 @@ class Cache {
         shard.mutex.acquire();
         try {
             var e = shard.map.get(key);
-            if (e == null)
-            {
+            if (e == null) {
                 shard.mutex.release();
-            } return null;
+                return null;
+            }
 
             // check TTL
             if (e.expiresAt != null && e.expiresAt <= Date.now().getTime()) {
@@ -202,7 +209,6 @@ class Cache {
                         expired.push(e);
                 }
                 for (e in expired) removeEntry(shard, e);
-            
                 shard.mutex.release();
             } catch(e) {
                 shard.mutex.release();

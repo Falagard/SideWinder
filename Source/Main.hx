@@ -30,7 +30,7 @@ class Main extends Application
 
 	private var httpServer:SideWinderServer;
 	public static var router = SideWinderRequestHandler.router;
-    public var cache:Cache; 
+	public var cache:ICacheService; 
 
 	public function new()
 	{
@@ -40,7 +40,7 @@ class Main extends Application
         Database.runMigrations();
         HybridLogger.init(true, HybridLogger.LogLevel.DEBUG);
 
-        cache = new Cache(1024); // Example cache with max 1024 entries
+	// Cache service will be resolved from DI
 
 		var directory:String = null;
 
@@ -50,15 +50,18 @@ class Main extends Application
 		SideWinderRequestHandler.cacheEnabled = true;
 		SideWinderRequestHandler.silent = true;
 
-        var collection = new ServiceCollection();
-        collection.addScoped(IUserService, UserService);
-        var provider = collection.createProvider();
+		DI.init(c -> {
+			c.addScoped(IUserService, UserService);
+			c.addSingleton(ICacheService, CacheService);
+		});
+
+		cache = DI.get(ICacheService);
 
 		httpServer = new SideWinderServer(new Host(DEFAULT_ADDRESS), DEFAULT_PORT, SideWinderRequestHandler, true, directory);
 
-        AutoRouter.build(router, IUserService, function() {
-            return provider.getService(IUserService);
-        });
+		AutoRouter.build(router, IUserService, function() {
+			return DI.get(IUserService);
+		});
 
 		// Example middleware: logging
 		App.use((req, res, next) -> {
@@ -114,58 +117,6 @@ class Main extends Application
 			res.write(sessionId != null ? "Cookie: " + sessionId : "No session_id cookie found");
 			res.end();
         });
-
-		// App.get("/users/:id", (req, res) -> {
-        //     //req.params stores the dynamic segments from the URL pattern
-		// 	var id = req.params.get("id");
-
-        //     // Use cache to get user data - the function will only be called if the item is not in the cache or has expired
-        //     var cacheKey = "user:" + id;
-        //     var user = cache.getOrCompute(cacheKey, function() {
-
-        //         // Acquire a database connection
-        //         var conn = Database.acquire();
-
-        //         // Fetch user data from the database
-        //         var sql = "SELECT * FROM users WHERE id = " + Std.string(id) + ";";
-        //         var rs = conn.request(sql);
-        //         // Get the first record
-        //         var record = rs.next();
-        //         // Release the connection back to the pool
-        //         Database.release(conn);
-
-        //         if (record == null) {
-        //             return {
-        //                 success: false,
-        //                 message: "User not found",
-        //                 data: null
-        //             }
-        //         }
-
-        //         return {
-        //             success: true,
-        //             message: "",
-        //             data: {
-        //                 id: record.id,
-        //                 email: record.email,
-        //                 username: record.username,
-        //                 display_name: record.display_name,
-        //                 bio: record.bio,
-        //                 password_hash: record.password_hash,
-        //                 avatar_path: record.avatar_path,
-        //                 created_at: record.created_at
-        //             }
-        //         };
-        //     }, 60000); // cache 60s
-
-
-		// 	res.sendResponse(snake.http.HTTPStatus.OK);
-		// 	res.setHeader("Content-Type", "application/json");
-		// 	res.endHeaders();
-		// 	var content = Json.stringify(user);
-		// 	res.write(content);
-		// 	res.end();
-		// });
 
 		App.get("/async", (req, res) -> {
 

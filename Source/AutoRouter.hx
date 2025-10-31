@@ -126,6 +126,8 @@ class AutoRouter {
 										macro function(req, res) {
 											var inst = ($implExpr)();
 											inst.$methodName($a{callArgs});
+                                            res.sendResponse(snake.http.HTTPStatus.OK);
+                                            res.endHeaders();
 											res.end();
 										};
 									} else if (isPrimitive()) {
@@ -133,15 +135,26 @@ class AutoRouter {
 											var inst = ($implExpr)();
 											var result = inst.$methodName($a{callArgs});
 											// Primitive cannot be null (except String) but JSON encode directly
-											res.write(haxe.Json.stringify(result));
+                                            res.sendResponse(snake.http.HTTPStatus.OK);
+                                            res.setHeader("Content-Type", "text/json");
+                                            var json = haxe.Json.stringify(result);
+                                            res.setHeader('Content-Length', Std.string(json.length));
+                                            res.endHeaders();
+											res.write(json);
 											res.end();
 										};
 									} else {
 										macro function(req, res) {
 											var inst = ($implExpr)();
 											var result = inst.$methodName($a{callArgs});
+                                            res.sendResponse(snake.http.HTTPStatus.OK);
+                                            res.setHeader("Content-Type", "text/json");
+                                            var json = "";
 											if ((cast result : Dynamic) != null)
-												res.write(haxe.Json.stringify(result));
+												json = haxe.Json.stringify(result);
+                                            res.setHeader('Content-Length', Std.string(json.length));
+                                            res.endHeaders();
+                                            res.write(json);
 											res.end();
 										};
 									};
