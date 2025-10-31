@@ -1,12 +1,14 @@
 package;
 
+import hx.injection.Service;
+
 typedef User = {
   var id:Int;
   var name:String;
   var email:String;
 }
 
-interface IUserService {
+interface IUserService extends Service  {
 	@get("/users")
 	public function getAll():Array<User>;
 

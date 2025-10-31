@@ -8,6 +8,7 @@
 	
 	<haxelib name="lime" />
 	<haxelib name="snake-server" />
+    <haxelib name="haxe-injection"/>
 	<assets path="static" />
     <assets path="migrations" />
 	

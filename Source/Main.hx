@@ -1,5 +1,6 @@
 package;
 
+import hx.injection.ServiceCollection;
 import haxe.Json;
 import haxe.Http;
 import haxe.Timer;
@@ -18,6 +19,8 @@ import lime.ui.Gamepad;
 import lime.ui.GamepadButton;
 import Date;
 import Database;
+import hx.injection.Service;
+using hx.injection.ServiceExtensions;
 
 class Main extends Application
 {
@@ -47,10 +50,14 @@ class Main extends Application
 		SideWinderRequestHandler.cacheEnabled = true;
 		SideWinderRequestHandler.silent = true;
 
+        var collection = new ServiceCollection();
+        collection.addScoped(IUserService, UserService);
+        var provider = collection.createProvider();
+
 		httpServer = new SideWinderServer(new Host(DEFAULT_ADDRESS), DEFAULT_PORT, SideWinderRequestHandler, true, directory);
 
         AutoRouter.build(router, IUserService, function() {
-            return new UserService();
+            return provider.getService(IUserService);
         });
 
 		// Example middleware: logging
