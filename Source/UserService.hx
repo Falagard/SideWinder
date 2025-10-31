@@ -12,22 +12,27 @@ class UserService implements IUserService {
         return users;
     }
 
-    public function getById(id:Int):Null<User> {
+    public function getByIdCached(id:Int):Null<User> {
         var cacheKey = "user:" + id;
         var cache = DI.get(ICacheService);
 
         // Try cache first using getOrCompute (TTL 60s)
         var user:User = cache.getOrCompute(cacheKey, function() {
-            var conn = Database.acquire();
-            var sql = "SELECT * FROM users WHERE id = " + Std.string(id) + ";";
-            var rs = conn.request(sql);
-            var record = rs.next();
-            Database.release(conn);
-            if (record == null) return null;
-            return { id: record.id, name: record.display_name, email: record.email };
+            return getById(id);
         }, 60000);
 
         return user;
+    }
+
+    public function getById(id:Int):Null<User> {
+        
+        var conn = Database.acquire();
+        var sql = "SELECT * FROM users WHERE id = " + Std.string(id) + ";";
+        var rs = conn.request(sql);
+        var record = rs.next();
+        Database.release(conn);
+        if (record == null) return null;
+        return { id: record.id, name: record.display_name, email: record.email };
     }
 
     public function create(user:User):User {
