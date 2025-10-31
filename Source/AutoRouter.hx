@@ -1,9 +1,9 @@
-
-
 package;
 
 import haxe.macro.Expr;
 import haxe.macro.Context;
+import haxe.macro.Type; // added
+
 using haxe.macro.ExprTools;
 using haxe.macro.TypeTools;
 
@@ -11,170 +11,167 @@ using haxe.macro.TypeTools;
  * Compile-time route generator.
  */
 class AutoRouter {
-
 	public static macro function build(routerExpr:Expr, ifaceExpr:Expr, implExpr:Expr):Expr {
-
 		var router = routerExpr;
 		var routeExprs:Array<Expr> = [];
 
-        trace('Generating routes for ' + ifaceExpr.toString());
+		// Helper to build arg extraction expressions
+		function buildArgAccess(argName:String, t:Type, isOpt:Bool):Expr {
+			// For now: primitives from params, complex types from jsonBody[argName] or whole jsonBody if single complex param
+			// Determine if t is a primitive abstract we handle
+			function primitive(kind:Type):Null<String> {
+				return switch kind {
+					case TAbstract(a, _):
+						var n = a.get().name;
+						(n == "Int" || n == "Float" || n == "Bool" || n == "String") ? n : null;
+					case _: null;
+				};
+			}
+			var prim = primitive(t);
+			if (prim != null) {
+				var base:Expr = macro req.params.get($v{argName});
+				if (isOpt)
+					base = macro(req.params.exists($v{argName}) ? req.params.get($v{argName}) : null);
+				return switch prim {
+					case "Int":
+						if (isOpt) {
+							macro($base != null ? (function(__s:String) {
+								var __v = Std.parseInt(__s);
+								return (__v == null ? 0 : __v);
+							})($base) : 0);
+						} else {
+							// ensure non-null Int
+							macro(function(__s:String) {
+								var __v = Std.parseInt(__s);
+								return (__v == null ? 0 : __v);
+							})($base);
+						}
+					case "Float":
+						if (isOpt) {
+							macro($base != null ? Std.parseFloat($base) : 0.0);
+						} else {
+							macro Std.parseFloat($base);
+						}
+					case "Bool":
+						if (isOpt) {
+							macro($base != null ? ($base == "true" || $base == "1") : false);
+						} else {
+							macro($base != null ? ($base == "true" || $base == "1") : false);
+						}
+					case _: base; // String or unhandled
+				};
+			} else {
+				// Complex type: expect JSON body; allow body to be entire object (if argName not present treat whole jsonBody as object)
+				var access:Expr = macro(req.jsonBody != null
+					&& Reflect.hasField(req.jsonBody, $v{argName}) ? Reflect.field(req.jsonBody, $v{argName}) : req.jsonBody);
+				return access;
+			}
+		}
 
-        // Evaluate the expression to a type
-        var type = Context.getType(ifaceExpr.toString());
-    
-        // Ensure it’s an interface
-        switch (type) {
-            case TInst(t, _):
-                var cl = t.get();
-                if (!cl.isInterface) {
-                    Context.error('${cl.name} is not an interface', ifaceExpr.pos);
-                }
+		trace('Generating routes for ' + ifaceExpr.toString());
 
-                // Iterate through all fields
-                for (field in cl.fields.get()) {
-                    switch (field.kind) {
-                        case FMethod(_):
-                            var method = "";
-                            var path = "";
-                            
-                            for (m in field.meta.get()) { 
-                                switch (m.name) {
-                                    
-                                    case "get", "post", "put", "delete":
-                                        method = m.name;
+		var type = Context.getType(ifaceExpr.toString());
 
-                                        if (m.params.length > 0) {
-                                            var p = m.params[0];
-                                            switch (p.expr) {
-                                                case EConst(CString(s)):
-                                                    path = s;
-                                                default:
-                                                    Context.error('Expected string literal in meta', p.pos);
-                                            }
-                                        }
-                                    default:
-                                }
-                            }
-                            trace('Method: ' + method + ", Path: " + path);
+		switch (type) {
+			case TInst(t, _):
+				var cl = t.get();
+				if (!cl.isInterface) {
+					Context.error('${cl.name} is not an interface', ifaceExpr.pos);
+				}
 
-                            if (method == "" || path == "")
-                                continue;
+				for (field in cl.fields.get()) {
+					switch (field.kind) {
+						case FMethod(_):
+							var httpMethod = "";
+							var path = "";
+							for (m in field.meta.get()) {
+								switch (m.name) {
+									case "get", "post", "put", "delete":
+										httpMethod = m.name;
+										if (m.params.length > 0) {
+											var p = m.params[0];
+											switch (p.expr) {
+												case EConst(CString(s)):
+													path = s;
+												default:
+													Context.error('Expected string literal in meta', p.pos);
+											}
+										}
+									default:
+								}
+							}
 
-                            // field.type should be TFun for methods
-                            switch (field.type) {
-                                case TFun(args, ret):
-                                    for (arg in args) {
-                                        var typeStr = TypeTools.toString(arg.t);
-                                        trace('  Arg: ' + arg.name + ' : ' + typeStr + (arg.opt ? " (optional)" : ""));
-                                    }
+							if (httpMethod == "" || path == "")
+								continue;
 
-                                    //implExpr is a function that returns an instance of something that derives from the interface ifaceExpr 
-                                    //write macro that calls implExpr to get instance
-                                    //create a handler that calls appropriate method on instance, then calls router.add(method, path, handler)
+							switch (field.type) {
+								case TFun(args, ret):
+									// Build argument extraction expressions
+									var callArgs:Array<Expr> = [];
+									for (arg in args) {
+										callArgs.push(buildArgAccess(arg.name, arg.t, arg.opt));
+									}
 
-                                    trace('  Returns: ' + TypeTools.toString(ret));
+									// Analyze return type once
+									var followedRet = Context.follow(ret);
+									var retName = TypeTools.toString(followedRet);
+									inline function isVoid():Bool
+										return retName == "Void";
+									inline function isPrimitive():Bool
+										return (retName == "Int" || retName == "Float" || retName == "Bool" || retName == "String");
 
-                                default:
-                                    Context.error('Unexpected non-function type on method', field.pos);
-                            }
+									var methodName = field.name;
 
-                        default:
-                            // Skip vars or other field kinds
-                    }
-                }
+									var handler:Expr = if (isVoid()) {
+										macro function(req, res) {
+											var inst = ($implExpr)();
+											inst.$methodName($a{callArgs});
+											res.end();
+										};
+									} else if (isPrimitive()) {
+										macro function(req, res) {
+											var inst = ($implExpr)();
+											var result = inst.$methodName($a{callArgs});
+											// Primitive cannot be null (except String) but JSON encode directly
+											res.write(haxe.Json.stringify(result));
+											res.end();
+										};
+									} else {
+										macro function(req, res) {
+											var inst = ($implExpr)();
+											var result = inst.$methodName($a{callArgs});
+											if ((cast result : Dynamic) != null)
+												res.write(haxe.Json.stringify(result));
+											res.end();
+										};
+									};
 
-            default:
-                Context.error('Expected an interface type, got ' + TypeTools.toString(type), ifaceExpr.pos);
-        }
+									// router.<method>(path, handler)
+									var addRoute:Expr = switch httpMethod {
+										case "get": macro __autoRouter.add("GET", $v{path}, $handler);
+										case "post": macro __autoRouter.add("POST", $v{path}, $handler);
+										case "put": macro __autoRouter.add("PUT", $v{path}, $handler);
+										case "delete": macro __autoRouter.add("DELETE", $v{path}, $handler);
+										default: null;
+									};
 
+									if (addRoute != null) routeExprs.push(addRoute);
 
+								default:
+									Context.error('Unexpected non-function type on method', field.pos);
+							}
 
-        
+						default:
+					}
+				}
 
-        // // Extract interface definition
-        // var ifaceType = Context.follow(Context.typeof(ifaceExpr));
-        // var td = switch ifaceType {
-        //     case TType(t, _): t; // Use t directly, not t.get()
-        //     default: Context.error("Expected interface type", entry.pos);
-        // };
-
-		// for (entry in services) {
-		// 	switch entry.expr {
-		// 		case EObjectDecl(fields):
-
-        // 			trace("EObjectDecl");
-
-		// 			var ifaceExpr:Expr = null;
-		// 			var implExpr:Expr = null;
-		// 			for (f in fields) {
-		// 				switch (f.field) {
-		// 					case "iface": ifaceExpr = f.expr;
-		// 					case "impl": implExpr = f.expr;
-		// 				}
-		// 			}
-		// 			if (ifaceExpr == null || implExpr == null)
-		// 				Context.error("Expected { iface: ..., impl: ... } object", entry.pos);
-
-        //             trace('Generating routes for ' + ifaceExpr.toString());
-
-		// 			// Extract interface definition
-        //             var ifaceType = Context.follow(Context.typeof(ifaceExpr));
-        //             var td = switch ifaceType {
-        //                 case TType(t, _): t; // Use t directly, not t.get()
-        //                 default: Context.error("Expected interface type", entry.pos);
-        //             };
-
-                    
-
-                    //td.get().
-
-
-					// // Generate routes from each annotated method
-					// for (field in (td.fields : Array<Field>)) { // Cast to Array<Field>
-					// 	var method = "";
-                    //     var path = "";
-                    //     for (m in (field.meta : Array<MetaData>)) { // Cast to Array<MetaData>
-                    //         switch (m.name) {
-                    //             case "get", "post", "put", "delete":
-                    //                 method = m.name;
-                    //                 if (m.params.length > 0) path = Std.string(m.params[0]); // Use Std.string or Context.evalExpr
-                    //             default:
-                    //         }
-                    //     }
-                    //     if (method == "" || path == "")
-                    //         continue;
-
-					// 	var argNames = [for (a in (field.args : Array<FunctionArg>)) a.name]; // Cast to Array<FunctionArg>
-                    //     var callArgs = [for (a in argNames) macro req.params.get($v{a})];
-
-                    //     var handler = macro(req, res) -> {
-                    //         var result = $implExpr.$field.name($a{callArgs});
-                    //         if (result != null)
-                    //             res.write(haxe.Json.stringify(result));
-                    //         res.end();
-                    //     };
-
-					// 	var addRoute = switch method {
-					// 		case "get": macro $router.get($v{path}, $handler);
-					// 		case "post": macro $router.post($v{path}, $handler);
-					// 		case "put": macro $router.put($v{path}, $handler);
-					// 		case "delete": macro $router.delete($v{path}, $handler);
-					// 		default: null;
-					// 	};
-
-					// 	if (addRoute != null)
-					// 		routeExprs.push(addRoute);
-					// }
-
-		// 		default:
-        //             continue;
-		// 			//Context.error("Expected an array of objects like { iface: ..., impl: ... }", entry.pos);
-		// 	}
-		// }
+			default:
+				Context.error('Expected an interface type, got ' + TypeTools.toString(type), ifaceExpr.pos);
+		}
 
 		return macro {
+			var __autoRouter = $routerExpr;
 			$b{routeExprs};
 		};
 	}
 }
-
