@@ -20,31 +20,32 @@ import lime.ui.GamepadButton;
 import Date;
 import Database;
 import hx.injection.Service;
+
 using hx.injection.ServiceExtensions;
 
-class Main extends Application
-{
-	private static final DEFAULT_PROTOCOL = "HTTP/1.0"; //snake-server needs more work for 1.1 connections
+class Main extends Application {
+	private static final DEFAULT_PROTOCOL = "HTTP/1.0"; // snake-server needs more work for 1.1 connections
 	private static final DEFAULT_ADDRESS = "127.0.0.1";
 	private static final DEFAULT_PORT = 8000;
 
 	private var httpServer:SideWinderServer;
-	public static var router = SideWinderRequestHandler.router;
-	public var cache:ICacheService; 
 
-	public function new()
-	{
+	public static var router = SideWinderRequestHandler.router;
+
+	public var cache:ICacheService;
+
+	public function new() {
 		super();
 
-        // Initialize database and run migrations 
-        Database.runMigrations();
-        HybridLogger.init(true, HybridLogger.LogLevel.DEBUG);
+		// Initialize database and run migrations
+		Database.runMigrations();
+		HybridLogger.init(true, HybridLogger.LogLevel.DEBUG);
 
-	// Cache service will be resolved from DI
+		// Cache service will be resolved from DI
 
 		var directory:String = null;
 
-        // Configure SideWinderRequestHandler
+		// Configure SideWinderRequestHandler
 		BaseHTTPRequestHandler.protocolVersion = DEFAULT_PROTOCOL;
 		SideWinderRequestHandler.corsEnabled = false;
 		SideWinderRequestHandler.cacheEnabled = true;
@@ -65,27 +66,28 @@ class Main extends Application
 
 		// Example middleware: logging
 		App.use((req, res, next) -> {
-            // 
+			//
 			HybridLogger.info('${req.method} ${req.path} ' + Sys.time());
 			next();
 		});
 
-        // Example middleware: auth simulation
-    	App.use((req, res, next) -> {
+		// Example middleware: auth simulation
+		App.use((req, res, next) -> {
 			if (StringTools.startsWith(req.path, "/private")) {
 				res.sendError(HTTPStatus.UNAUTHORIZED);
 				res.setHeader("Content-Type", "text/plain");
 				res.endHeaders();
 				res.write("Unauthorized");
-			} else next();
+			} else
+				next();
 		});
 
 		// Example route: /hello
 		App.get("/hello", (req, res) -> {
-            var html = "Hello, world!" + Sys.time();
+			var html = "Hello, world!" + Sys.time();
 			res.sendResponse(snake.http.HTTPStatus.OK);
 			res.setHeader("Content-Type", "text/plain");
-            res.setHeader('Content-Length', Std.string(html.length));
+			res.setHeader('Content-Length', Std.string(html.length));
 			res.endHeaders();
 			res.write(html);
 			res.end();
@@ -108,74 +110,66 @@ class Main extends Application
 			res.end();
 		});
 
-        App.get("/cookie", (req, res) -> {
-            // Read a cookie from the request
-            var sessionId = req.cookies.get("session_id");
+		App.get("/cookie", (req, res) -> {
+			// Read a cookie from the request
+			var sessionId = req.cookies.get("session_id");
 			res.sendResponse(snake.http.HTTPStatus.OK);
 			res.setHeader("Content-Type", "text/plain");
 			res.endHeaders();
 			res.write(sessionId != null ? "Cookie: " + sessionId : "No session_id cookie found");
 			res.end();
-        });
+		});
 
 		App.get("/async", (req, res) -> {
-
-			// Requests run in their own thread, so we can block here. 
+			// Requests run in their own thread, so we can block here.
 			// In fact, async operations must block the request thread to avoid issues, because otherwise the request may finish before the async operation completes.
 
-    		// Simulate an asynchronous operation using AsyncBlockerPool, create a new thread aysncOperationSimulation which takes some time to complete and then calls the cb 
-            // callback with the result
+			// Simulate an asynchronous operation using AsyncBlockerPool, create a new thread aysncOperationSimulation which takes some time to complete and then calls the cb
+			// callback with the result
 			var html = AsyncBlockerPool.run(cb -> {
-                //do some async work, call cb when done 
+				// do some async work, call cb when done
 				Thread.create(() -> {
-					asyncOperationSimulation( function(result:String) {
-                        cb(result);
-                    }, function() {
-                        //failure callback simulation
-                        cb("<html><body><p>Async operation failed.</p></body></html>");
-                    });
+					asyncOperationSimulation(function(result:String) {
+						cb(result);
+					}, function() {
+						// failure callback simulation
+						cb("<html><body><p>Async operation failed.</p></body></html>");
+					});
 				});
 			});
-			
+
 			res.sendResponse(snake.http.HTTPStatus.OK);
 			res.setHeader("Content-Type", "text/html");
 			res.endHeaders();
 			res.write(html);
 			res.end();
-
 		});
-
 	}
 
-    private function asyncOperationSimulation(onSuccess:(String) -> Void, onFailure:() -> Void):Void {
-        // Simulate a long-running operation
-        Sys.sleep(3);
-        
-        //comment this out to simulate success
-        return onSuccess("<html><body><p>This response was generated after a simulated async operation.</p></body></html>");
+	private function asyncOperationSimulation(onSuccess:(String) -> Void, onFailure:() -> Void):Void {
+		// Simulate a long-running operation
+		Sys.sleep(3);
 
-        //uncomment below to simulate failure
-        //onFailure();
-    }
-  	
-    // Entry point
-	public static function main() {    
+		// comment this out to simulate success
+		return onSuccess("<html><body><p>This response was generated after a simulated async operation.</p></body></html>");
+
+		// uncomment below to simulate failure
+		// onFailure();
+	}
+
+	// Entry point
+	public static function main() {
 		var app:Main = new Main();
 		app.exec();
 	}
 
-    // Override update to serve HTTP requests
-	public override function update(deltaTime:Int):Void
-	{
+	// Override update to serve HTTP requests
+	public override function update(deltaTime:Int):Void {
 		httpServer.handleRequest();
 	}
 
-    // Override createWindow to prevent Lime from creating a window
-	override public function createWindow(attributes:WindowAttributes): Window {
-	    return null;
+	// Override createWindow to prevent Lime from creating a window
+	override public function createWindow(attributes:WindowAttributes):Window {
+		return null;
 	}
 }
-
-
-
-

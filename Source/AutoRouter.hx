@@ -68,7 +68,7 @@ class AutoRouter {
 			}
 		}
 
-		trace('Generating routes for ' + ifaceExpr.toString());
+		//trace('Generating routes for ' + ifaceExpr.toString());
 
 		var type = Context.getType(ifaceExpr.toString());
 
