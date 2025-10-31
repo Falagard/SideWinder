@@ -49,13 +49,9 @@ class Main extends Application
 
 		httpServer = new SideWinderServer(new Host(DEFAULT_ADDRESS), DEFAULT_PORT, SideWinderRequestHandler, true, directory);
 
-        // var userService = new UserService(); // or from Container.build() if using DI
-
-        // var services = [
-        //     { iface: IUserService, impl: userService }
-        // ];
-
-        //AutoRouter.build(router, services);
+        AutoRouter.build(router, IUserService, function() {
+            return new UserService();
+        });
 
 		// Example middleware: logging
 		App.use((req, res, next) -> {

@@ -3,7 +3,6 @@ package;
 import IUserService;
 import IUserService.User;
 
-@transient
 class UserService implements IUserService {
     var users:Array<User> = [];
 
