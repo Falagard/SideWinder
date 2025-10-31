@@ -106,9 +106,6 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		var parsed = parseJsonFromBody(headers, body);
 		var formBody = parseFormFromBody(headers, body);
 
-        //trace(pathOnly + " " + method);
-
-
 		var cookies = parseCookies(headers.get("Cookie"));
 		var sessionId = cookies.get("session_id");
 		if (sessionId == null) {
