@@ -3,6 +3,7 @@ package;
 import sys.db.Connection;
 import sys.db.Sqlite;
 import sys.thread.Mutex;
+import DateTools;
 
 class Database {
 
@@ -46,6 +47,114 @@ class Database {
 		else
 			conn.close();
 		mutex.release();
+	}
+
+	/**
+	 * Build an SQL string by substituting named parameters with their formatted values.
+	 * Supported placeholders start with @ or : followed by [A-Za-z0-9_]+.
+	 * Parameters whose value is an Array are expanded to (v1,v2,...) for easy use with IN().
+	 * To inject raw SQL (e.g., function calls) without quoting, wrap the string in RawSql via Database.raw("NOW()")
+	 * Limitations: Does not parse nested comments or quoted identifiers; skips substitution inside single quoted string literals.
+	 */
+	public static function buildSql(sql:String, params:Map<String, Dynamic>):String {
+		if (params == null || params.keys().hasNext() == false) return sql;
+		var out = new StringBuf();
+		var i = 0;
+		while (i < sql.length) {
+			var ch = sql.charAt(i);
+			// Handle single quoted string literal to avoid replacing inside it
+			if (ch == "'") {
+				out.add(ch);
+				i++;
+				while (i < sql.length) {
+					var c2 = sql.charAt(i);
+					out.add(c2);
+					if (c2 == "'") {
+						// Handle escaped '' inside literal
+						if (i + 1 < sql.length && sql.charAt(i + 1) == "'") {
+							out.add("'");
+							i += 2;
+							continue;
+						}
+						else {
+							i++;
+							break;
+						}
+					}
+					i++;
+				}
+				continue;
+			}
+			// Parameter start
+			if (ch == '@' || ch == ':') {
+				var start = i + 1;
+				while (start < sql.length && isIdentChar(sql.charCodeAt(start))) start++;
+				var name = sql.substr(i + 1, start - (i + 1));
+				if (name.length > 0 && params.exists(name)) {
+					out.add(formatValue(params.get(name)));
+					i = start;
+					continue;
+				}
+			}
+			out.add(ch);
+			i++;
+		}
+		return out.toString();
+	}
+
+	/** Helper to determine identifier characters */
+	private static inline function isIdentChar(code:Int):Bool {
+		return (code >= 'A'.code && code <= 'Z'.code) || (code >= 'a'.code && code <= 'z'.code) || (code >= '0'.code && code <= '9'.code) || code == '_'.code;
+	}
+
+	/** Convenience to create RawSql */
+	public static inline function raw(v:String):RawSql return new RawSql(v);
+
+	/** Formats a value for inclusion in SQL */
+	private static function formatValue(v:Dynamic):String {
+		if (v == null) return "NULL";
+		// Raw SQL passthrough
+		if (Std.isOfType(v, RawSql)) return cast(v, RawSql).value;
+		// Arrays -> (item1,item2,...)
+		if (Std.isOfType(v, Array)) {
+			var arr:Array<Dynamic> = cast v;
+			var parts = [];
+			for (item in arr) parts.push(formatValueScalar(item));
+			return '(' + parts.join(',') + ')';
+		}
+		return formatValueScalar(v);
+	}
+
+	private static function formatValueScalar(v:Dynamic):String {
+		if (v == null) return "NULL";
+		if (Std.isOfType(v, String)) return quoteString(cast v);
+		if (Std.isOfType(v, Bool)) return (cast v ? '1' : '0');
+		if (Std.isOfType(v, Date)) {
+			var d:Date = cast v;
+			var formatted = DateTools.format(d, "%Y-%m-%d %H:%M:%S");
+			return quoteString(formatted);
+		}
+		// Int / Float
+		if (Std.isOfType(v, Int) || Std.isOfType(v, Float)) return Std.string(v);
+		// Fallback: toString then quote
+		return quoteString(Std.string(v));
+	}
+
+	/** Execute a request with optional named parameters, returns ResultSet */
+	public static function requestWithParams(sql:String, ?params:Map<String, Dynamic>):sys.db.ResultSet {
+		var conn = acquire();
+		var finalSql = (params != null) ? buildSql(sql, params) : sql;
+		var rs = conn.request(finalSql);
+		release(conn);
+		return rs;
+	}
+
+	/** Execute a non-query (INSERT/UPDATE/DELETE) returning nothing */
+	public static function execute(sql:String, ?params:Map<String, Dynamic>):Void {
+		var conn = acquire();
+		var finalSql = (params != null) ? buildSql(sql, params) : sql;
+		conn.request(finalSql);
+		release(conn);
 	}
 
     public static function runMigrations():Void {
@@ -105,4 +214,10 @@ class Database {
         return str == null ? null : escapeString(StringTools.trim(str));
     }
 
+}
+
+/** Represents raw SQL to be injected without quoting */
+class RawSql {
+	public var value:String;
+	public function new(v:String) this.value = v;
 }
