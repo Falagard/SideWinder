@@ -1,4 +1,4 @@
-package;
+package sidewinder;
 
 import sys.db.Connection;
 import sys.db.Sqlite;
@@ -51,10 +51,6 @@ class Database {
 
 	/**
 	 * Build an SQL string by substituting named parameters with their formatted values.
-	 * Supported placeholders start with @ or : followed by [A-Za-z0-9_]+.
-	 * Parameters whose value is an Array are expanded to (v1,v2,...) for easy use with IN().
-	 * To inject raw SQL (e.g., function calls) without quoting, wrap the string in RawSql via Database.raw("NOW()")
-	 * Limitations: Does not parse nested comments or quoted identifiers; skips substitution inside single quoted string literals.
 	 */
 	public static function buildSql(sql:String, params:Map<String, Dynamic>):String {
 		if (params == null || params.keys().hasNext() == false) return sql;

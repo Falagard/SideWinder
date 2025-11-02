@@ -1,24 +1,18 @@
-package;
+package sidewinder;
 
 import haxe.macro.Expr;
 import haxe.macro.Context;
-import haxe.macro.Type; // added
+import haxe.macro.Type;
 
 using haxe.macro.ExprTools;
 using haxe.macro.TypeTools;
 
-/**
- * Compile-time route generator.
- */
 class AutoRouter {
 	public static macro function build(routerExpr:Expr, ifaceExpr:Expr, implExpr:Expr):Expr {
 		var router = routerExpr;
 		var routeExprs:Array<Expr> = [];
 
-		// Helper to build arg extraction expressions
 		function buildArgAccess(argName:String, t:Type, isOpt:Bool):Expr {
-			// For now: primitives from params, complex types from jsonBody[argName] or whole jsonBody if single complex param
-			// Determine if t is a primitive abstract we handle
 			function primitive(kind:Type):Null<String> {
 				return switch kind {
 					case TAbstract(a, _):
@@ -40,7 +34,6 @@ class AutoRouter {
 								return (__v == null ? 0 : __v);
 							})($base) : 0);
 						} else {
-							// ensure non-null Int
 							macro(function(__s:String) {
 								var __v = Std.parseInt(__s);
 								return (__v == null ? 0 : __v);
@@ -58,17 +51,14 @@ class AutoRouter {
 						} else {
 							macro($base != null ? ($base == "true" || $base == "1") : false);
 						}
-					case _: base; // String or unhandled
+					case _: base;
 				};
 			} else {
-				// Complex type: expect JSON body; allow body to be entire object (if argName not present treat whole jsonBody as object)
 				var access:Expr = macro(req.jsonBody != null
 					&& Reflect.hasField(req.jsonBody, $v{argName}) ? Reflect.field(req.jsonBody, $v{argName}) : req.jsonBody);
 				return access;
 			}
 		}
-
-		//trace('Generating routes for ' + ifaceExpr.toString());
 
 		var type = Context.getType(ifaceExpr.toString());
 
@@ -106,13 +96,11 @@ class AutoRouter {
 
 							switch (field.type) {
 								case TFun(args, ret):
-									// Build argument extraction expressions
 									var callArgs:Array<Expr> = [];
 									for (arg in args) {
 										callArgs.push(buildArgAccess(arg.name, arg.t, arg.opt));
 									}
 
-									// Analyze return type once
 									var followedRet = Context.follow(ret);
 									var retName = TypeTools.toString(followedRet);
 									inline function isVoid():Bool
@@ -134,7 +122,6 @@ class AutoRouter {
 										macro function(req, res) {
 											var inst = ($implExpr)();
 											var result = inst.$methodName($a{callArgs});
-											// Primitive cannot be null (except String) but JSON encode directly
                                             res.sendResponse(snake.http.HTTPStatus.OK);
                                             res.setHeader("Content-Type", "text/json");
                                             var json = haxe.Json.stringify(result);
@@ -159,7 +146,6 @@ class AutoRouter {
 										};
 									};
 
-									// router.<method>(path, handler)
 									var addRoute:Expr = switch httpMethod {
 										case "get": macro __autoRouter.add("GET", $v{path}, $handler);
 										case "post": macro __autoRouter.add("POST", $v{path}, $handler);

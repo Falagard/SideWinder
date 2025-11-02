@@ -1,11 +1,12 @@
-package;
+// Legacy duplicate file. Implementation moved to sidewinder/Main.hx.
+
 
 import hx.injection.ServiceCollection;
 import haxe.Json;
 import haxe.Http;
 import haxe.Timer;
-import Router.Response;
-import Router.Request;
+import sidewinder.Router.Response;
+import sidewinder.Router.Request;
 import sys.thread.Thread;
 import lime.app.Application;
 import lime.ui.WindowAttributes;
@@ -18,8 +19,9 @@ import snake.server.*;
 import lime.ui.Gamepad;
 import lime.ui.GamepadButton;
 import Date;
-import Database;
+import sidewinder.Database;
 import hx.injection.Service;
+import sidewinder.*;
 
 using hx.injection.ServiceExtensions;
 

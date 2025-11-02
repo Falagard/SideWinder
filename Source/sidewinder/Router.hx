@@ -1,4 +1,4 @@
-package;
+package sidewinder;
 
 import haxe.ds.StringMap;
 import snake.http.*;
@@ -13,7 +13,6 @@ typedef Request = {
 	var jsonBody:Dynamic;
 	var formBody:StringMap<String>;
 	var cookies:StringMap<String>;
-	// maybe pathParams: Map<String, String> for dynamic segments
 };
 
 typedef Response = {
@@ -24,7 +23,6 @@ typedef Response = {
 	var endHeaders:() -> Void;
 	var end:() -> Void;
 	var setCookie:(name:String, value:String, ?options:{path:String, domain:String, maxAge:String, httpOnly:Bool, secure:Bool}) -> Void;
-	// maybe convenience methods: json(), sendFile(), etc
 };
 
 class Route {
@@ -32,14 +30,12 @@ class Route {
 	public var pattern:String;
 	public var regex:EReg;
 	public var paramNames:Array<String>;
-	// public var handler: Request->Response->Void;
 	public var handler:Handler;
 
 	public function new(method:String, pattern:String, handler:Handler) {
 		this.method = method;
 		this.pattern = pattern;
 		this.handler = handler;
-		// build regex and paramNames
 		var parts = pattern.split("/");
 		var reParts = [];
 		paramNames = [];
@@ -58,7 +54,6 @@ class Route {
 	public function matches(path:String):Null<Map<String, String>> {
 		if (!regex.match(path))
 			return null;
-		// var m = regex.matched(0);
 		var params = new Map<String, String>();
 		for (i in 0...paramNames.length) {
 			params.set(paramNames[i], regex.matched(i + 1));
@@ -70,9 +65,6 @@ class Route {
 typedef Middleware = (Request, Response, Void->Void) -> Void;
 typedef Handler = Request->Response->Void;
 
-// typedef AsyncHandler = Request->Response->Future<Noise>;
-// typedef AsyncMiddleware = (Request, Response, Void->Future<Noise>) -> Future<Noise>;
-
 typedef RouteResult = {
 	route:Route,
 	params:Map<String, String>
@@ -81,8 +73,6 @@ typedef RouteResult = {
 class Router {
 	public var routes:Array<Route> = [];
 	public var middleware:Array<Middleware> = [];
-
-	// public var middleware:Array<AsyncMiddleware> = [];
 
 	public function new() {}
 

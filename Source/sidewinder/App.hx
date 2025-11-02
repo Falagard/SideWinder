@@ -1,11 +1,7 @@
-package;
+package sidewinder;
 
-import Router.Middleware;
-import Router.Handler;
-
-//import Router.AsyncHandler;
-//import Router.AsyncMiddleware;  
-
+import sidewinder.Router.Middleware;
+import sidewinder.Router.Handler;
 
 class App {
   public static var router = SideWinderRequestHandler.router;

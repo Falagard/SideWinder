@@ -1,8 +1,7 @@
-package;
+package sidewinder;
 
 import haxe.ds.StringMap;
 import haxe.Json;
-//import hl.Bytes;
 import snake.server.*;
 import snake.socket.*;
 import sys.net.Host;
@@ -10,10 +9,9 @@ import sys.net.Socket;
 import sys.io.*;
 import haxe.io.Path;
 import snake.http.*;
-import Router;
+import sidewinder.Router;
 
 class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
-	// ...existing code...
 	static function parseCookies(header:String):StringMap<String> {
 		var cookies = new StringMap<String>();
 		if (header == null) return cookies;
@@ -83,17 +81,7 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		return form;
 	}
 
-	// --- Request Handling ---
-	// Override handleCommand to dispatch based on method
-	// Read body and parse query parameters
-	// Construct Request and Response objects
-	// Find matching route and invoke handler
-
 	override function handleCommand(method:String):Void {
-
-        //var randInt = Std.random(10000);
-        //trace("handleCommand called at " + Sys.time() + " [rand=" + randInt + "]");
-
 		var pathOnly = this.path.split("?")[0];
 		var match = router.find(method, pathOnly);
 		if (match == null) {
@@ -109,10 +97,8 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		var cookies = parseCookies(headers.get("Cookie"));
 		var sessionId = cookies.get("session_id");
 		if (sessionId == null) {
-			// Generate a simple random session id
 			sessionId = Std.string(Math.floor(Math.random() * 1000000000)) + "_" + Std.string(Sys.time());
 			cookies.set("session_id", sessionId);
-            // Set cookie in response 
             currentSessionId = sessionId;
 		}
 
@@ -127,7 +113,6 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 			params: match.params,
 			cookies: cookies
 		};
-
 
 		var res:Response = {
 			write: (s) -> wfile.writeString(s),
@@ -155,41 +140,30 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 			sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR, "Internal Server Error");
 			trace("Middleware/Handler error: " + Std.string(e));
 		}
-
-        //trace("handleCommand completed at " + Sys.time() + " [rand=" + randInt + "]");
 	}
 
 	function handleStatic() {
 		var url = this.path;
 		if (StringTools.startsWith(url, "/static/")) {
-			// Serve static files from CWD/static
 			var staticDir = Path.addTrailingSlash(Sys.getCwd()) + "static";
-			// Save old directory, set to staticDir for this request
 			var oldDir = this.directory;
 			this.directory = staticDir;
-			// Remove /static prefix for file lookup
 			this.path = url.substr("/static".length);
-			// Use parent GET logic
 			var handled = false;
 			try {
 				super.do_GET();
 				handled = true;
 			} catch (e:Dynamic) {
-				// fallback to error below
 			}
 			this.directory = oldDir;
 		}
 	}
 
-	// --- REST API Setup ---
 	override private function setup():Void {
-        //disableNagleAlgorithm = true;
-		super.setup();
+        super.setup();
 		serverVersion = 'SideWinder/0.0.1';
-		//commandHandlers.set("POST", do_POST);
 	}
 
-	// --- Utility: Send JSON ---
 	private function sendJson(code:snake.http.HTTPStatus, obj:Dynamic) {
 		var json = haxe.format.JsonPrinter.print(obj);
 
@@ -200,11 +174,10 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		wfile.writeString(json);
 	}
 
-	// --- WebSocket Broadcast (to be called from main server) ---
 	public static var onStateChange:Void->Void = function() {};
 
 	public static function broadcastState() {
-		onStateChange(); // This will be set up in the main server file to broadcast via WebSocket
+		onStateChange();
 	}
 
 	override public function endHeaders() {

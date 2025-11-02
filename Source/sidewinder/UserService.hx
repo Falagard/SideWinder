@@ -1,19 +1,16 @@
-package;
+package sidewinder;
 
-import IUserService;
-import IUserService.User;
-import Database;
+import sidewinder.IUserService;
+import sidewinder.IUserService.User;
+import sidewinder.Database;
 
 class UserService implements IUserService {
-    // Legacy in-memory list kept for backward compatibility of any code still referencing it
-    // but create/update/delete now operate on the database.
     var users:Array<User> = [];
 
     public function new() {}
 
     public function getAll():Array<User> {
         var result:Array<User> = [];
-        // Fetch rows from database
         var rs = Database.requestWithParams("SELECT id, display_name, email FROM users ORDER BY id ASC", null);
         while (rs.hasNext()) {
             var r = rs.next();
@@ -25,12 +22,9 @@ class UserService implements IUserService {
     public function getByIdCached(id:Int):Null<User> {
         var cacheKey = "user:" + id;
         var cache = DI.get(ICacheService);
-
-        // Try cache first using getOrCompute (TTL 60s)
         var user:User = cache.getOrCompute(cacheKey, function() {
             return getById(id);
         }, 60000);
-
         return user;
     }
 
@@ -46,10 +40,8 @@ class UserService implements IUserService {
     public function create(user:User):User {
         var params = new Map<String, Dynamic>();
         params.set("email", user.email);
-        // Use email as username if not provided (assumption)
         params.set("username", user.email);
         params.set("display_name", user.name);
-        // Placeholder password hash since User typedef lacks password (assumption)
         params.set("password_hash", "!");
         var conn = Database.acquire();
         var insertSql = "INSERT INTO users (email, username, display_name, password_hash) VALUES (@email, @username, @display_name, @password_hash)";
@@ -57,7 +49,7 @@ class UserService implements IUserService {
         var rs = conn.request("SELECT last_insert_rowid() AS id");
         var rec = rs.next();
         Database.release(conn);
-        if (rec == null) return user; // unexpected
+        if (rec == null) return user;
         return { id: rec.id, name: user.name, email: user.email };
     }
 
@@ -69,7 +61,6 @@ class UserService implements IUserService {
         var conn = Database.acquire();
         var updateSql = "UPDATE users SET display_name = @display_name, email = @email WHERE id = @id";
         conn.request(Database.buildSql(updateSql, params));
-        // Check affected rows
         var rs = conn.request("SELECT changes() AS affected");
         var rec = rs.next();
         Database.release(conn);

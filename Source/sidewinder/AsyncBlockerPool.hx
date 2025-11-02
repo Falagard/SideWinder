@@ -1,12 +1,9 @@
-package;
+package sidewinder;
 
 import sys.thread.Lock;
 import sys.thread.Thread;
 import sys.thread.Mutex;
 import sys.thread.Deque;
-
-// A pool to run blocking asynchronous tasks in separate threads.
-// SideWinder runs a thread per request, and any asynchronous operations should use AsyncBlockerPool to block the request thread until the synchronous operation is complete
 
 class AsyncBlockerPool {
 	static var pool:Deque<ThreadTask> = new Deque();

@@ -1,17 +1,13 @@
-package;
+package sidewinder;
 
 import hx.injection.ServiceCollection;
 import hx.injection.ServiceProvider;
 
-/**
- * Global access point for the application's ServiceProvider.
- * Call DI.init() once at startup, then DI.get() to resolve services.
- */
 class DI {
     private static var _provider:ServiceProvider;
 
     public static function init(configure:(ServiceCollection)->Void):Void {
-        if (_provider != null) return; // already initialized
+        if (_provider != null) return;
         var collection = new ServiceCollection();
         configure(collection);
         _provider = collection.createProvider();

@@ -1,4 +1,4 @@
-package;
+package sidewinder;
 
 import sys.db.Connection;
 import sys.db.Sqlite;
@@ -7,7 +7,7 @@ import sys.FileSystem;
 import sys.thread.Thread;
 import sys.thread.Deque;
 import haxe.Timer;
-import Database;
+import sidewinder.Database;
 
 typedef LogEntry = {
     time:String,
@@ -22,15 +22,6 @@ enum abstract LogLevel(Int) from Int to Int {
     var ERROR = 3;
 }
 
-/**
- * HybridLogger
- * -------------
- * Thread-safe, multi-output logger with:
- * - Daily file rotation
- * - Batched SQLite inserts
- * - Configurable log level filtering
- * - Graceful shutdown flushing
- */
 class HybridLogger {
     static var queue = new Deque<LogEntry>();
     static var workerStarted = false;
@@ -46,10 +37,9 @@ class HybridLogger {
     static var lastFlushTime:Float = 0;
 
     static var batchSize = 20;
-    static var batchDelay = 5.0; // seconds
+    static var batchDelay = 5.0;
     static var minLevel:LogLevel = LogLevel.DEBUG;
 
-    // --- Initialization ---
     public static function init(?enableSqlite:Bool = false, ?minLvl:LogLevel = INFO) {
         if (workerStarted) return;
         workerStarted = true;
@@ -64,7 +54,6 @@ class HybridLogger {
             sqliteConn.request('CREATE TABLE IF NOT EXISTS logs(time TEXT, level TEXT, message TEXT)');
         }
 
-        // Spawn background worker thread
         Thread.create(() -> {
             while (!stopRequested) {
                 var entry = queue.pop(true);
@@ -72,7 +61,6 @@ class HybridLogger {
 
                 rotateIfNeeded();
 
-                // Write to file
                 try {
                     var line = '[${entry.time}] ${entry.level.toUpperCase()} ${entry.message}\n';
                     logFile.writeString(line);
@@ -80,7 +68,6 @@ class HybridLogger {
                     trace('File log failed: ' + e);
                 }
 
-                // SQLite batching
                 if (sqliteEnabled) {
                     sqliteBatch.push(entry);
                     var now = Timer.stamp();
@@ -91,7 +78,6 @@ class HybridLogger {
                 }
             }
 
-            // On exit, flush any remaining logs
             try flushToDb() catch (e:Dynamic) {}
             try logFile.flush() catch (e:Dynamic) {}
             try logFile.close() catch (e:Dynamic) {}
@@ -99,15 +85,13 @@ class HybridLogger {
         });
     }
 
-    // --- Public Logging Methods ---
-
     public static inline function debug(msg:String) log("DEBUG", LogLevel.DEBUG, msg);
     public static inline function info(msg:String)  log("INFO", LogLevel.INFO, msg);
     public static inline function warn(msg:String)  log("WARN", LogLevel.WARN, msg);
     public static inline function error(msg:String) log("ERROR", LogLevel.ERROR, msg);
 
     static function log(levelStr:String, level:LogLevel, msg:String) {
-        if (cast(level, Int) < cast(minLevel, Int)) return; // skip lower levels
+        if (cast(level, Int) < cast(minLevel, Int)) return;
         queue.add({
             time: Date.now().toString(),
             level: levelStr,
@@ -115,10 +99,8 @@ class HybridLogger {
         });
     }
 
-    // --- Helpers ---
-
     static function openLogFile() {
-        currentDate = Date.now().toString().substr(0, 10); // YYYY-MM-DD
+        currentDate = Date.now().toString().substr(0, 10);
         var fileName = '$logDir/app-$currentDate.log';
         logFile = File.append(fileName);
     }
@@ -136,7 +118,6 @@ class HybridLogger {
         try {
             sqliteConn.request("BEGIN TRANSACTION");
             for (entry in sqliteBatch) {
-
                 var sql = 'INSERT INTO logs VALUES (${Database.quoteString(entry.time)}, ${Database.quoteString(entry.level)}, ${Database.quoteString(entry.message)})';
                 sqliteConn.request(sql);
             }
@@ -148,11 +129,9 @@ class HybridLogger {
         }
     }
 
-    // --- Graceful shutdown ---
     public static function shutdown() {
         stopRequested = true;
-        // Push a null entry to wake up the queue
         queue.add(null);
-        Sys.sleep(0.5); // allow worker to finish flushing
+        Sys.sleep(0.5);
     }
 }

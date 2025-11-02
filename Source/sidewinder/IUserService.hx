@@ -1,4 +1,4 @@
-package;
+package sidewinder;
 
 import hx.injection.Service;
 

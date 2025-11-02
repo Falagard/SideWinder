@@ -1,4 +1,4 @@
-package;
+package sidewinder;
 
 import sys.thread.Mutex;
 import sys.thread.Thread;
@@ -14,8 +14,6 @@ typedef Entry = {
     var next:Null<Entry>;
 };
 
-// Shard of the cache
-// This allows us to reduce lock contention by partitioning the cache into multiple independent shards
 private class Shard {
     public var mutex:Mutex;
     public var map:StringMap<Entry>;
@@ -32,16 +30,12 @@ private class Shard {
     }
 }
 
-/**
- * Thread-safe, sharded LRU + TTL cache.
- */
 class CacheService implements ICacheService {
 
     private var shards:Array<Shard>;
     private var shardCount:Int;
     private var maxEntriesPerShard:Int;
 
-    // Parameterless constructor for DI. Uses defaults; can expose configure() later if needed.
     public function new() {
         this.shardCount = 16;
         this.maxEntriesPerShard = 512;
@@ -53,10 +47,9 @@ class CacheService implements ICacheService {
         for (i in 0...shardCount)
             shards.push(new Shard(maxEntriesPerShard));
 
-        // start TTL sweeper thread
         Thread.create(() -> {
             while (true) {
-                Sys.sleep(60); // once per minute
+                Sys.sleep(60);
                 sweepExpired();
             }
         });
@@ -67,15 +60,12 @@ class CacheService implements ICacheService {
         return shards[idx];
     }
 
-    // Move entry to head of LRU list
     private function moveToHead(shard:Shard, e:Entry):Void {
         if (shard.head == e) return;
-        // unlink
         if (e.prev != null) e.prev.next = e.next;
         if (e.next != null) e.next.prev = e.prev;
         if (shard.tail == e) shard.tail = e.prev;
 
-        // move to head
         e.prev = null;
         e.next = shard.head;
         if (shard.head != null) shard.head.prev = e;
@@ -120,7 +110,6 @@ class CacheService implements ICacheService {
             shard.map.set(key, e);
             insertAtHead(shard, e);
 
-            // Evict if too large
             var count = 0;
             var it = shard.map.keys();
             while (it.hasNext()) {
@@ -146,7 +135,6 @@ class CacheService implements ICacheService {
                 return null;
             }
 
-            // check TTL
             if (e.expiresAt != null && e.expiresAt <= Date.now().getTime()) {
                 removeEntry(shard, e);
                 shard.mutex.release();
@@ -198,20 +186,13 @@ class CacheService implements ICacheService {
     public function sweepExpired():Void {
         var now = Date.now().getTime();
         for (shard in shards) {
-            shard.mutex.acquire();
-            try {
-                var it = shard.map.keys();
-                var expired = [];
-                while (it.hasNext()) {
-                    var k = it.next();
-                    var e = shard.map.get(k);
-                    if (e != null && e.expiresAt != null && e.expiresAt <= now)
-                        expired.push(e);
+            var it = shard.map.keys();
+            while (it.hasNext()) {
+                var key = it.next();
+                var e = shard.map.get(key);
+                if (e != null && e.expiresAt != null && e.expiresAt <= now) {
+                    removeEntry(shard, e);
                 }
-                for (e in expired) removeEntry(shard, e);
-                shard.mutex.release();
-            } catch(e) {
-                shard.mutex.release();
             }
         }
     }
