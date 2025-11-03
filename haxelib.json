@@ -1,0 +1,14 @@
+{
+  "name": "SideWinder",
+  "url": "https://github.com/Falagard/SideWinder/",
+  "license": "Public",
+  "tags": ["tcp", "http", "server", "sys", "web"],
+  "description": "Create web server software in Haxe sys targets",
+  "version": "0.1.0",
+  "classPath": "Source",
+  "main": "",
+  "dependencies": {
+  },
+  "contributors": ["Falagard"],
+  "releasenote": "See CHANGELOG"
+}
