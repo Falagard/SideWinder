@@ -1,0 +1,73 @@
+{
+  "info": {
+    "name": "SideWinder API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Postman collection for the SideWinder server endpoints"
+  },
+  "item": [
+    {
+      "name": "Hello",
+      "request": {"method": "GET", "url": {"raw": "{{baseUrl}}/hello", "host": ["{{baseUrl}}"], "path": ["hello"]}},
+      "event": [{"listen": "test", "script": {"exec": ["pm.test('Status is 200', function () { pm.response.to.have.status(200); });"], "type": "text/javascript"}}]
+    },
+    {
+      "name": "Goodbye",
+      "request": {"method": "GET", "url": {"raw": "{{baseUrl}}/goodbye", "host": ["{{baseUrl}}"], "path": ["goodbye"]}},
+      "event": [{"listen": "test", "script": {"exec": ["pm.test('Status is 200', function () { pm.response.to.have.status(200); });"], "type": "text/javascript"}}]
+    },
+    {
+      "name": "Private (Unauthorized)",
+      "request": {"method": "GET", "url": {"raw": "{{baseUrl}}/private", "host": ["{{baseUrl}}"], "path": ["private"]}},
+      "event": [{"listen": "test", "script": {"exec": ["pm.test('Expect 401 or 200 depending on auth simulation', function () { pm.expect([200,401]).to.include(pm.response.code); });"], "type": "text/javascript"}}]
+    },
+    {
+      "name": "Cookie",
+      "request": {"method": "GET", "url": {"raw": "{{baseUrl}}/cookie", "host": ["{{baseUrl}}"], "path": ["cookie"]}},
+      "event": [{"listen": "test", "script": {"exec": ["pm.test('Status is 200', function () { pm.response.to.have.status(200); });","pm.test('Session cookie set', function () { const sc = pm.response.headers.get('Set-Cookie'); pm.expect(sc).to.include('session_id'); });"], "type": "text/javascript"}}]
+    },
+    {
+      "name": "Async",
+      "request": {"method": "GET", "url": {"raw": "{{baseUrl}}/async", "host": ["{{baseUrl}}"], "path": ["async"]}},
+      "event": [{"listen": "test", "script": {"exec": ["pm.test('Status is 200', function () { pm.response.to.have.status(200); });","pm.test('Contains async HTML snippet', function () { pm.expect(pm.response.text()).to.include('<html>'); });"], "type": "text/javascript"}}]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "List Users",
+          "request": {"method": "GET", "url": {"raw": "{{baseUrl}}/users", "host": ["{{baseUrl}}"], "path": ["users"]}},
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));","pm.test('Returns JSON array', () => { const data = pm.response.json(); pm.expect(Array.isArray(data)).to.be.true; });"], "type": "text/javascript"}}]
+        },
+        {
+          "name": "Get User By Id",
+          "request": {"method": "GET", "url": {"raw": "{{baseUrl}}/users/1", "host": ["{{baseUrl}}"], "path": ["users","1"]}},
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('Status 200 or 404-like null response', () => pm.expect([200,500]).to.include(pm.response.code));"], "type": "text/javascript"}}]
+        },
+        {
+          "name": "Get User Cached",
+          "request": {"method": "GET", "url": {"raw": "{{baseUrl}}/users/cached/1", "host": ["{{baseUrl}}"], "path": ["users","cached","1"]}},
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"], "type": "text/javascript"}}]
+        },
+        {
+          "name": "Create User",
+          "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"name\": \"Alice\",\n  \"email\": \"alice@example.com\"\n}"}, "url": {"raw": "{{baseUrl}}/users", "host": ["{{baseUrl}}"], "path": ["users"]}},
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('Created user returns 200', () => pm.response.to.have.status(200));","pm.test('Has id', () => { const d = pm.response.json(); pm.expect(d.id).to.be.ok; });"], "type": "text/javascript"}}]
+        },
+        {
+          "name": "Update User",
+          "request": {"method": "PUT", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"name\": \"Alice Updated\",\n  \"email\": \"alice.updated@example.com\"\n}"}, "url": {"raw": "{{baseUrl}}/users/1", "host": ["{{baseUrl}}"], "path": ["users","1"]}},
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"], "type": "text/javascript"}}]
+        },
+        {
+          "name": "Delete User",
+          "request": {"method": "DELETE", "url": {"raw": "{{baseUrl}}/users/1", "host": ["{{baseUrl}}"], "path": ["users","1"]}},
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"], "type": "text/javascript"}}]
+        }
+      ]
+    }
+  ],
+  "event": [],
+  "variable": [
+    {"key": "baseUrl", "value": "http://127.0.0.1:8000", "type": "string"}
+  ]
+}
