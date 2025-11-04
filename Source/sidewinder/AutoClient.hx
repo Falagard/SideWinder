@@ -4,47 +4,28 @@ import haxe.macro.Context;
 import haxe.macro.Expr;
 import haxe.macro.Type;
 using haxe.macro.TypeTools;
+using haxe.macro.ExprTools;
 
-/**
- * AutoClient builds a client-side proxy implementation of a SideWinder service interface.
- *
- * It inspects an interface for methods annotated with @get, @post, @put, @delete metadata (same as AutoRouter)
- * and generates an implementation that performs blocking HTTP calls to a remote server whose baseUrl you provide.
- *
- * Usage:
- *   var userClient:IUserService = AutoClient.create(IUserService, "http://localhost:8080");
- *
- * Limitations / Assumptions:
- * - Only supports http (not https).
- * - Primitive and object JSON responses are supported (object responses use haxe.Json.parse).
- * - For POST/PUT the request body is taken from the last argument that is NOT a path parameter.
- * - Path parameters use the ":param" syntax as in the server router and are substituted from method arguments.
- * - Synchronous (blocking) calls implemented via sys.net.Socket; suitable for sys targets.
- */
 class AutoClient {
-    /** Macro that returns an instance implementing the given interface */
     public static macro function create(iface:Expr, baseUrl:Expr):Expr {
-        var t = Context.getType(iface.toString());
+        var ifaceName = switch (iface.expr) {
+            case EConst(CIdent(s)): s;
+            default: Context.error("Expected interface identifier", iface.pos); "";
+        };
+        var t = Context.getType(ifaceName);
         switch (t) {
             case TInst(clRef, _):
                 var cl = clRef.get();
                 if (!cl.isInterface)
                     Context.error(cl.name + " is not an interface", iface.pos);
-
-                // Build a new class definition implementing this interface
-                var uniqueName = Context.generateUniqueName(cl.name + "_AutoClient");
-
+                var uniqueName = cl.name + "_AutoClient_" + Std.string(Std.random(999999));
                 var fields:Array<Field> = [];
-
-                // Store baseUrl
                 fields.push({
                     name: "baseUrl",
                     access: [APublic],
                     kind: FVar(macro:String, null),
                     pos: Context.currentPos()
                 });
-
-                // Constructor
                 fields.push({
                     name: "new",
                     access: [APublic],
@@ -56,8 +37,6 @@ class AutoClient {
                     }),
                     pos: Context.currentPos()
                 });
-
-                // Helper: perform blocking request
                 fields.push({
                     name: "doRequest",
                     access: [APrivate],
@@ -70,17 +49,16 @@ class AutoClient {
                         ret: macro:Dynamic,
                         expr: macro {
                             var url = baseUrl;
-                            if (StringTools.startsWith(url, "http://")) url = url.substr(7); // strip scheme
+                            if (StringTools.startsWith(url, "http://")) url = url.substr(7);
                             var prefix = "";
                             var slashIdx = url.indexOf("/");
                             var hostPort = if (slashIdx == -1) url else url.substr(0, slashIdx);
-                            prefix = if (slashIdx == -1) "" else url.substr(slashIdx); // includes leading slash
+                            prefix = if (slashIdx == -1) "" else url.substr(slashIdx);
                             var hp = hostPort.split(":");
                             var host = hp[0];
                             var port = (hp.length > 1) ? Std.parseInt(hp[1]) : 80;
                             if (port == null) port = 80;
-
-                            var requestPath = prefix + path; // path already begins with '/'
+                            var requestPath = prefix + path;
                             var jsonBody = (body != null) ? haxe.Json.stringify(body) : null;
                             var contentLength = (jsonBody != null) ? jsonBody.length : 0;
                             var sb = new StringBuf();
@@ -91,7 +69,6 @@ class AutoClient {
                             if (jsonBody != null) sb.add("Content-Length: " + contentLength + "\r\n");
                             sb.add("Connection: close\r\n\r\n");
                             if (jsonBody != null) sb.add(jsonBody);
-
                             var sock = new sys.net.Socket();
                             try {
                                 sock.connect(new sys.net.Host(host), port);
@@ -101,7 +78,6 @@ class AutoClient {
                                 try sock.close() catch (_:Dynamic) {}
                                 return null;
                             }
-
                             var input = sock.input;
                             var statusLine = "";
                             try statusLine = input.readLine() catch (e:Dynamic) statusLine = "";
@@ -132,7 +108,6 @@ class AutoClient {
                                     bodyStr = bytes.toString();
                                 }
                             } else {
-                                // Fallback: read remainder until close
                                 try {
                                     while (true) {
                                         var b = input.readByte();
@@ -141,15 +116,12 @@ class AutoClient {
                                 } catch (_:Dynamic) {}
                             }
                             try sock.close() catch (_:Dynamic) {}
-
-                            if (status >= 400) return null; // treat errors as null
+                            if (status >= 400) return null;
                             return bodyStr;
                         }
                     }),
                     pos: Context.currentPos()
                 });
-
-                // Process interface methods
                 for (field in cl.fields.get()) {
                     switch (field.kind) {
                         case FMethod(_):
@@ -162,91 +134,81 @@ class AutoClient {
                                         if (m.params.length > 0) {
                                             var p = m.params[0];
                                             switch (p.expr) {
-                                                case EConst(CString(s)):
-                                                    path = s;
-                                                default:
-                                                    Context.error('Expected string literal in meta', p.pos);
+                                                case EConst(CString(s)): path = s;
+                                                default: Context.error("Expected string literal in meta", p.pos);
                                             }
                                         }
                                     default:
                                 }
                             }
                             if (httpMethod == "" || path == "") continue;
-
                             switch (field.type) {
                                 case TFun(args, ret):
-                                    // Collect path params
                                     var pathParamNames = [];
-                                    for (segment in path.split('/')) {
-                                        if (StringTools.startsWith(segment, ':')) pathParamNames.push(segment.substr(1));
+                                    for (segment in path.split("/")) {
+                                        if (StringTools.startsWith(segment, ":")) pathParamNames.push(segment.substr(1));
                                     }
                                     var argDecls = [];
                                     for (a in args) {
                                         argDecls.push({ name: a.name, type: Context.toComplexType(a.t) });
                                     }
-
-                                    // Build URL construction expression
                                     var urlBuilderParts:Array<Expr> = [];
-                                    var segments = path.split('/');
+                                    var segments = path.split("/");
                                     for (seg in segments) {
                                         if (seg == "") continue;
-                                        if (StringTools.startsWith(seg, ':')) {
+                                        if (StringTools.startsWith(seg, ":")) {
                                             var pname = seg.substr(1);
                                             urlBuilderParts.push(macro Std.string($i{pname}));
                                         } else {
                                             urlBuilderParts.push(macro $v{seg});
                                         }
                                     }
-                                    var joinExpr:Expr = if (urlBuilderParts.length == 0) macro "" else {
-                                        // Concatenate with '/'
+                                    var joinExpr:Expr = if (urlBuilderParts.length == 0) {
+                                        macro "";
+                                    } else {
                                         var e = urlBuilderParts[0];
                                         for (i in 1...urlBuilderParts.length) {
                                             e = macro $e + "/" + ${urlBuilderParts[i]};
                                         }
                                         e;
                                     };
-                                    var fullPathExpr = macro "/" + $joinExpr; // ensure leading slash
-
-                                    // Determine body argument (last non-path arg for POST/PUT)
+                                    var fullPathExpr = macro "/" + $joinExpr;
                                     var bodyArg:Null<String> = null;
                                     if (httpMethod == "POST" || httpMethod == "PUT") {
                                         for (a in args) if (pathParamNames.indexOf(a.name) == -1) bodyArg = a.name;
                                     }
                                     var bodyExpr:Expr = (bodyArg != null) ? macro $i{bodyArg} : macro null;
-
                                     var followedRet = Context.follow(ret);
                                     var retName = TypeTools.toString(followedRet);
-                                    inline function isVoid() return retName == "Void";
-                                    inline function isPrimitive() return retName == "Int" || retName == "Float" || retName == "Bool" || retName == "String";
-
-                                    var methodBody:Expr = if (isVoid()) {
-                                        macro {
+                                    var methodBody:Expr;
+                                    if (retName == "Void") {
+                                        methodBody = macro {
                                             doRequest($v{httpMethod}, $fullPathExpr, $bodyExpr);
                                         };
-                                    } else if (isPrimitive()) {
-                                        switch (retName) {
-                                            case "Int": methodBody = macro {
-                                                var resp:Dynamic = doRequest($v{httpMethod}, $fullPathExpr, $bodyExpr);
-                                                return resp == null ? 0 : Std.parseInt(Std.string(resp));
-                                            };
-                                            case "Float": methodBody = macro {
-                                                var resp:Dynamic = doRequest($v{httpMethod}, $fullPathExpr, $bodyExpr);
-                                                return resp == null ? 0.0 : Std.parseFloat(Std.string(resp));
-                                            };
-                                            case "Bool": methodBody = macro {
-                                                var resp:Dynamic = doRequest($v{httpMethod}, $fullPathExpr, $bodyExpr);
-                                                var s = Std.string(resp);
-                                                return (s == "true" || s == "1");
-                                            };
-                                            case "String": methodBody = macro {
-                                                var resp:Dynamic = doRequest($v{httpMethod}, $fullPathExpr, $bodyExpr);
-                                                return resp == null ? null : Std.string(resp);
-                                            };
-                                            default: methodBody = macro null; // unreachable
-                                        }
-                                        methodBody;
+                                    } else if (retName == "Int") {
+                                        methodBody = macro {
+                                            var resp:Dynamic = doRequest($v{httpMethod}, $fullPathExpr, $bodyExpr);
+                                            if (resp == null) return 0;
+                                            var parsed = Std.parseInt(Std.string(resp));
+                                            return parsed == null ? 0 : parsed;
+                                        };
+                                    } else if (retName == "Float") {
+                                        methodBody = macro {
+                                            var resp:Dynamic = doRequest($v{httpMethod}, $fullPathExpr, $bodyExpr);
+                                            return resp == null ? 0.0 : Std.parseFloat(Std.string(resp));
+                                        };
+                                    } else if (retName == "Bool") {
+                                        methodBody = macro {
+                                            var resp:Dynamic = doRequest($v{httpMethod}, $fullPathExpr, $bodyExpr);
+                                            var s = Std.string(resp);
+                                            return (s == "true" || s == "1");
+                                        };
+                                    } else if (retName == "String") {
+                                        methodBody = macro {
+                                            var resp:Dynamic = doRequest($v{httpMethod}, $fullPathExpr, $bodyExpr);
+                                            return resp == null ? null : Std.string(resp);
+                                        };
                                     } else {
-                                        // Object / Array etc.
                                         methodBody = macro {
                                             var resp:Dynamic = doRequest($v{httpMethod}, $fullPathExpr, $bodyExpr);
                                             if (resp == null || Std.string(resp) == "") return null;
@@ -256,9 +218,7 @@ class AutoClient {
                                                 return null;
                                             }
                                         };
-                                        methodBody;
-                                    };
-
+                                    }
                                     fields.push({
                                         name: field.name,
                                         access: [APublic],
@@ -275,8 +235,7 @@ class AutoClient {
                         default:
                     }
                 }
-
-                // Define the class type
+                var ifaceTypePath:TypePath = { pack: cl.pack, name: cl.name };
                 var classDef:TypeDefinition = {
                     pack: ["sidewinder"],
                     name: uniqueName,
@@ -284,14 +243,13 @@ class AutoClient {
                     meta: [],
                     params: [],
                     isExtern: false,
-                    kind: TDClass(null, [t], false), // implements interface
+                    kind: TDClass(null, [ifaceTypePath], false),
                     fields: fields
                 };
                 Context.defineType(classDef);
-                // Return instantiation expression using dynamic type path
                 var typePath:TypePath = { pack: ["sidewinder"], name: uniqueName };
                 return { expr: ENew(typePath, [baseUrl]), pos: Context.currentPos() };
-            case _: Context.error('Expected interface type', iface.pos); return macro null;
+            case _: Context.error("Expected interface type", iface.pos); return macro null;
         }
     }
 }

@@ -66,6 +66,8 @@ class Main extends Application {
 			return DI.get(IUserService);
 		});
 
+        var userClient:IUserService = AutoClient.create(IUserService, "http://localhost:8080");
+
 		// Example middleware: logging
 		App.use((req, res, next) -> {
 			//

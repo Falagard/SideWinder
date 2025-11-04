@@ -1,0 +1,16 @@
+{
+	doc: null
+	fields: null <- expected value
+	isExtern: null
+	kind: null <- expected value
+	meta: null
+	name: null <- expected value
+	pack: null <- expected value
+	params: null
+	pos: null <- expected value
+}
+line 3: expected value
+line 5: expected value
+line 7: expected value
+line 8: expected value
+line 10: expected value
