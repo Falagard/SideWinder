@@ -48,76 +48,34 @@ class AutoClient {
                         ],
                         ret: macro:Dynamic,
                         expr: macro {
-                            var url = baseUrl;
-                            if (StringTools.startsWith(url, "http://")) url = url.substr(7);
-                            var prefix = "";
-                            var slashIdx = url.indexOf("/");
-                            var hostPort = if (slashIdx == -1) url else url.substr(0, slashIdx);
-                            prefix = if (slashIdx == -1) "" else url.substr(slashIdx);
-                            var hp = hostPort.split(":");
-                            var host = hp[0];
-                            var port = (hp.length > 1) ? Std.parseInt(hp[1]) : 80;
-                            if (port == null) port = 80;
-                            var requestPath = prefix + path;
-                            var jsonBody = (body != null) ? haxe.Json.stringify(body) : null;
-                            var contentLength = (jsonBody != null) ? jsonBody.length : 0;
-                            var sb = new StringBuf();
-                            sb.add(method + " " + requestPath + " HTTP/1.1\r\n");
-                            sb.add("Host: " + host + "\r\n");
-                            sb.add("Accept: application/json\r\n");
-                            if (jsonBody != null) sb.add("Content-Type: application/json\r\n");
-                            if (jsonBody != null) sb.add("Content-Length: " + contentLength + "\r\n");
-                            sb.add("Connection: close\r\n\r\n");
-                            if (jsonBody != null) sb.add(jsonBody);
-                            var sock = new sys.net.Socket();
-                            try {
-                                sock.connect(new sys.net.Host(host), port);
-                                sock.output.writeString(sb.toString());
-                                sock.output.flush();
-                            } catch (e:Dynamic) {
-                                try sock.close() catch (_:Dynamic) {}
-                                return null;
-                            }
-                            var input = sock.input;
-                            var statusLine = "";
-                            try statusLine = input.readLine() catch (e:Dynamic) statusLine = "";
-                            var status = 0;
-                            if (statusLine != null && statusLine.indexOf(" ") != -1) {
-                                var parts = statusLine.split(" ");
-                                if (parts.length >= 2) status = Std.parseInt(parts[1]);
-                            }
-                            var headers = new Map<String,String>();
-                            while (true) {
-                                var line = "";
-                                try line = input.readLine() catch (e:Dynamic) line = null;
-                                if (line == null || line == "") break;
-                                var idx = line.indexOf(":");
-                                if (idx != -1) {
-                                    var hk = StringTools.trim(line.substr(0, idx));
-                                    var hv = StringTools.trim(line.substr(idx + 1));
-                                    headers.set(hk, hv);
+                                var fullUrl = baseUrl + path;
+                                var jsonBody = (body != null) ? haxe.Json.stringify(body) : null;
+                                var result:Dynamic = null;
+                                var error:Dynamic = null;
+                                var done = false;
+                                var h = new haxe.Http(fullUrl);
+                                h.setHeader("Accept", "application/json");
+                                if (jsonBody != null) {
+                                    h.setHeader("Content-Type", "application/json");
+                                    h.setPostData(jsonBody);
                                 }
-                            }
-                            var bodyStr = "";
-                            var contentLenHeader = headers.get("Content-Length");
-                            if (contentLenHeader != null) {
-                                var len = Std.parseInt(contentLenHeader);
-                                if (len != null && len > 0) {
-                                    var bytes = haxe.io.Bytes.alloc(len);
-                                    input.readFullBytes(bytes, 0, len);
-                                    bodyStr = bytes.toString();
+                                h.onData = function(data:String) {
+                                    result = data;
+                                    done = true;
+                                };
+                                h.onError = function(msg:String) {
+                                    error = msg;
+                                    done = true;
+                                };
+                                // request(true) performs POST/PUT if postData set, GET otherwise; override via method if needed
+                                try h.request(method != "GET") catch (e:Dynamic) { error = e; done = true; }
+                                // Busy spin (cross-target) to emulate sync; remove Sys.sleep to allow html5 build.
+                                var start = haxe.Timer.stamp();
+                                while (!done && (haxe.Timer.stamp() - start) < 5) {
+                                    // spin; consider refactoring to async API returning Future
                                 }
-                            } else {
-                                try {
-                                    while (true) {
-                                        var b = input.readByte();
-                                        bodyStr += String.fromCharCode(b);
-                                    }
-                                } catch (_:Dynamic) {}
-                            }
-                            try sock.close() catch (_:Dynamic) {}
-                            if (status >= 400) return null;
-                            return bodyStr;
+                                if (error != null) return null;
+                                return result;
                         }
                     }),
                     pos: Context.currentPos()
