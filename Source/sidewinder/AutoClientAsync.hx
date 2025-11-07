@@ -59,8 +59,11 @@ class AutoClientAsync {
                         params: [],
                         ret: macro:Void,
                         expr: macro {
+                            trace('[AutoClientAsync] doRequestAsync begin method=' + method + ' path=' + path);
                             var full = baseUrl + path;
+                            trace('[AutoClientAsync] full URL=' + full);
                             var jsonBody = (body != null) ? haxe.Json.stringify(body) : null;
+                            if (jsonBody != null) trace('[AutoClientAsync] jsonBody=' + jsonBody);
                             var h = new haxe.Http(full);
                             h.setHeader("Accept", "application/json");
                             if (jsonBody != null) {
@@ -70,20 +73,26 @@ class AutoClientAsync {
                             h.onError = function(e:String) onError(e);
                             // Use customRequest for verbs beyond GET/POST (PUT/DELETE) as per gist reference.
                             if (method == "PUT" || method == "DELETE") {
+                                trace('[AutoClientAsync] using customRequest for ' + method);
                                 var out:haxe.io.BytesOutput = new haxe.io.BytesOutput();
                                 try {
                                     // post flag true if we have a body; method passed explicitly.
+                                    trace('[AutoClientAsync] invoking customRequest postFlag=' + (jsonBody != null));
                                     h.customRequest(jsonBody != null, out, method);
+                                    trace('[AutoClientAsync] customRequest returned bytes length=' + out.getBytes().length);
                                     var respStr = out.getBytes().toString();
                                     onData(respStr);
                                 } catch (e:Dynamic) {
+                                    trace('[AutoClientAsync] customRequest error ' + Std.string(e));
                                     onError(e);
                                 }
                             } else {
                                 // GET/POST handled by request; POST when body or explicit method
                                 h.onData = function(d:String) onData(d);
+                                trace('[AutoClientAsync] invoking request isPost=' + (method == "POST"));
                                 try h.request(method == "POST") catch (e:Dynamic) onError(e);
                             }
+                            trace('[AutoClientAsync] doRequestAsync exit method=' + method + ' path=' + path);
                         }
                     }),
                     pos: Context.currentPos()
@@ -147,25 +156,32 @@ class AutoClientAsync {
                                     argDecls.push({ name: "onFailure", type: macro:Dynamic->Void });
                                     var parseExpr:Expr;
                                     if (retName == "Void") {
-                                        parseExpr = macro onSuccess();
+                                        parseExpr = macro { trace('[AutoClientAsync] parse void response'); onSuccess(); };
                                     } else if (retName == "Int") {
                                         parseExpr = macro {
+                                            trace('[AutoClientAsync] parse Int raw=' + d);
                                             var parsed = Std.parseInt(d);
                                             onSuccess(parsed == null ? 0 : parsed);
                                         };
                                     } else if (retName == "Float") {
-                                        parseExpr = macro onSuccess(Std.parseFloat(d));
+                                        parseExpr = macro { trace('[AutoClientAsync] parse Float raw=' + d); onSuccess(Std.parseFloat(d)); };
                                     } else if (retName == "Bool") {
                                         parseExpr = macro {
-                                            var s = d;
+                                            var s = d; trace('[AutoClientAsync] parse Bool raw=' + s);
                                             onSuccess(s == "true" || s == "1");
                                         };
                                     } else if (retName == "String") {
-                                        parseExpr = macro onSuccess(d);
+                                        parseExpr = macro { trace('[AutoClientAsync] pass String raw length=' + (d == null ? 0 : d.length)); onSuccess(d); };
                                     } else {
                                         parseExpr = macro {
-                                            if (d == null || d == "") onSuccess(null) else {
-                                                try onSuccess(haxe.Json.parse(d)) catch (e:Dynamic) onFailure(e);
+                                            if (d == null || d == "") { trace('[AutoClientAsync] empty JSON body'); onSuccess(null); } else {
+                                                try {
+                                                    trace('[AutoClientAsync] parsing JSON length=' + d.length);
+                                                    onSuccess(haxe.Json.parse(d));
+                                                } catch (e:Dynamic) {
+                                                    trace('[AutoClientAsync] JSON parse error ' + Std.string(e));
+                                                    onFailure(e);
+                                                }
                                             }
                                         };
                                     }
