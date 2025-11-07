@@ -3,6 +3,7 @@ package sidewinder;
 import haxe.macro.Context;
 import haxe.macro.Expr;
 import haxe.macro.Type;
+import haxe.io.BytesOutput; // for customRequest output capture (PUT/DELETE)
 using haxe.macro.TypeTools;
 using haxe.macro.ExprTools;
 
@@ -55,6 +56,7 @@ class AutoClientAsync {
                             { name: "onData", type: macro:String->Void },
                             { name: "onError", type: macro:Dynamic->Void }
                         ],
+                        params: [],
                         ret: macro:Void,
                         expr: macro {
                             var full = baseUrl + path;
@@ -65,10 +67,23 @@ class AutoClientAsync {
                                 h.setHeader("Content-Type", "application/json");
                                 h.setPostData(jsonBody);
                             }
-                            h.onData = function(d:String) onData(d);
                             h.onError = function(e:String) onError(e);
-                            // request(true) triggers POST/PUT when postData present
-                            try h.request(method != "GET") catch (e:Dynamic) onError(e);
+                            // Use customRequest for verbs beyond GET/POST (PUT/DELETE) as per gist reference.
+                            if (method == "PUT" || method == "DELETE") {
+                                var out:haxe.io.BytesOutput = new haxe.io.BytesOutput();
+                                try {
+                                    // post flag true if we have a body; method passed explicitly.
+                                    h.customRequest(jsonBody != null, out, method);
+                                    var respStr = out.getBytes().toString();
+                                    onData(respStr);
+                                } catch (e:Dynamic) {
+                                    onError(e);
+                                }
+                            } else {
+                                // GET/POST handled by request; POST when body or explicit method
+                                h.onData = function(d:String) onData(d);
+                                try h.request(method == "POST") catch (e:Dynamic) onError(e);
+                            }
                         }
                     }),
                     pos: Context.currentPos()
@@ -123,10 +138,11 @@ class AutoClientAsync {
                                     var retName = TypeTools.toString(followedRet);
                                     // Add async callback args
                                     // Special case void return: callback takes no parameters
+                                    var voidType:ComplexType = TPath({ pack: [], name: "Void", params: [] });
                                     if (retName == "Void") {
-                                        argDecls.push({ name: "onSuccess", type: TFunction([], macro:Void) });
+                                        argDecls.push({ name: "onSuccess", type: TFunction([], voidType) });
                                     } else {
-                                        argDecls.push({ name: "onSuccess", type: TFunction([Context.toComplexType(ret)], macro:Void) });
+                                        argDecls.push({ name: "onSuccess", type: TFunction([Context.toComplexType(ret)], voidType) });
                                     }
                                     argDecls.push({ name: "onFailure", type: macro:Dynamic->Void });
                                     var parseExpr:Expr;

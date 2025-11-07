@@ -66,7 +66,34 @@ class Main extends Application {
 			return DI.get(IUserService);
 		});
 
-        var userClient:IUserService = AutoClient.create(IUserService, "http://localhost:8080");
+		// Synchronous AutoClient example (legacy port 8080 kept for reference; server actually runs on DEFAULT_PORT)
+		var userClient:IUserService = AutoClient.create(IUserService, "http://localhost:8080");
+
+		// AutoClientAsync example: create async client pointed at the active server port and perform calls.
+		// Each interface method getAll() becomes getAllAsync(onSuccess, onFailure).
+		var userClientAsync = AutoClientAsync.create(IUserService, 'http://' + DEFAULT_ADDRESS + ':' + DEFAULT_PORT);
+		// Delay invocation slightly to allow server startup.
+		Timer.delay(() -> {
+			userClientAsync.getAllAsync(function(users:Array<IUserService.User>) {
+				HybridLogger.debug('AutoClientAsync getAll returned ' + (users == null ? 0 : users.length) + ' users');
+			}, function(err:Dynamic) {
+				HybridLogger.error('AutoClientAsync getAll failed: ' + Std.string(err));
+			});
+		}, 100);
+
+		// Demonstrate createAsync + deleteAsync to verify DELETE handling (raw socket implementation in AutoClientAsync for DELETE).
+		Timer.delay(() -> {
+			userClientAsync.createAsync({ id: 0, name: 'TempUser', email: 'tempuser@example.com' }, function(newUser:IUserService.User) {
+				HybridLogger.debug('AutoClientAsync create returned id=' + newUser.id);
+				userClientAsync.deleteAsync(newUser.id, function(result:Bool) {
+					HybridLogger.debug('AutoClientAsync delete returned ' + result + ' for id=' + newUser.id);
+				}, function(err:Dynamic) {
+					HybridLogger.error('AutoClientAsync delete failed: ' + Std.string(err));
+				});
+			}, function(err:Dynamic) {
+				HybridLogger.error('AutoClientAsync create failed: ' + Std.string(err));
+			});
+		}, 300);
 
 		// Example middleware: logging
 		App.use((req, res, next) -> {
