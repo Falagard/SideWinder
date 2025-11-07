@@ -14,6 +14,51 @@ using haxe.macro.ExprTools;
  * Primitive return types are passed directly; JSON bodies are parsed for object/array types.
  */
 class AutoClientAsync {
+    /**
+     * Recursively walk dynamic JSON value and convert date-like strings to Date instances.
+     * Supported patterns:
+     *  - ISO: YYYY-MM-DDTHH:mm:ss(.fraction)?(Z|±HH:MM)
+     *  - Space separated: YYYY-MM-DD HH:mm:ss(.fraction)?
+     *  - Date only: YYYY-MM-DD
+     */
+    public static function normalizeDates(v:Dynamic):Dynamic {
+        if (v == null) return v;
+        if (Std.isOfType(v, Array)) {
+            var arr:Array<Dynamic> = cast v;
+            for (i in 0...arr.length) arr[i] = normalizeDates(arr[i]);
+            return arr;
+        }
+        if (Reflect.isObject(v) && !Std.isOfType(v, String)) {
+            for (f in Reflect.fields(v)) {
+                Reflect.setField(v, f, normalizeDates(Reflect.field(v, f)));
+            }
+            return v;
+        }
+        if (Std.isOfType(v, String)) {
+            var s:String = cast v;
+            var isoDateTime = ~/^\d{4}-\d{2}-\d{2}(T| )(\d{2}:\d{2}:\d{2})(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/;
+            var isoDateOnly = ~/^\d{4}-\d{2}-\d{2}$/;
+            if (isoDateTime.match(s) || isoDateOnly.match(s)) {
+                try {
+                    return Date.fromString(s);
+                } catch (e:Dynamic) {
+                    if (s.indexOf(' ') != -1) {
+                        var isoAttempt = StringTools.replace(s, ' ', 'T');
+                        try return Date.fromString(isoAttempt) catch (_:Dynamic) {}
+                    }
+                    return s;
+                }
+            }
+            // Epoch milliseconds (13 digits)
+            var epochMs = ~/^\d{13}$/;
+            if (epochMs.match(s)) {
+                var ms = Std.parseFloat(s);
+                if (!Math.isNaN(ms)) return Date.fromTime(ms);
+            }
+            return s;
+        }
+        return v;
+    }
     public static macro function create(iface:Expr, baseUrl:Expr):Expr {
         var ifaceName = switch (iface.expr) {
             case EConst(CIdent(s)): s;
@@ -177,7 +222,9 @@ class AutoClientAsync {
                                             if (d == null || d == "") { trace('[AutoClientAsync] empty JSON body'); onSuccess(null); } else {
                                                 try {
                                                     trace('[AutoClientAsync] parsing JSON length=' + d.length);
-                                                    onSuccess(haxe.Json.parse(d));
+                                                    var raw = haxe.Json.parse(d);
+                                                    var converted = sidewinder.AutoClientAsync.normalizeDates(raw);
+                                                    onSuccess(converted);
                                                 } catch (e:Dynamic) {
                                                     trace('[AutoClientAsync] JSON parse error ' + Std.string(e));
                                                     onFailure(e);
