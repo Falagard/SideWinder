@@ -118,6 +118,28 @@ class AutoClientAsync {
                             h.onError = function(e:String) onError(e);
                             // Use customRequest for verbs beyond GET/POST (PUT/DELETE) as per gist reference.
                             if (method == "PUT" || method == "DELETE") {
+                                #if (js || html5)
+                                trace('[AutoClientAsync] using XMLHttpRequest for ' + method);
+                                var xhr = new js.html.XMLHttpRequest();
+                                xhr.open(method, full, true);
+                                xhr.setRequestHeader("Accept", "application/json");
+                                if (jsonBody != null) xhr.setRequestHeader("Content-Type", "application/json");
+                                xhr.onreadystatechange = function() {
+                                    if (xhr.readyState == 4) {
+                                        if (xhr.status >= 200 && xhr.status < 300) {
+                                            onData(xhr.responseText);
+                                        } else {
+                                            onError('HTTP ' + xhr.status + ' ' + xhr.statusText);
+                                        }
+                                    }
+                                };
+                                try {
+                                    xhr.send(jsonBody != null ? jsonBody : null);
+                                } catch (e:Dynamic) {
+                                    trace('[AutoClientAsync] XHR error ' + Std.string(e));
+                                    onError(e);
+                                }
+                                #else
                                 trace('[AutoClientAsync] using customRequest for ' + method);
                                 var out:haxe.io.BytesOutput = new haxe.io.BytesOutput();
                                 try {
@@ -131,6 +153,7 @@ class AutoClientAsync {
                                     trace('[AutoClientAsync] customRequest error ' + Std.string(e));
                                     onError(e);
                                 }
+                                #end
                             } else {
                                 // GET/POST handled by request; POST when body or explicit method
                                 h.onData = function(d:String) onData(d);
