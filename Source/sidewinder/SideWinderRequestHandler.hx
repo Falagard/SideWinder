@@ -186,43 +186,46 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 
 	// Override copyFile to use chunked reading for large files to prevent blocking
 	override private function copyFile(src:haxe.io.Input, dst:haxe.io.Output):Void {
-		var bufferSize = 8192; // 8KB chunks
-		var buffer = haxe.io.Bytes.alloc(bufferSize);
+		var startTime = Sys.time();
+		trace("Starting file copy at " + startTime);
 		
 		// Set socket to blocking mode for file transfer
 		try {
 			request.setBlocking(true);
+			trace("Socket set to blocking mode");
 		} catch (e:Dynamic) {
-			// Might not be supported on all platforms
+			trace("Could not set socket to blocking: " + e);
 		}
 		
-		while (true) {
-			var bytesRead = 0;
-			try {
-				bytesRead = src.readBytes(buffer, 0, bufferSize);
-			} catch (e:haxe.io.Eof) {
-				// Reached end of file, exit loop
-				break;
-			}
+		// Use writeInput which is typically optimized at the native level
+		try {
+			var beforeWrite = Sys.time();
+			trace("Starting writeInput at " + beforeWrite);
 			
-			// Write the bytes we just read
-			try {
-				dst.writeBytes(buffer, 0, bytesRead);
-			} catch (e:Dynamic) {
-				trace("Error writing bytes: " + e);
-				throw e;
-			}
+			dst.writeInput(src);
+			
+			var afterWrite = Sys.time();
+			trace("Finished writeInput at " + afterWrite + " (took " + (afterWrite - beforeWrite) + " seconds)");
+			
+			dst.flush();
+			
+			var afterFlush = Sys.time();
+			trace("Finished flush at " + afterFlush + " (took " + (afterFlush - afterWrite) + " seconds)");
+		} catch (e:Dynamic) {
+			trace("Error copying file: " + e);
+			throw e;
 		}
-		
-		// Flush at the end to ensure all data is sent
-		dst.flush();
 		
 		// Restore socket to non-blocking mode
 		try {
 			request.setBlocking(false);
+			trace("Socket restored to non-blocking mode");
 		} catch (e:Dynamic) {
-			// Might not be supported on all platforms
+			trace("Could not restore socket to non-blocking: " + e);
 		}
+		
+		var endTime = Sys.time();
+		trace("Finished file copy at " + endTime + " (total time: " + (endTime - startTime) + " seconds)");
 	}
 
 	override private function setup():Void {

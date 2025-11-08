@@ -1,9 +1,0 @@
-<vbox styleName="projectVariablesTab" percentWidth="100" percentHeight="100">
-    <hbox id="varActions" styleName="varActions">
-        <button id="addVarBtn" text="Add Variable" />
-        <button id="refreshVarBtn" text="Refresh" />
-    </hbox>
-    <!-- Make variable list fluid width so rows can be 100% width -->
-    <vbox id="varList" percentWidth="100" height="400" />
-    <vbox id="varFormContainer" visible="false" styleName="variableFormOverlay" />
-</vbox>

@@ -1,7 +1,0 @@
-<vbox id="releasesTab" text="Releases" percentWidth="100" percentHeight="100">
-  <hbox id="actionsBar" styleName="releasesActions">
-    <button id="createReleaseBtn" text="New Release" />
-  </hbox>
-  <vbox id="formContainer" visible="false" styleName="releaseFormOverlay" />
-  <vbox id="listContainer" percentWidth="100" />
-</vbox>

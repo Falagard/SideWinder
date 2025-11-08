@@ -1,3 +1,0 @@
-<hbox styleName="loadingIndicator" width="400" height="100">
-    <label id="messageLabel" text="Loading..." />
-</hbox>
