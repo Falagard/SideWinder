@@ -83,6 +83,19 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 
 	override function handleCommand(method:String):Void {
 		var pathOnly = this.path.split("?")[0];
+		// Handle OPTIONS preflight request
+		if (method == "OPTIONS") {
+			sendResponse(snake.http.HTTPStatus.OK);
+			sendHeader('Access-Control-Allow-Origin', '*'); // Change port as needed
+			sendHeader('Access-Control-Allow-Credentials', 'true'); // Remove if not using cookies/auth
+			sendHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+			sendHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Authorization, X-Requested-With');
+			sendHeader('Vary', 'Origin');
+			endHeaders();
+			wfile.writeString("");
+			return;
+		}
+
 		var match = router.find(method, pathOnly);
 		if (match == null) {
 			handleStatic();
@@ -99,7 +112,7 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		if (sessionId == null) {
 			sessionId = Std.string(Math.floor(Math.random() * 1000000000)) + "_" + Std.string(Sys.time());
 			cookies.set("session_id", sessionId);
-            currentSessionId = sessionId;
+			currentSessionId = sessionId;
 		}
 
 		var req:Request = {
@@ -181,15 +194,18 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 	}
 
 	override public function endHeaders() {
-		if (corsEnabled) {
-			sendHeader('Access-Control-Allow-Origin', '*');
-		}
+		// Always set CORS headers for all responses
+		sendHeader('Access-Control-Allow-Origin', 'http://localhost:3000'); // Change port as needed
+		sendHeader('Access-Control-Allow-Credentials', 'true'); // Remove if not using cookies/auth
+		sendHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+		sendHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Authorization, X-Requested-With');
+		sendHeader('Vary', 'Origin');
 		if (!cacheEnabled) {
 			sendHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
 		}
-        if(currentSessionId != null) {
-            sendHeader("Set-Cookie", "session_id=" + currentSessionId + "; Path=/; HttpOnly");
-        }
+		if(currentSessionId != null) {
+			sendHeader("Set-Cookie", "session_id=" + currentSessionId + "; Path=/; HttpOnly");
+		}
 
 		super.endHeaders();
 	}
