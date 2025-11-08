@@ -122,6 +122,8 @@ class AutoClientAsync {
                                 trace('[AutoClientAsync] using XMLHttpRequest for ' + method);
                                 var xhr = new js.html.XMLHttpRequest();
                                 xhr.open(method, full, true);
+                                // Allow cookies / auth headers cross-origin when server sets Access-Control-Allow-Credentials
+                                xhr.withCredentials = true;
                                 xhr.setRequestHeader("Accept", "application/json");
                                 if (jsonBody != null) xhr.setRequestHeader("Content-Type", "application/json");
                                 xhr.onreadystatechange = function() {
