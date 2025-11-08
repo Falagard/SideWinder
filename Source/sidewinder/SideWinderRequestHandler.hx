@@ -27,6 +27,7 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 	public static var cacheEnabled = true;
 	public static var silent = false;
     private var currentSessionId:String = null;
+	private var isServingStatic:Bool = false;
 	public static var router:Router = new Router();
 
 	static function parseQuery(url:String):Map<String, String> {
@@ -162,12 +163,14 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 			var oldDir = this.directory;
 			this.directory = staticDir;
 			this.path = url.substr("/static".length);
+			this.isServingStatic = true;
 			var handled = false;
 			try {
 				super.do_GET();
 				handled = true;
 			} catch (e:Dynamic) {
 			}
+			this.isServingStatic = false;
 			this.directory = oldDir;
 		}
 	}
@@ -194,6 +197,12 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 	}
 
 	override public function endHeaders() {
+		// Skip adding extra headers when serving static files to avoid Content-Length mismatch
+		if (isServingStatic) {
+			super.endHeaders();
+			return;
+		}
+		
 		// Always set CORS headers for all responses
 		sendHeader('Access-Control-Allow-Origin', 'http://localhost:3000'); // Change port as needed
 		sendHeader('Access-Control-Allow-Credentials', 'true'); // Remove if not using cookies/auth
