@@ -1,0 +1,23 @@
+<vbox percentWidth="100" percentHeight="100" styleName="projectOverviewTab">
+  <vbox id="overviewContent" percentWidth="100" styleName="overviewContent">
+    <label text="Project Details" styleName="sectionHeader" />
+    <vbox styleName="detailsSection">
+      <hbox>
+        <label text="Name:" width="120" styleName="detailLabel" />
+        <label id="projectName" text="-" styleName="detailValue" />
+      </hbox>
+      <hbox>
+        <label text="ID:" width="120" styleName="detailLabel" />
+        <label id="projectId" text="-" styleName="detailValue" />
+      </hbox>
+      <hbox>
+        <label text="Description:" width="120" styleName="detailLabel" />
+        <label id="projectDescription" text="-" styleName="detailValue" />
+      </hbox>
+      <hbox>
+        <label text="Created:" width="120" styleName="detailLabel" />
+        <label id="projectCreatedAt" text="-" styleName="detailValue" />
+      </hbox>
+    </vbox>
+  </vbox>
+</vbox>

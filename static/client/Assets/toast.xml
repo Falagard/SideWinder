@@ -1,0 +1,4 @@
+<hbox styleName="toast" percentWidth="100">
+    <label id="toastMessage" text="Success" />
+    <button id="closeBtn" text="✕" width="28" />
+</hbox>

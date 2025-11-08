@@ -161,17 +161,67 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		if (StringTools.startsWith(url, "/static/")) {
 			var staticDir = Path.addTrailingSlash(Sys.getCwd()) + "static";
 			var oldDir = this.directory;
+			var oldPath = this.path;
 			this.directory = staticDir;
 			this.path = url.substr("/static".length);
 			this.isServingStatic = true;
-			var handled = false;
 			try {
 				super.do_GET();
-				handled = true;
+			} catch (e:haxe.io.Error) {
+				if (e.match(Blocked)) {
+					// Retry with blocking allowed
+					trace("Retrying static file with blocking I/O");
+					super.do_GET();
+				} else {
+					trace("Error serving static file: " + e);
+				}
 			} catch (e:Dynamic) {
+				trace("Error serving static file: " + e);
 			}
 			this.isServingStatic = false;
 			this.directory = oldDir;
+			this.path = oldPath;
+		}
+	}
+
+	// Override copyFile to use chunked reading for large files to prevent blocking
+	override private function copyFile(src:haxe.io.Input, dst:haxe.io.Output):Void {
+		var bufferSize = 8192; // 8KB chunks
+		var buffer = haxe.io.Bytes.alloc(bufferSize);
+		
+		// Set socket to blocking mode for file transfer
+		try {
+			request.setBlocking(true);
+		} catch (e:Dynamic) {
+			// Might not be supported on all platforms
+		}
+		
+		while (true) {
+			var bytesRead = 0;
+			try {
+				bytesRead = src.readBytes(buffer, 0, bufferSize);
+			} catch (e:haxe.io.Eof) {
+				// Reached end of file, exit loop
+				break;
+			}
+			
+			// Write the bytes we just read
+			try {
+				dst.writeBytes(buffer, 0, bytesRead);
+			} catch (e:Dynamic) {
+				trace("Error writing bytes: " + e);
+				throw e;
+			}
+		}
+		
+		// Flush at the end to ensure all data is sent
+		dst.flush();
+		
+		// Restore socket to non-blocking mode
+		try {
+			request.setBlocking(false);
+		} catch (e:Dynamic) {
+			// Might not be supported on all platforms
 		}
 	}
 

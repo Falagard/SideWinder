@@ -1,0 +1,4 @@
+<hbox styleName="errorBanner" percentWidth="100">
+    <label id="messageLabel" styleName="errorText" text="Error" />
+    <button id="retryBtn" text="Retry" />
+</hbox>
