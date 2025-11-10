@@ -143,23 +143,41 @@ class AutoClientAsync {
                             #if sys
                             h.onStatus = function(status:Int) {
                                 trace('[AutoClientAsync] Response status: ' + status);
-                                // Access response headers via responseHeaders
                                 try {
-                                    var headers = h.responseHeaders;
-                                    if (headers != null) {
-                                        trace('[AutoClientAsync] Processing response headers...');
-                                        for (key in headers.keys()) {
-                                            if (key.toLowerCase() == "set-cookie") {
-                                                var setCookieValue = headers.get(key);
-                                                if (setCookieValue != null) {
-                                                    trace('[AutoClientAsync] Received Set-Cookie: ' + setCookieValue);
-                                                    cookieJar.setCookie(setCookieValue, full);
-                                                    trace('[AutoClientAsync] Cookie stored. Total cookies now: ' + cookieJar.getAllCookies().length);
+                                    // Prefer multiple header values (e.g. duplicate Set-Cookie)
+                                    var handled = false;
+                                    try {
+                                        var setCookies = h.getResponseHeaderValues("Set-Cookie");
+                                        if (setCookies != null && setCookies.length > 0) {
+                                            trace('[AutoClientAsync] Processing ' + setCookies.length + ' Set-Cookie headers...');
+                                            for (sc in setCookies) {
+                                                trace('[AutoClientAsync] Received Set-Cookie: ' + sc);
+                                                cookieJar.setCookie(sc, full);
+                                            }
+                                            trace('[AutoClientAsync] Cookie stored. Total cookies now: ' + cookieJar.getAllCookies().length);
+                                            handled = true;
+                                        }
+                                    } catch (_:Dynamic) {
+                                        // Method not available on this target/version; fallback below
+                                    }
+                                    if (!handled) {
+                                        // Fallback: legacy single-value map (may lose duplicates)
+                                        var headers = h.responseHeaders;
+                                        if (headers != null) {
+                                            trace('[AutoClientAsync] Fallback header map iteration...');
+                                            for (key in headers.keys()) {
+                                                if (key.toLowerCase() == "set-cookie") {
+                                                    var setCookieValue = headers.get(key);
+                                                    if (setCookieValue != null) {
+                                                        trace('[AutoClientAsync] Received Set-Cookie (map): ' + setCookieValue);
+                                                        cookieJar.setCookie(setCookieValue, full);
+                                                    }
                                                 }
                                             }
+                                            trace('[AutoClientAsync] Cookie stored. Total cookies now: ' + cookieJar.getAllCookies().length);
+                                        } else {
+                                            trace('[AutoClientAsync] No response headers available');
                                         }
-                                    } else {
-                                        trace('[AutoClientAsync] No response headers available');
                                     }
                                 } catch (e:Dynamic) {
                                     trace('[AutoClientAsync] Error parsing headers: ' + Std.string(e));
