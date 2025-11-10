@@ -27,6 +27,12 @@ class AutoClient {
                     pos: Context.currentPos()
                 });
                 fields.push({
+                    name: "cookieJar",
+                    access: [APublic, AStatic],
+                    kind: FVar(macro:sidewinder.CookieJar, macro new sidewinder.CookieJar()),
+                    pos: Context.currentPos()
+                });
+                fields.push({
                     name: "new",
                     access: [APublic],
                     kind: FFun({
@@ -59,6 +65,15 @@ class AutoClient {
                                     h.setHeader("Content-Type", "application/json");
                                     h.setPostData(jsonBody);
                                 }
+                                
+                                // Add cookies for sys targets
+                                #if sys
+                                var cookieHeader = cookieJar.getCookieHeader(fullUrl);
+                                if (cookieHeader != "") {
+                                    h.setHeader("Cookie", cookieHeader);
+                                }
+                                #end
+                                
                                 h.onData = function(data:String) {
                                     result = data;
                                     done = true;
@@ -67,6 +82,29 @@ class AutoClient {
                                     error = msg;
                                     done = true;
                                 };
+                                
+                                // Store response headers callback for sys targets
+                                #if sys
+                                h.onStatus = function(status:Int) {
+                                    // Access response headers via cnxInfos
+                                    try {
+                                        var headers = h.responseHeaders;
+                                        if (headers != null) {
+                                            for (key in headers.keys()) {
+                                                if (key.toLowerCase() == "set-cookie") {
+                                                    var setCookieValue = headers.get(key);
+                                                    if (setCookieValue != null) {
+                                                        cookieJar.setCookie(setCookieValue, fullUrl);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } catch (e:Dynamic) {
+                                        // Silently ignore header parsing errors
+                                    }
+                                };
+                                #end
+                                
                                 // request(true) performs POST/PUT if postData set, GET otherwise; override via method if needed
                                 try h.request(method != "GET") catch (e:Dynamic) { error = e; done = true; }
                                 // Busy spin (cross-target) to emulate sync; remove Sys.sleep to allow html5 build.

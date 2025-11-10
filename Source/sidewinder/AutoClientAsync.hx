@@ -79,6 +79,12 @@ class AutoClientAsync {
                     pos: Context.currentPos()
                 });
                 fields.push({
+                    name: "cookieJar",
+                    access: [APublic, AStatic],
+                    kind: FVar(macro:sidewinder.CookieJar, macro new sidewinder.CookieJar()),
+                    pos: Context.currentPos()
+                });
+                fields.push({
                     name: "new",
                     access: [APublic],
                     kind: FFun({
@@ -115,7 +121,41 @@ class AutoClientAsync {
                                 h.setHeader("Content-Type", "application/json");
                                 h.setPostData(jsonBody);
                             }
+                            
+                            // Add cookies for sys targets
+                            #if sys
+                            var cookieHeader = cookieJar.getCookieHeader(full);
+                            if (cookieHeader != "") {
+                                h.setHeader("Cookie", cookieHeader);
+                                trace('[AutoClientAsync] sending cookies: ' + cookieHeader);
+                            }
+                            #end
+                            
                             h.onError = function(e:String) onError(e);
+                            
+                            // Store response headers callback for sys targets
+                            #if sys
+                            h.onStatus = function(status:Int) {
+                                // Access response headers via responseHeaders
+                                try {
+                                    var headers = h.responseHeaders;
+                                    if (headers != null) {
+                                        for (key in headers.keys()) {
+                                            if (key.toLowerCase() == "set-cookie") {
+                                                var setCookieValue = headers.get(key);
+                                                if (setCookieValue != null) {
+                                                    trace('[AutoClientAsync] storing cookie: ' + setCookieValue);
+                                                    cookieJar.setCookie(setCookieValue, full);
+                                                }
+                                            }
+                                        }
+                                    }
+                                } catch (e:Dynamic) {
+                                    trace('[AutoClientAsync] error parsing headers: ' + Std.string(e));
+                                }
+                            };
+                            #end
+                            
                             // Use customRequest for verbs beyond GET/POST (PUT/DELETE) as per gist reference.
                             if (method == "PUT" || method == "DELETE") {
                                 #if (js || html5)
