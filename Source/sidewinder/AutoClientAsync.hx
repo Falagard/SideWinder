@@ -14,6 +14,9 @@ using haxe.macro.ExprTools;
  * Primitive return types are passed directly; JSON bodies are parsed for object/array types.
  */
 class AutoClientAsync {
+    // Global cookie jar shared by all async client instances
+    public static var globalCookieJar:sidewinder.ICookieJar = new sidewinder.CookieJar();
+    
     /**
      * Recursively walk dynamic JSON value and convert date-like strings to Date instances.
      * Supported patterns:
@@ -59,7 +62,7 @@ class AutoClientAsync {
         }
         return v;
     }
-    public static macro function create(iface:Expr, baseUrl:Expr):Expr {
+    public static macro function create(iface:Expr, baseUrl:Expr, ?cookieJar:Expr):Expr {
         var ifaceName = switch (iface.expr) {
             case EConst(CIdent(s)): s;
             default: Context.error("Expected interface identifier", iface.pos); "";
@@ -71,25 +74,33 @@ class AutoClientAsync {
                 if (!cl.isInterface) Context.error(cl.name + " is not an interface", iface.pos);
                 var uniqueName = cl.name + "_AutoClientAsync_" + Std.string(Std.random(999999));
                 var fields:Array<Field> = [];
-                // baseUrl field & ctor
+                // baseUrl field
                 fields.push({
                     name: "baseUrl",
                     access: [APublic],
                     kind: FVar(macro:String, null),
                     pos: Context.currentPos()
                 });
+                // cookieJar field
                 fields.push({
                     name: "cookieJar",
-                    access: [APublic, AStatic],
-                    kind: FVar(macro:sidewinder.CookieJar, macro new sidewinder.CookieJar()),
+                    access: [APublic],
+                    kind: FVar(macro:sidewinder.ICookieJar, null),
                     pos: Context.currentPos()
                 });
+                // constructor
                 fields.push({
                     name: "new",
                     access: [APublic],
                     kind: FFun({
-                        args: [ { name: "baseUrl", type: macro:String } ],
-                        expr: macro this.baseUrl = baseUrl,
+                        args: [ 
+                            { name: "baseUrl", type: macro:String },
+                            { name: "cookieJar", type: macro:sidewinder.ICookieJar }
+                        ],
+                        expr: macro {
+                            this.baseUrl = baseUrl;
+                            this.cookieJar = cookieJar;
+                        },
                         params: [],
                         ret: null
                     }),
@@ -353,7 +364,9 @@ class AutoClientAsync {
                 };
                 Context.defineType(classDef);
                 var typePath:TypePath = { pack: ["sidewinder"], name: uniqueName };
-                return { expr: ENew(typePath, [baseUrl]), pos: Context.currentPos() };
+                // If cookieJar parameter was provided, use it; otherwise use globalCookieJar
+                var jarExpr = cookieJar != null ? cookieJar : macro sidewinder.AutoClientAsync.globalCookieJar;
+                return { expr: ENew(typePath, [baseUrl, jarExpr]), pos: Context.currentPos() };
             case _: Context.error("Expected interface type", iface.pos); return macro null;
         }
     }

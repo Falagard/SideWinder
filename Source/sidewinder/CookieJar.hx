@@ -6,7 +6,7 @@ import haxe.ds.StringMap;
  * Cookie storage with domain and path support.
  * Handles Set-Cookie header parsing and Cookie header generation.
  */
-class CookieJar {
+class CookieJar implements ICookieJar {
 	private var cookies:Array<Cookie> = [];
 
 	public function new() {}
