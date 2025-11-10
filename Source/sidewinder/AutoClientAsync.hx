@@ -124,10 +124,16 @@ class AutoClientAsync {
                             
                             // Add cookies for sys targets
                             #if sys
+                            trace('[AutoClientAsync] Current cookies in jar: ' + cookieJar.getAllCookies().length);
+                            for (c in cookieJar.getAllCookies()) {
+                                trace('[AutoClientAsync]   Cookie: ' + c.toString());
+                            }
                             var cookieHeader = cookieJar.getCookieHeader(full);
                             if (cookieHeader != "") {
                                 h.setHeader("Cookie", cookieHeader);
-                                trace('[AutoClientAsync] sending cookies: ' + cookieHeader);
+                                trace('[AutoClientAsync] Sending Cookie header: ' + cookieHeader);
+                            } else {
+                                trace('[AutoClientAsync] No matching cookies to send for URL: ' + full);
                             }
                             #end
                             
@@ -136,22 +142,27 @@ class AutoClientAsync {
                             // Store response headers callback for sys targets
                             #if sys
                             h.onStatus = function(status:Int) {
+                                trace('[AutoClientAsync] Response status: ' + status);
                                 // Access response headers via responseHeaders
                                 try {
                                     var headers = h.responseHeaders;
                                     if (headers != null) {
+                                        trace('[AutoClientAsync] Processing response headers...');
                                         for (key in headers.keys()) {
                                             if (key.toLowerCase() == "set-cookie") {
                                                 var setCookieValue = headers.get(key);
                                                 if (setCookieValue != null) {
-                                                    trace('[AutoClientAsync] storing cookie: ' + setCookieValue);
+                                                    trace('[AutoClientAsync] Received Set-Cookie: ' + setCookieValue);
                                                     cookieJar.setCookie(setCookieValue, full);
+                                                    trace('[AutoClientAsync] Cookie stored. Total cookies now: ' + cookieJar.getAllCookies().length);
                                                 }
                                             }
                                         }
+                                    } else {
+                                        trace('[AutoClientAsync] No response headers available');
                                     }
                                 } catch (e:Dynamic) {
-                                    trace('[AutoClientAsync] error parsing headers: ' + Std.string(e));
+                                    trace('[AutoClientAsync] Error parsing headers: ' + Std.string(e));
                                 }
                             };
                             #end
