@@ -158,7 +158,7 @@ class AutoClientAsync {
                                     // Prefer multiple header values (e.g. duplicate Set-Cookie)
                                     var handled = false;
                                     try {
-                                        var setCookies = h.getResponseHeaderValues("Set-Cookie");
+                                        var setCookies:Array<String> = untyped h.getResponseHeaderValues("Set-Cookie");
                                         if (setCookies != null && setCookies.length > 0) {
                                             trace('[AutoClientAsync] Processing ' + setCookies.length + ' Set-Cookie headers...');
                                             for (sc in setCookies) {
@@ -173,7 +173,7 @@ class AutoClientAsync {
                                     }
                                     if (!handled) {
                                         // Fallback: legacy single-value map (may lose duplicates)
-                                        var headers = h.responseHeaders;
+                                        var headers:haxe.ds.StringMap<String> = h.responseHeaders;
                                         if (headers != null) {
                                             trace('[AutoClientAsync] Fallback header map iteration...');
                                             for (key in headers.keys()) {
@@ -223,7 +223,7 @@ class AutoClientAsync {
                                 }
                                 #else
                                 trace('[AutoClientAsync] using customRequest for ' + method);
-                                var out:haxe.io.BytesOutput = new haxe.io.BytesOutput();
+                                var out = new haxe.io.BytesOutput();
                                 try {
                                     // post flag true if we have a body; method passed explicitly.
                                     trace('[AutoClientAsync] invoking customRequest postFlag=' + (jsonBody != null));
