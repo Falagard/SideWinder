@@ -25,7 +25,7 @@ class AutoRouter {
         var router = routerExpr;
         var routeExprs:Array<Expr> = [];
 
-        // Build expression that extracts an argument value from request (path params or JSON body).
+        // Build expression that extracts an argument value from request (path params, query params, or JSON body).
         function buildArgAccess(argName:String, t:Type, isOpt:Bool):Expr {
             function primitive(kind:Type):Null<String> {
                 return switch kind {
@@ -37,10 +37,10 @@ class AutoRouter {
             }
             var prim = primitive(t);
             if (prim != null) {
-                // Path/query parameters assumed to be already populated in req.params.
-                var base:Expr = macro req.params.get($v{argName});
+                // Check path parameters first, then query parameters
+                var base:Expr = macro(req.params.exists($v{argName}) ? req.params.get($v{argName}) : req.query.get($v{argName}));
                 if (isOpt)
-                    base = macro(req.params.exists($v{argName}) ? req.params.get($v{argName}) : null);
+                    base = macro(req.params.exists($v{argName}) ? req.params.get($v{argName}) : (req.query.exists($v{argName}) ? req.query.get($v{argName}) : null));
                 return switch prim {
                     case "Int":
                         if (isOpt) {
