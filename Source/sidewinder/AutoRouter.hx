@@ -203,6 +203,7 @@ class AutoRouter {
                                     // Handler body; consider wrapping in try/catch for 500 responses.
                                     var handler:Expr = if (isVoid()) {
                                         macro function(req, res) {
+                                            var __userId:String = null;
                                             $authCheck;
                                             var inst = ($implExpr)();
                                             // TODO: try/catch
@@ -214,6 +215,7 @@ class AutoRouter {
                                         };
                                     } else if (isPrimitive()) {
                                         macro function(req, res) {
+                                            var __userId:String = null;
                                             $authCheck;
                                             var inst = ($implExpr)();
                                             var result = inst.$methodName($a{callArgs});
@@ -227,6 +229,7 @@ class AutoRouter {
                                         };
                                     } else {
                                         macro function(req, res) {
+                                            var __userId:String = null;
                                             $authCheck;
                                             var inst = ($implExpr)();
                                             var result = inst.$methodName($a{callArgs});
