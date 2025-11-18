@@ -156,24 +156,33 @@ class AutoRouter {
                                         macro {
                                             var __userId:String = null;
                                             var __sessionToken:String = null;
-                                            
+                                            trace("[AutoRouter] Checking for session_token in cookies...");
                                             // Extract session_token from cookies
                                             if (req.cookies != null && req.cookies.exists("session_token")) {
                                                 __sessionToken = req.cookies.get("session_token");
+                                                trace('[AutoRouter] Found session_token: ' + __sessionToken);
+                                            } else {
+                                                trace('[AutoRouter] session_token not found in cookies.');
                                             }
-                                            
+                                            trace('[AutoRouter] Checking for userId in cache using session_token...');
                                             if (__sessionToken != null && $cacheExpr != null) {
                                                 // Look up user from cache
                                                 var cachedData = ($cacheExpr).get("session:" + __sessionToken);
                                                 if (cachedData != null) {
-                                                    try {
-                                                        var userData = haxe.Json.parse(cachedData);
-                                                        __userId = userData.id;
-                                                    } catch (e:Dynamic) {}
+                                                    if (Reflect.hasField(cachedData, "id")) {
+                                                        __userId = Reflect.field(cachedData, "id");
+                                                        trace('[AutoRouter] Found userId: ' + __userId);
+                                                    } else {
+                                                        trace('[AutoRouter] userId not found in cachedData.');
+                                                    }
+                                                } else {
+                                                    trace('[AutoRouter] No cachedData found for session_token.');
                                                 }
+                                            } else {
+                                                trace('[AutoRouter] session_token or cacheExpr is null, cannot check userId.');
                                             }
-                                            
                                             if (__userId == null) {
+                                                trace('[AutoRouter] userId is null, sending UNAUTHORIZED response.');
                                                 res.sendResponse(snake.http.HTTPStatus.UNAUTHORIZED);
                                                 res.setHeader("Content-Type", "application/json");
                                                 res.endHeaders();
