@@ -253,6 +253,7 @@ class AutoClientAsync {
                         case FMethod(_):
                             var httpMethod = "";
                             var path = "";
+                            var requiresAuth = false;
                             for (m in field.meta.get()) {
                                 switch (m.name) {
                                     case "get", "post", "put", "delete":
@@ -264,6 +265,8 @@ class AutoClientAsync {
                                                 default: Context.error("Expected string literal in meta", p.pos);
                                             }
                                         }
+                                    case "requiresAuth":
+                                        requiresAuth = true;
                                     default:
                                 }
                             }
@@ -275,6 +278,10 @@ class AutoClientAsync {
                                     var argDecls:Array<FunctionArg> = [];
                                     var renamed = new Map<String,String>();
                                     for (a in args) {
+                                        // Skip userId parameter if @requiresAuth is set
+                                        if (requiresAuth && a.name == "userId") {
+                                            continue;
+                                        }
                                         var newName = pathParamNames.indexOf(a.name) != -1 ? '_' + a.name : a.name;
                                         renamed.set(a.name, newName);
                                         argDecls.push({ name: newName, type: Context.toComplexType(a.t) });

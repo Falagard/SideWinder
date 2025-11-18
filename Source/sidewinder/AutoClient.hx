@@ -123,6 +123,7 @@ class AutoClient {
                         case FMethod(_):
                             var httpMethod = "";
                             var path = "";
+                            var requiresAuth = false;
                             for (m in field.meta.get()) {
                                 switch (m.name) {
                                     case "get", "post", "put", "delete":
@@ -134,6 +135,8 @@ class AutoClient {
                                                 default: Context.error("Expected string literal in meta", p.pos);
                                             }
                                         }
+                                    case "requiresAuth":
+                                        requiresAuth = true;
                                     default:
                                 }
                             }
@@ -146,6 +149,10 @@ class AutoClient {
                                     }
                                     var argDecls = [];
                                     for (a in args) {
+                                        // Skip userId parameter if @requiresAuth is set
+                                        if (requiresAuth && a.name == "userId") {
+                                            continue;
+                                        }
                                         argDecls.push({ name: a.name, type: Context.toComplexType(a.t) });
                                     }
                                     var urlBuilderParts:Array<Expr> = [];

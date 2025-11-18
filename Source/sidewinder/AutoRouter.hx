@@ -15,13 +15,14 @@ using haxe.macro.TypeTools;
  *   - Extracts primitive args from req.params and complex args from req.jsonBody.
  *   - Instantiates the implementation via implExpr (a factory expression).
  *   - Invokes the method and writes JSON (application/json) for non-void results.
+ *   - Supports @requiresAuth metadata to automatically inject userId from session.
  * Notes:
  *   - No try/catch or error normalization is currently added.
  *   - Complex arg resolution is simplistic (falls back to entire req.jsonBody).
  *   - All handlers are synchronous; async/promise return types are not handled.
  */
 class AutoRouter {
-    public static macro function build(routerExpr:Expr, ifaceExpr:Expr, implExpr:Expr):Expr {
+    public static macro function build(routerExpr:Expr, ifaceExpr:Expr, implExpr:Expr, ?cacheExpr:Expr):Expr {
         var router = routerExpr;
         var routeExprs:Array<Expr> = [];
 
@@ -93,6 +94,7 @@ class AutoRouter {
                         case FMethod(_):
                             var httpMethod = "";
                             var path = "";
+                            var requiresAuth = false;
                             for (m in field.meta.get()) {
                                 switch (m.name) {
                                     case "get", "post", "put", "delete":
@@ -106,6 +108,8 @@ class AutoRouter {
                                                     Context.error('Expected string literal in meta', p.pos);
                                             }
                                         }
+                                    case "requiresAuth":
+                                        requiresAuth = true;
                                     default:
                                 }
                             }
@@ -116,8 +120,26 @@ class AutoRouter {
                             switch (field.type) {
                                 case TFun(args, ret):
                                     var callArgs:Array<Expr> = [];
-                                    for (arg in args) {
-                                        callArgs.push(buildArgAccess(arg.name, arg.t, arg.opt));
+                                    var hasUserIdParam = false;
+                                    var userIdParamIndex = -1;
+                                    
+                                    // Check if there's a userId parameter
+                                    for (i in 0...args.length) {
+                                        if (args[i].name == "userId" && TypeTools.toString(args[i].t) == "String") {
+                                            hasUserIdParam = true;
+                                            userIdParamIndex = i;
+                                            break;
+                                        }
+                                    }
+                                    
+                                    for (i in 0...args.length) {
+                                        var arg = args[i];
+                                        // Skip userId parameter - we'll inject it later if requiresAuth
+                                        if (arg.name == "userId" && hasUserIdParam) {
+                                            callArgs.push(macro null); // placeholder
+                                        } else {
+                                            callArgs.push(buildArgAccess(arg.name, arg.t, arg.opt));
+                                        }
                                     }
 
                                     var followedRet = Context.follow(ret);
@@ -129,9 +151,50 @@ class AutoRouter {
 
                                     var methodName = field.name;
 
+                                    // Build auth check if requiresAuth is true
+                                    var authCheck:Expr = if (requiresAuth && hasUserIdParam) {
+                                        macro {
+                                            var __userId:String = null;
+                                            var __sessionToken:String = null;
+                                            
+                                            // Extract session_token from cookies
+                                            if (req.cookies != null && req.cookies.exists("session_token")) {
+                                                __sessionToken = req.cookies.get("session_token");
+                                            }
+                                            
+                                            if (__sessionToken != null && $cacheExpr != null) {
+                                                // Look up user from cache
+                                                var cachedData = ($cacheExpr).get("session:" + __sessionToken);
+                                                if (cachedData != null) {
+                                                    try {
+                                                        var userData = haxe.Json.parse(cachedData);
+                                                        __userId = userData.id;
+                                                    } catch (e:Dynamic) {}
+                                                }
+                                            }
+                                            
+                                            if (__userId == null) {
+                                                res.sendResponse(snake.http.HTTPStatus.UNAUTHORIZED);
+                                                res.setHeader("Content-Type", "application/json");
+                                                res.endHeaders();
+                                                res.write(haxe.Json.stringify({error: "Unauthorized - Authentication required"}));
+                                                res.end();
+                                                return;
+                                            }
+                                        };
+                                    } else {
+                                        macro {};
+                                    };
+
+                                    // Replace userId placeholder with actual value if needed
+                                    if (requiresAuth && hasUserIdParam && userIdParamIndex >= 0) {
+                                        callArgs[userIdParamIndex] = macro __userId;
+                                    }
+
                                     // Handler body; consider wrapping in try/catch for 500 responses.
                                     var handler:Expr = if (isVoid()) {
                                         macro function(req, res) {
+                                            $authCheck;
                                             var inst = ($implExpr)();
                                             // TODO: try/catch
                                             inst.$methodName($a{callArgs});
@@ -142,6 +205,7 @@ class AutoRouter {
                                         };
                                     } else if (isPrimitive()) {
                                         macro function(req, res) {
+                                            $authCheck;
                                             var inst = ($implExpr)();
                                             var result = inst.$methodName($a{callArgs});
                                             res.sendResponse(snake.http.HTTPStatus.OK);
@@ -154,6 +218,7 @@ class AutoRouter {
                                         };
                                     } else {
                                         macro function(req, res) {
+                                            $authCheck;
                                             var inst = ($implExpr)();
                                             var result = inst.$methodName($a{callArgs});
                                             res.sendResponse(snake.http.HTTPStatus.OK);
