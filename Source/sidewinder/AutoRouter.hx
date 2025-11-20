@@ -151,8 +151,8 @@ class AutoRouter {
 
                                     var methodName = field.name;
 
-                                    // Build auth check if requiresAuth is true
-                                    var authCheck:Expr = if (requiresAuth && hasUserIdParam) {
+                                    // Build auth check if requiresAuth is true (always check session)
+                                    var authCheck:Expr = if (requiresAuth) {
                                         macro {
                                             var __userId:String = null;
                                             var __sessionToken:String = null;
@@ -182,7 +182,7 @@ class AutoRouter {
                                                 trace('[AutoRouter] session_token or cacheExpr is null, cannot check userId.');
                                             }
                                             if (__userId == null) {
-                                                trace('[AutoRouter] userId is null, sending UNAUTHORIZED response.');
+                                                trace('[AutoRouter] session not found, sending UNAUTHORIZED response.');
                                                 res.sendResponse(snake.http.HTTPStatus.UNAUTHORIZED);
                                                 res.setHeader("Content-Type", "application/json");
                                                 res.endHeaders();
