@@ -65,7 +65,6 @@ class AutoClient {
                                     h.setHeader("Content-Type", "application/json");
                                     h.setPostData(jsonBody);
                                 }
-                                
                                 // Add cookies for sys targets
                                 #if sys
                                 var cookieHeader = cookieJar.getCookieHeader(fullUrl);
@@ -73,7 +72,6 @@ class AutoClient {
                                     h.setHeader("Cookie", cookieHeader);
                                 }
                                 #end
-                                
                                 h.onData = function(data:String) {
                                     result = data;
                                     done = true;
@@ -82,11 +80,9 @@ class AutoClient {
                                     error = msg;
                                     done = true;
                                 };
-                                
                                 // Store response headers callback for sys targets
                                 #if sys
                                 h.onStatus = function(status:Int) {
-                                    // Access response headers via cnxInfos
                                     try {
                                         var headers = h.responseHeaders;
                                         if (headers != null) {
@@ -104,10 +100,7 @@ class AutoClient {
                                     }
                                 };
                                 #end
-                                
-                                // request(true) performs POST/PUT if postData set, GET otherwise; override via method if needed
                                 try h.request(method != "GET") catch (e:Dynamic) { error = e; done = true; }
-                                // Busy spin (cross-target) to emulate sync; remove Sys.sleep to allow html5 build.
                                 var start = haxe.Timer.stamp();
                                 while (!done && (haxe.Timer.stamp() - start) < 5) {
                                     // spin; consider refactoring to async API returning Future
@@ -149,7 +142,6 @@ class AutoClient {
                                     }
                                     var argDecls = [];
                                     for (a in args) {
-                                        // Skip userId parameter if @requiresAuth is set
                                         if (requiresAuth && a.name == "userId") {
                                             continue;
                                         }
@@ -251,7 +243,9 @@ class AutoClient {
                 };
                 Context.defineType(classDef);
                 var typePath:TypePath = { pack: ["sidewinder"], name: uniqueName };
-                return { expr: ENew(typePath, [baseUrl]), pos: Context.currentPos() };
+                // Return the new instance, strictly typed as the interface
+                var ifaceType = Context.toComplexType(t);
+                return macro (cast (new $typePath($e{baseUrl}) : $ifaceType));
             case _: Context.error("Expected interface type", iface.pos); return macro null;
         }
     }

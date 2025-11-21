@@ -75,6 +75,7 @@ class Main extends Application {
 		// AutoClientAsync example: create async client pointed at the active server port and perform calls.
 		// Each interface method getAll() becomes getAllAsync(onSuccess, onFailure).
 		var userClientAsync = AutoClientAsync.create(IUserService, 'http://' + DEFAULT_ADDRESS + ':' + DEFAULT_PORT, cookieJar);
+
 		// Delay invocation slightly to allow server startup.
 		Timer.delay(() -> {
 			userClientAsync.getAllAsync(function(users:Array<IUserService.User>) {
