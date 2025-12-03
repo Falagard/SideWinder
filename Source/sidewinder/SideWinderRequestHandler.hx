@@ -50,7 +50,8 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 			if (isStatic) {
 				// 4 hours = 14400 seconds
 				sendHeader('Cache-Control', 'public, max-age=14400, s-maxage=14400, must-revalidate, proxy-revalidate, immutable');
-				sendHeader('Expires', DateTools.format(DateTools.delta(Date.now(), 14400), "%a, %d %b %Y %H:%M:%S GMT"));
+				var expiresUtc = Date.fromTime(Date.now().getTime() + 14400 * 1000);
+				sendHeader('Expires', SideWinderRequestHandler.formatUtcRfc1123(expiresUtc));
 			}
 			endHeaders();
 			return f;
@@ -58,6 +59,22 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 			f.close();
 			throw e;
 		}
+	}
+
+	// Helper to format Date as RFC 1123 UTC string
+	public static function formatUtcRfc1123(date:Date):String {
+		var days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+		var months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+		var d = date;
+		var utcYear = d.getUTCFullYear();
+		var utcMonth = d.getUTCMonth();
+		var utcDate = d.getUTCDate();
+		var utcDay = d.getUTCDay();
+		var utcHours = d.getUTCHours();
+		var utcMinutes = d.getUTCMinutes();
+		var utcSeconds = d.getUTCSeconds();
+		return days[utcDay] + ", " + (utcDate < 10 ? "0" : "") + utcDate + " " + months[utcMonth] + " " + utcYear + " " +
+			(utcHours < 10 ? "0" : "") + utcHours + ":" + (utcMinutes < 10 ? "0" : "") + utcMinutes + ":" + (utcSeconds < 10 ? "0" : "") + utcSeconds + " GMT";
 	}
 
 	static function parseCookies(header:String):StringMap<String> {
