@@ -12,6 +12,8 @@ import snake.http.*;
 import sidewinder.Router;
 
 class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
+	public var allowOrigin:String = "*";
+
 	// Override sendHead to add cache headers for static files
 	override private function sendHead():haxe.io.Input {
 		var translatedPath = this.translatePath(this.path);
@@ -76,7 +78,13 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 			(utcHours < 10 ? "0" : "") + utcHours + ":" + (utcMinutes < 10 ? "0" : "") + utcMinutes + ":" + (utcSeconds < 10 ? "0" : "") + utcSeconds + " GMT";
 	}
 
-	static function parseCookies(header:String):StringMap<String> {
+		// Add constructor to accept allowOrigin
+		public function new(request:Socket, clientAddress:{host:Host, port:Int}, server:BaseServer, ?directory:String, ?allowOrigin:String) {
+			super(request, clientAddress, server, directory);
+			if (allowOrigin != null) this.allowOrigin = allowOrigin;
+		}
+
+		static function parseCookies(header:String):StringMap<String> {
 		var cookies = new StringMap<String>();
 		if (header == null)
 			return cookies;
@@ -337,7 +345,7 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		}
 
 		// Always set CORS headers for all responses
-		sendHeader('Access-Control-Allow-Origin', 'http://localhost:3000'); // Change port as needed
+		sendHeader('Access-Control-Allow-Origin', allowOrigin);
 		sendHeader('Access-Control-Allow-Credentials', 'true'); // Remove if not using cookies/auth
 		sendHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
 		sendHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Authorization, X-Requested-With');
