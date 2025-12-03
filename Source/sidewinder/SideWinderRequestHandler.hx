@@ -12,9 +12,58 @@ import snake.http.*;
 import sidewinder.Router;
 
 class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
+	// Override sendHead to add cache headers for static files
+	override private function sendHead():haxe.io.Input {
+		var translatedPath = this.translatePath(this.path);
+		var isStatic = StringTools.startsWith(this.path, "/static/");
+		var f:sys.io.FileInput = null;
+		if (sys.FileSystem.exists(translatedPath) && sys.FileSystem.isDirectory(translatedPath)) {
+			if (!StringTools.endsWith(translatedPath, "/")) {
+				sendResponse(snake.http.HTTPStatus.MOVED_PERMANENTLY);
+				var newURL = translatedPath.substr(0, translatedPath.length - 1);
+				sendHeader("Location", newURL);
+				sendHeader("Content-Length", "0");
+				endHeaders();
+				return null;
+			}
+			// Directory listing not supported, fallback to error
+			sendError(snake.http.HTTPStatus.NOT_FOUND, "File not found");
+			return null;
+		}
+		var ctype = guessType(translatedPath);
+		if (StringTools.endsWith(translatedPath, "/")) {
+			sendError(snake.http.HTTPStatus.NOT_FOUND, "File not found");
+			return null;
+		}
+		try {
+			f = sys.io.File.read(translatedPath, true);
+		} catch (e:Dynamic) {
+			sendError(snake.http.HTTPStatus.NOT_FOUND, "File not found");
+			return null;
+		}
+		try {
+			var fs = sys.FileSystem.stat(translatedPath);
+			sendResponse(snake.http.HTTPStatus.OK);
+			sendHeader("Content-type", ctype);
+			sendHeader("Content-Length", Std.string(fs.size));
+			sendHeader("Last-Modified", dateTimeString(fs.mtime));
+			if (isStatic) {
+				// 4 hours = 14400 seconds
+				sendHeader('Cache-Control', 'public, max-age=14400, s-maxage=14400, must-revalidate, proxy-revalidate, immutable');
+				sendHeader('Expires', DateTools.format(DateTools.delta(Date.now(), 14400), "%a, %d %b %Y %H:%M:%S GMT"));
+			}
+			endHeaders();
+			return f;
+		} catch (e:Dynamic) {
+			f.close();
+			throw e;
+		}
+	}
+
 	static function parseCookies(header:String):StringMap<String> {
 		var cookies = new StringMap<String>();
-		if (header == null) return cookies;
+		if (header == null)
+			return cookies;
 		for (pair in header.split(";")) {
 			var kv = pair.split("=");
 			if (kv.length == 2) {
@@ -23,11 +72,14 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		}
 		return cookies;
 	}
+
 	public static var corsEnabled = false;
 	public static var cacheEnabled = true;
 	public static var silent = false;
-    private var currentSessionId:String = null;
+
+	private var currentSessionId:String = null;
 	private var isServingStatic:Bool = false;
+
 	public static var router:Router = new Router();
 
 	static function parseQuery(url:String):Map<String, String> {
@@ -135,14 +187,25 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 			sendResponse: (r) -> sendResponse(r),
 			endHeaders: () -> endHeaders(),
 			end: () -> wfile.flush(),
-			setCookie: function(name:String, value:String, ?options:{path:String, domain:String, maxAge:String, httpOnly:Bool, secure:Bool}) {
+			setCookie: function(name:String, value:String, ?options:{
+				path:String,
+				domain:String,
+				maxAge:String,
+				httpOnly:Bool,
+				secure:Bool
+			}) {
 				var cookie = name + "=" + value;
 				if (options != null) {
-					if (options.path != null) cookie += "; Path=" + options.path;
-					if (options.domain != null) cookie += "; Domain=" + options.domain;
-					if (options.maxAge != null) cookie += "; Max-Age=" + options.maxAge;
-					if (options.httpOnly) cookie += "; HttpOnly";
-					if (options.secure) cookie += "; Secure";
+					if (options.path != null)
+						cookie += "; Path=" + options.path;
+					if (options.domain != null)
+						cookie += "; Domain=" + options.domain;
+					if (options.maxAge != null)
+						cookie += "; Max-Age=" + options.maxAge;
+					if (options.httpOnly)
+						cookie += "; HttpOnly";
+					if (options.secure)
+						cookie += "; Secure";
 				}
 				sendHeader("Set-Cookie", cookie);
 			}
@@ -165,6 +228,7 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 			this.directory = staticDir;
 			this.path = url.substr("/static".length);
 			this.isServingStatic = true;
+
 			try {
 				super.do_GET();
 			} catch (e:haxe.io.Error) {
@@ -188,7 +252,7 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 	override private function copyFile(src:haxe.io.Input, dst:haxe.io.Output):Void {
 		var startTime = Sys.time();
 		trace("Starting file copy at " + startTime);
-		
+
 		// Set socket to blocking mode for file transfer
 		try {
 			request.setBlocking(true);
@@ -196,26 +260,26 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		} catch (e:Dynamic) {
 			trace("Could not set socket to blocking: " + e);
 		}
-		
+
 		// Use writeInput which is typically optimized at the native level
 		try {
 			var beforeWrite = Sys.time();
 			trace("Starting writeInput at " + beforeWrite);
-			
+
 			dst.writeInput(src);
-			
+
 			var afterWrite = Sys.time();
 			trace("Finished writeInput at " + afterWrite + " (took " + (afterWrite - beforeWrite) + " seconds)");
-			
+
 			dst.flush();
-			
+
 			var afterFlush = Sys.time();
 			trace("Finished flush at " + afterFlush + " (took " + (afterFlush - afterWrite) + " seconds)");
 		} catch (e:Dynamic) {
 			trace("Error copying file: " + e);
 			throw e;
 		}
-		
+
 		// Restore socket to non-blocking mode
 		try {
 			request.setBlocking(false);
@@ -223,13 +287,13 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		} catch (e:Dynamic) {
 			trace("Could not restore socket to non-blocking: " + e);
 		}
-		
+
 		var endTime = Sys.time();
 		trace("Finished file copy at " + endTime + " (total time: " + (endTime - startTime) + " seconds)");
 	}
 
 	override private function setup():Void {
-        super.setup();
+		super.setup();
 		serverVersion = 'SideWinder/0.0.1';
 	}
 
@@ -255,7 +319,7 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 			super.endHeaders();
 			return;
 		}
-		
+
 		// Always set CORS headers for all responses
 		sendHeader('Access-Control-Allow-Origin', 'http://localhost:3000'); // Change port as needed
 		sendHeader('Access-Control-Allow-Credentials', 'true'); // Remove if not using cookies/auth
@@ -265,15 +329,15 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		if (!cacheEnabled) {
 			sendHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
 		}
-		if(currentSessionId != null) {
+		if (currentSessionId != null) {
 			sendHeader("Set-Cookie", "session_id=" + currentSessionId + "; Path=/; HttpOnly");
 		}
 
 		super.endHeaders();
 	}
 
-    override private function logMessage(message:String):Void {
-        if (silent) {
+	override private function logMessage(message:String):Void {
+		if (silent) {
 			return;
 		}
 
