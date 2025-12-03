@@ -15,7 +15,6 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 	// Override sendHead to add cache headers for static files
 	override private function sendHead():haxe.io.Input {
 		var translatedPath = this.translatePath(this.path);
-		var isStatic = StringTools.startsWith(this.path, "/static/");
 		var f:sys.io.FileInput = null;
 		if (sys.FileSystem.exists(translatedPath) && sys.FileSystem.isDirectory(translatedPath)) {
 			if (!StringTools.endsWith(translatedPath, "/")) {
@@ -47,7 +46,7 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 			sendHeader("Content-type", ctype);
 			sendHeader("Content-Length", Std.string(fs.size));
 			sendHeader("Last-Modified", dateTimeString(fs.mtime));
-			if (isStatic) {
+			if (isServingStatic) {
 				// 4 hours = 14400 seconds
 				sendHeader('Cache-Control', 'public, max-age=14400, s-maxage=14400, must-revalidate, proxy-revalidate, immutable');
 				var expiresUtc = Date.fromTime(Date.now().getTime() + 14400 * 1000);
