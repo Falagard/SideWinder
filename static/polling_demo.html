@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SideWinder Polling Client Demo</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-top: 0;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 20px 0;
+            font-weight: bold;
+        }
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .status.connecting {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .controls {
+            margin: 20px 0;
+        }
+        button {
+            padding: 10px 20px;
+            margin-right: 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+        button.primary {
+            background: #007bff;
+            color: white;
+        }
+        button.primary:hover {
+            background: #0056b3;
+        }
+        button.danger {
+            background: #dc3545;
+            color: white;
+        }
+        button.danger:hover {
+            background: #c82333;
+        }
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .messages {
+            margin-top: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            background: #fafafa;
+        }
+        .message {
+            padding: 8px;
+            margin: 5px 0;
+            border-left: 3px solid #007bff;
+            background: white;
+            border-radius: 3px;
+        }
+        .message.error {
+            border-left-color: #dc3545;
+            background: #fff5f5;
+        }
+        .message .time {
+            color: #666;
+            font-size: 12px;
+        }
+        .message .content {
+            margin-top: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+        .info {
+            background: #e7f3ff;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+        .info code {
+            background: #fff;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔄 SideWinder Polling Client Demo</h1>
+        
+        <div class="info">
+            <strong>Server URL:</strong> <code id="serverUrl">http://127.0.0.1:8000</code><br>
+            <strong>Client ID:</strong> <code id="clientId">Not connected</code>
+        </div>
+
+        <div id="status" class="status disconnected">
+            ● Disconnected
+        </div>
+
+        <div class="controls">
+            <button id="connectBtn" class="primary">Connect</button>
+            <button id="disconnectBtn" class="danger" disabled>Disconnect</button>
+            <button id="clearBtn">Clear Messages</button>
+        </div>
+
+        <h3>Messages</h3>
+        <div id="messages" class="messages">
+            <em>No messages yet. Connect to start receiving messages from the server.</em>
+        </div>
+    </div>
+
+    <script src="polling_client_demo.js"></script>
+    <script>
+        // This will be populated by the Haxe-compiled JavaScript
+        // For now, here's a pure JS implementation for demonstration
+
+        let client = null;
+        let connected = false;
+        const serverUrl = 'http://127.0.0.1:8000';
+
+        const statusEl = document.getElementById('status');
+        const clientIdEl = document.getElementById('clientId');
+        const messagesEl = document.getElementById('messages');
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const clearBtn = document.getElementById('clearBtn');
+
+        function updateStatus(status, text) {
+            statusEl.className = 'status ' + status;
+            statusEl.textContent = '● ' + text;
+        }
+
+        function addMessage(content, isError = false) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message' + (isError ? ' error' : '');
+            
+            const time = new Date().toLocaleTimeString();
+            messageDiv.innerHTML = `
+                <div class="time">${time}</div>
+                <div class="content">${escapeHtml(content)}</div>
+            `;
+            
+            if (messagesEl.querySelector('em')) {
+                messagesEl.innerHTML = '';
+            }
+            
+            messagesEl.appendChild(messageDiv);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Simple polling client implementation
+        class SimplePollingClient {
+            constructor(baseUrl) {
+                this.baseUrl = baseUrl;
+                this.clientId = 'client_' + Math.random().toString(36).substr(2, 16);
+                this.connected = false;
+                this.shouldRun = false;
+                this.pollingInterval = null;
+            }
+
+            async connect() {
+                try {
+                    const response = await fetch(this.baseUrl + '/poll/subscribe', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ clientId: this.clientId })
+                    });
+
+                    if (response.ok) {
+                        this.connected = true;
+                        this.shouldRun = true;
+                        this.onConnect();
+                        this.startPolling();
+                    } else {
+                        throw new Error('Subscribe failed: ' + response.status);
+                    }
+                } catch (error) {
+                    this.onError(error.message);
+                }
+            }
+
+            async disconnect() {
+                this.shouldRun = false;
+                if (this.pollingInterval) {
+                    clearInterval(this.pollingInterval);
+                    this.pollingInterval = null;
+                }
+
+                try {
+                    await fetch(this.baseUrl + '/poll/unsubscribe/' + this.clientId, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: '{}'
+                    });
+                } catch (error) {
+                    console.error('Unsubscribe error:', error);
+                }
+
+                this.connected = false;
+                this.onDisconnect();
+            }
+
+            startPolling() {
+                const poll = async () => {
+                    if (!this.shouldRun) return;
+
+                    try {
+                        const response = await fetch(this.baseUrl + '/poll/' + this.clientId);
+                        if (response.ok) {
+                            const data = await response.json();
+                            if (data.messages && data.messages.length > 0) {
+                                data.messages.forEach(msg => this.onMessage(msg));
+                            }
+                        } else {
+                            throw new Error('Poll failed: ' + response.status);
+                        }
+                    } catch (error) {
+                        this.onError(error.message);
+                        this.connected = false;
+                        this.onDisconnect();
+                    }
+
+                    if (this.shouldRun) {
+                        setTimeout(poll, 100); // Poll every 100ms
+                    }
+                };
+
+                poll();
+            }
+
+            onConnect() {}
+            onDisconnect() {}
+            onMessage(msg) {}
+            onError(err) {}
+        }
+
+        // Event handlers
+        connectBtn.addEventListener('click', () => {
+            if (connected) return;
+
+            updateStatus('connecting', 'Connecting...');
+            connectBtn.disabled = true;
+
+            client = new SimplePollingClient(serverUrl);
+            
+            client.onConnect = () => {
+                connected = true;
+                updateStatus('connected', 'Connected');
+                clientIdEl.textContent = client.clientId;
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                addMessage('✓ Connected to server');
+            };
+
+            client.onDisconnect = () => {
+                connected = false;
+                updateStatus('disconnected', 'Disconnected');
+                clientIdEl.textContent = 'Not connected';
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                addMessage('✗ Disconnected from server', true);
+            };
+
+            client.onMessage = (message) => {
+                try {
+                    const data = JSON.parse(message);
+                    const formatted = JSON.stringify(data, null, 2);
+                    addMessage('📨 ' + formatted);
+                } catch (e) {
+                    addMessage('📨 ' + message);
+                }
+            };
+
+            client.onError = (error) => {
+                addMessage('⚠ Error: ' + error, true);
+            };
+
+            client.connect();
+        });
+
+        disconnectBtn.addEventListener('click', () => {
+            if (!connected || !client) return;
+            client.disconnect();
+        });
+
+        clearBtn.addEventListener('click', () => {
+            messagesEl.innerHTML = '<em>Messages cleared.</em>';
+        });
+
+        // Instructions
+        addMessage('👋 Welcome! Click "Connect" to start receiving messages from the server.');
+        addMessage('💡 Make sure the SideWinder server is running on http://127.0.0.1:8000');
+    </script>
+</body>
+</html>

@@ -56,6 +56,7 @@ class Main extends Application {
 		DI.init(c -> {
 			c.addScoped(IUserService, UserService);
 			c.addSingleton(ICacheService, CacheService);
+			c.addSingleton(IMessageBroker, PollingMessageBroker);
 		});
 
 		cache = DI.get(ICacheService);
@@ -179,6 +180,178 @@ class Main extends Application {
 			res.write(html);
 			res.end();
 		});
+
+		// Polling endpoints for WebSocket-like messaging
+		var messageBroker:IMessageBroker = DI.get(IMessageBroker);
+
+		// Subscribe endpoint
+		App.post("/poll/subscribe", (req, res) -> {
+			try {
+				var data:Dynamic = req.jsonBody;
+				var clientId:String = data.clientId;
+				
+				if (clientId == null || clientId == "") {
+					res.sendError(HTTPStatus.BAD_REQUEST);
+					res.setHeader("Content-Type", "application/json");
+					res.endHeaders();
+					res.write('{"error": "clientId required"}');
+					res.end();
+					return;
+				}
+
+				messageBroker.subscribe(clientId);
+				
+				res.sendResponse(HTTPStatus.OK);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write('{"status": "subscribed", "clientId": "' + clientId + '"}');
+				res.end();
+			} catch (e:Dynamic) {
+				HybridLogger.error('Subscribe error: ' + Std.string(e));
+				res.sendError(HTTPStatus.INTERNAL_SERVER_ERROR);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write('{"error": "' + Std.string(e) + '"}');
+				res.end();
+			}
+		});
+
+		// Unsubscribe endpoint
+		App.post("/poll/unsubscribe/:clientId", (req, res) -> {
+			try {
+				var clientId = req.params.get("clientId");
+				messageBroker.unsubscribe(clientId);
+				
+				res.sendResponse(HTTPStatus.OK);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write('{"status": "unsubscribed"}');
+				res.end();
+			} catch (e:Dynamic) {
+				HybridLogger.error('Unsubscribe error: ' + Std.string(e));
+				res.sendError(HTTPStatus.INTERNAL_SERVER_ERROR);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write('{"error": "' + Std.string(e) + '"}');
+				res.end();
+			}
+		});
+
+		// Long-polling endpoint
+		App.get("/poll/:clientId", (req, res) -> {
+			try {
+				var clientId = req.params.get("clientId");
+				
+				if (!messageBroker.isSubscribed(clientId)) {
+					res.sendError(HTTPStatus.NOT_FOUND);
+					res.setHeader("Content-Type", "application/json");
+					res.endHeaders();
+					res.write('{"error": "Client not subscribed"}');
+					res.end();
+					return;
+				}
+
+				// Long-polling: blocks until messages available or timeout
+				var messages = messageBroker.getMessages(clientId, 30.0);
+				
+				res.sendResponse(HTTPStatus.OK);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write(Json.stringify({ messages: messages }));
+				res.end();
+			} catch (e:Dynamic) {
+				HybridLogger.error('Poll error: ' + Std.string(e));
+				res.sendError(HTTPStatus.INTERNAL_SERVER_ERROR);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write('{"error": "' + Std.string(e) + '"}');
+				res.end();
+			}
+		});
+
+		// Send message to specific client (for testing)
+		App.post("/poll/send/:clientId", (req, res) -> {
+			try {
+				var clientId = req.params.get("clientId");
+				var data:Dynamic = req.jsonBody;
+				var message:String = data.message;
+				
+				if (message == null) {
+					res.sendError(HTTPStatus.BAD_REQUEST);
+					res.setHeader("Content-Type", "application/json");
+					res.endHeaders();
+					res.write('{"error": "message required"}');
+					res.end();
+					return;
+				}
+
+				messageBroker.sendToClient(clientId, message);
+				
+				res.sendResponse(HTTPStatus.OK);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write('{"status": "sent"}');
+				res.end();
+			} catch (e:Dynamic) {
+				HybridLogger.error('Send error: ' + Std.string(e));
+				res.sendError(HTTPStatus.INTERNAL_SERVER_ERROR);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write('{"error": "' + Std.string(e) + '"}');
+				res.end();
+			}
+		});
+
+		// Broadcast message to all clients (for testing)
+		App.post("/poll/broadcast", (req, res) -> {
+			try {
+				var data:Dynamic = req.jsonBody;
+				var message:String = data.message;
+				
+				if (message == null) {
+					res.sendError(HTTPStatus.BAD_REQUEST);
+					res.setHeader("Content-Type", "application/json");
+					res.endHeaders();
+					res.write('{"error": "message required"}');
+					res.end();
+					return;
+				}
+
+				messageBroker.broadcast(message);
+				var clientCount = messageBroker.getClientCount();
+				
+				res.sendResponse(HTTPStatus.OK);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write('{"status": "broadcast", "clientCount": ' + clientCount + '}');
+				res.end();
+			} catch (e:Dynamic) {
+				HybridLogger.error('Broadcast error: ' + Std.string(e));
+				res.sendError(HTTPStatus.INTERNAL_SERVER_ERROR);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write('{"error": "' + Std.string(e) + '"}');
+				res.end();
+			}
+		});
+
+		// Example: Broadcast a test message every 10 seconds
+		Timer.delay(() -> {
+			var counter = 0;
+			function broadcastLoop() {
+				counter++;
+				var testMessage = Json.stringify({
+					type: "test",
+					timestamp: Date.now().getTime(),
+					counter: counter,
+					message: "Hello from server! Message #" + counter
+				});
+				messageBroker.broadcast(testMessage);
+				HybridLogger.info('Broadcast test message #' + counter + ' to ' + messageBroker.getClientCount() + ' clients');
+				Timer.delay(broadcastLoop, 10000);
+			}
+			broadcastLoop();
+		}, 5000);
 	}
 
 	private function asyncOperationSimulation(onSuccess:(String) -> Void, onFailure:() -> Void):Void {
