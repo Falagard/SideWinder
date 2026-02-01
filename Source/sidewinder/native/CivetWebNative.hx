@@ -79,6 +79,61 @@ class CivetWebNative {
     @:hlNative("civetweb", "free")
     public static function free(server:CivetWebNative):Void {
     }
+    
+    /**
+     * Set WebSocket connect handler
+     * @param handler Handler called when WebSocket connection is established
+     */
+    @:hlNative("civetweb", "set_websocket_connect_handler")
+    public static function setWebSocketConnectHandler(handler:Int->Void):Void {
+    }
+    
+    /**
+     * Set WebSocket ready handler
+     * @param handler Handler called when WebSocket is ready to communicate
+     */
+    @:hlNative("civetweb", "set_websocket_ready_handler")
+    public static function setWebSocketReadyHandler(handler:Dynamic->Void):Void {
+    }
+    
+    /**
+     * Set WebSocket data handler
+     * @param handler Handler called when WebSocket data is received
+     */
+    @:hlNative("civetweb", "set_websocket_data_handler")
+    public static function setWebSocketDataHandler(handler:Dynamic->Int->hl.Bytes->Int->Void):Void {
+    }
+    
+    /**
+     * Set WebSocket close handler
+     * @param handler Handler called when WebSocket connection is closed
+     */
+    @:hlNative("civetweb", "set_websocket_close_handler")
+    public static function setWebSocketCloseHandler(handler:Dynamic->Void):Void {
+    }
+    
+    /**
+     * Send data through WebSocket
+     * @param conn Connection handle
+     * @param opcode WebSocket opcode (1=text, 2=binary, 8=close, 9=ping, 10=pong)
+     * @param data Data to send
+     * @param length Length of data
+     * @return Bytes sent or -1 on error
+     */
+    @:hlNative("civetweb", "websocket_send")
+    public static function websocketSend(conn:Dynamic, opcode:Int, data:hl.Bytes, length:Int):Int {
+        return -1;
+    }
+    
+    /**
+     * Close WebSocket connection
+     * @param conn Connection handle
+     * @param code Close status code
+     * @param reason Close reason
+     */
+    @:hlNative("civetweb", "websocket_close")
+    public static function websocketClose(conn:Dynamic, code:Int, reason:hl.Bytes):Void {
+    }
 }
 
 /**

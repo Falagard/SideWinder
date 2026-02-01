@@ -4,6 +4,7 @@ import sidewinder.native.CivetWebNative;
 import sidewinder.native.CivetWebNative.CivetWebRequest;
 import sidewinder.native.CivetWebNative.CivetWebResponse;
 import sidewinder.Router;
+import sidewinder.IWebSocketHandler;
 import haxe.io.Bytes;
 import sys.thread.Mutex;
 
@@ -26,6 +27,7 @@ class CivetWebAdapter implements IWebServer {
 	private var serverHandle:CivetWebNative;
 	private var documentRoot:String;
 	private var requestHandler:Router.Request->Router.Response;
+	private var websocketHandler:IWebSocketHandler;
 	
 	// Single-threaded request queue
 	private var requestQueue:Array<QueuedRequest>;
@@ -307,6 +309,76 @@ class CivetWebAdapter implements IWebServer {
 
 	public function isRunning():Bool {
 		return running;
+	}
+	
+	/**
+	 * Set WebSocket handler for managing WebSocket connections
+	 * @param handler WebSocket handler implementation
+	 */
+	public function setWebSocketHandler(handler:IWebSocketHandler):Void {
+		this.websocketHandler = handler;
+		
+		// Register WebSocket callbacks with native layer
+		CivetWebNative.setWebSocketConnectHandler(function(result:Int):Void {
+			if (websocketHandler != null) {
+				var accepted = websocketHandler.onConnect();
+				// Store result for C layer (1 = accept, 0 = reject)
+				// Note: This is simplified, real implementation would need proper return value handling
+			}
+		});
+		
+		CivetWebNative.setWebSocketReadyHandler(function(conn:Dynamic):Void {
+			if (websocketHandler != null) {
+				websocketHandler.onReady(conn);
+			}
+		});
+		
+		CivetWebNative.setWebSocketDataHandler(function(conn:Dynamic, flags:Int, data:hl.Bytes, length:Int):Void {
+			if (websocketHandler != null) {
+				websocketHandler.onData(conn, flags, data, length);
+			}
+		});
+		
+		CivetWebNative.setWebSocketCloseHandler(function(conn:Dynamic):Void {
+			if (websocketHandler != null) {
+				websocketHandler.onClose(conn);
+			}
+		});
+		
+		HybridLogger.info('[CivetWebAdapter] WebSocket handler registered');
+	}
+	
+	/**
+	 * Send data through a WebSocket connection
+	 * @param conn Connection handle
+	 * @param text Text data to send
+	 * @return Bytes sent or -1 on error
+	 */
+	public function websocketSendText(conn:Dynamic, text:String):Int {
+		var bytes = @:privateAccess text.toUtf8();
+		return CivetWebNative.websocketSend(conn, WebSocketOpcode.TEXT, bytes, text.length);
+	}
+	
+	/**
+	 * Send binary data through a WebSocket connection
+	 * @param conn Connection handle
+	 * @param data Binary data to send
+	 * @return Bytes sent or -1 on error
+	 */
+	public function websocketSendBinary(conn:Dynamic, data:haxe.io.Bytes):Int {
+		var hlBytes = @:privateAccess data.b;
+		return CivetWebNative.websocketSend(conn, WebSocketOpcode.BINARY, hlBytes, data.length);
+	}
+	
+	/**
+	 * Close a WebSocket connection
+	 * @param conn Connection handle
+	 * @param code Close status code (default: 1000 NORMAL)
+	 * @param reason Optional close reason
+	 */
+	public function websocketClose(conn:Dynamic, code:Int = 1000, ?reason:String):Void {
+		var reasonBytes = reason != null ? @:privateAccess reason.toUtf8() : null;
+		CivetWebNative.websocketClose(conn, code, reasonBytes);
 	}
 }
 

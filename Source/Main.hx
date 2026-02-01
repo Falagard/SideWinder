@@ -72,12 +72,21 @@ class Main extends Application {
 		// Create web server using factory pattern
 		// Can switch between SnakeServer and CivetWeb implementations
 		webServer = WebServerFactory.create(
-			WebServerFactory.WebServerType.SnakeServer, 
+			WebServerFactory.WebServerType.CivetWeb,  // Use CivetWeb for WebSocket support
 			DEFAULT_ADDRESS, 
 			DEFAULT_PORT, 
 			SideWinderRequestHandler, 
 			directory
 		);
+		
+		// Setup WebSocket support if using CivetWeb
+		if (Std.isOfType(webServer, CivetWebAdapter)) {
+			var civetAdapter:CivetWebAdapter = cast webServer;
+			var wsHandler = new EchoWebSocketHandler(civetAdapter);
+			civetAdapter.setWebSocketHandler(wsHandler);
+			HybridLogger.info('[Main] WebSocket echo handler enabled on /ws');
+		}
+		
 		webServer.start();
 
 		AutoRouter.build(router, IUserService, function() {
