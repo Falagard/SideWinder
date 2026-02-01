@@ -82,6 +82,21 @@ class Main extends Application {
 			c.addSingleton(ICacheService, InMemoryCacheService);
 			c.addSingleton(IMessageBroker, PollingMessageBroker);
 			c.addSingleton(IStreamBroker, LocalStreamBroker);
+			
+			// Notification service - configure with SendGrid API key
+			// Get API key from environment variable or configuration
+			var sendgridApiKey = Sys.getEnv("SENDGRID_API_KEY");
+			var defaultFromEmail = Sys.getEnv("SENDGRID_FROM_EMAIL");
+			if (sendgridApiKey != null && defaultFromEmail != null) {
+				c.addSingleton(INotificationService, () -> new SendGridNotificationService(
+					sendgridApiKey, 
+					defaultFromEmail, 
+					"SideWinder App",
+					HybridLogger.instance()
+				));
+			} else {
+				HybridLogger.warn("SendGrid not configured - set SENDGRID_API_KEY and SENDGRID_FROM_EMAIL environment variables");
+			}
 		});
 
 		// Run database migrations after DI is configured
@@ -286,6 +301,67 @@ class Main extends Application {
 			res.endHeaders();
 			res.write(html);
 			res.end();
+		});
+
+		// Email notification endpoint
+		App.post("/send-email", (req, res) -> {
+			try {
+				// Parse the JSON body to get email parameters
+				var to:String = Reflect.field(req.jsonBody, "to");
+				var subject:String = Reflect.field(req.jsonBody, "subject");
+				var body:String = Reflect.field(req.jsonBody, "body");
+				var isHtml:Bool = Reflect.field(req.jsonBody, "isHtml");
+				
+				if (to == null || subject == null || body == null) {
+					res.sendResponse(snake.http.HTTPStatus.BAD_REQUEST);
+					res.setHeader("Content-Type", "application/json");
+					res.endHeaders();
+					res.write(Json.stringify({error: "Missing required fields: to, subject, body"}));
+					res.end();
+					return;
+				}
+				
+				// Get notification service from DI
+				var notificationService:INotificationService = null;
+				try {
+					notificationService = DI.get(INotificationService);
+				} catch (e:Dynamic) {
+					HybridLogger.warn("Notification service not configured");
+					res.sendResponse(snake.http.HTTPStatus.SERVICE_UNAVAILABLE);
+					res.setHeader("Content-Type", "application/json");
+					res.endHeaders();
+					res.write(Json.stringify({error: "Email service not configured. Please set SENDGRID_API_KEY and SENDGRID_FROM_EMAIL environment variables"}));
+					res.end();
+					return;
+				}
+				
+				// Send email asynchronously
+				notificationService.sendEmail(to, subject, body, isHtml, function(err:Dynamic) {
+					if (err != null) {
+						HybridLogger.error('Failed to send email: $err');
+						res.sendResponse(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR);
+						res.setHeader("Content-Type", "application/json");
+						res.endHeaders();
+						res.write(Json.stringify({error: "Failed to send email", details: Std.string(err)}));
+						res.end();
+					} else {
+						HybridLogger.info('Email sent successfully to: $to');
+						res.sendResponse(snake.http.HTTPStatus.OK);
+						res.setHeader("Content-Type", "application/json");
+						res.endHeaders();
+						res.write(Json.stringify({success: true, message: "Email sent successfully"}));
+						res.end();
+					}
+				});
+				
+			} catch (e:Dynamic) {
+				HybridLogger.error('Exception in /send-email endpoint: $e');
+				res.sendResponse(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write(Json.stringify({error: "Internal server error", details: Std.string(e)}));
+				res.end();
+			}
 		});
 
 		// Polling endpoints for WebSocket-like messaging
