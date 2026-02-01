@@ -22,6 +22,8 @@ import Date;
 import sidewinder.Database;
 import hx.injection.Service;
 import sidewinder.*;
+import sidewinder.IWebServer;
+import sidewinder.WebServerFactory;
 
 using hx.injection.ServiceExtensions;
 
@@ -30,7 +32,7 @@ class Main extends Application {
 	private static final DEFAULT_ADDRESS = "127.0.0.1";
 	private static final DEFAULT_PORT = 8000;
 
-	private var httpServer:SideWinderServer;
+	private var webServer:IWebServer;
 
 	public static var router = SideWinderRequestHandler.router;
 
@@ -64,7 +66,16 @@ class Main extends Application {
 		// Create singleton cookieJar for all async clients
 		var cookieJar:ICookieJar = new CookieJar();
 
-		httpServer = new SideWinderServer(new Host(DEFAULT_ADDRESS), DEFAULT_PORT, SideWinderRequestHandler, true, directory);
+		// Create web server using factory pattern
+		// Can switch between SnakeServer and CivetWeb implementations
+		webServer = WebServerFactory.create(
+			WebServerFactory.WebServerType.SnakeServer, 
+			DEFAULT_ADDRESS, 
+			DEFAULT_PORT, 
+			SideWinderRequestHandler, 
+			directory
+		);
+		webServer.start();
 
 		AutoRouter.build(router, IUserService, function() {
 			return DI.get(IUserService);
@@ -373,7 +384,7 @@ class Main extends Application {
 
 	// Override update to serve HTTP requests
 	public override function update(deltaTime:Int):Void {
-		httpServer.handleRequest();
+		webServer.handleRequest();
 	}
 
 	// Override createWindow to prevent Lime from creating a window

@@ -236,7 +236,18 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		};
 
 		try {
-			router.handle(req, res, match.route);
+			// If using SnakeServerAdapter, enqueue instead of processing directly
+			if (SnakeServerAdapter.instance != null) {
+				SnakeServerAdapter.instance.enqueueRequest(req, res, match.route);
+				// Send immediate response acknowledging receipt
+				sendResponse(snake.http.HTTPStatus.ACCEPTED); // 202 Accepted
+				sendHeader("Content-Type", "text/plain");
+				endHeaders();
+				wfile.writeString("Request queued for processing");
+			} else {
+				// Direct processing (fallback for non-adapter usage)
+				router.handle(req, res, match.route);
+			}
 		} catch (e:Dynamic) {
 			sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR, "Internal Server Error");
 			trace("Middleware/Handler error: " + Std.string(e));
