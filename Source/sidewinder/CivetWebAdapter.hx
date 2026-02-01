@@ -157,6 +157,21 @@ class CivetWebAdapter implements IWebServer {
 	 */
 	private function processRequest(req:CivetWebRequest):Void {
 		try {
+			// Parse multipart/form-data for file uploads
+			var files:Array<UploadedFile> = [];
+			var formBody = new haxe.ds.StringMap<String>();
+			var jsonBody:Dynamic = null;
+			var body = req.body;
+			
+			// TODO: Get content-type from request headers when available
+			// For now, detect multipart from body content
+			if (body.indexOf("Content-Disposition") != -1 && body.indexOf("boundary") != -1) {
+				// Try to parse as multipart
+				var multipartData = MultipartParser.parseMultipart(body, "multipart/form-data; boundary=" + extractBoundaryFromBody(body));
+				files = multipartData.files;
+				formBody = multipartData.fields;
+			}
+			
 			// Convert native request to Router.Request
 			var routerReq:Router.Request = {
 				method: req.method,
@@ -164,6 +179,11 @@ class CivetWebAdapter implements IWebServer {
 				query: parseQueryString(req.queryString),
 				headers: new Map<String, String>(),
 				body: req.body,
+				jsonBody: jsonBody,
+				formBody: formBody,
+				params: new Map<String, String>(),
+				cookies: new haxe.ds.StringMap<String>(),
+				files: files,
 				ip: req.remoteAddr
 			};
 			
@@ -185,9 +205,20 @@ class CivetWebAdapter implements IWebServer {
 		} catch (e:Dynamic) {
 			HybridLogger.error('[CivetWebAdapter] Error processing request: $e');
 		}
-				throw e;
+	}
+	
+	/**
+	 * Extract boundary from multipart body (fallback method)
+	 */
+	private function extractBoundaryFromBody(body:String):String {
+		var lines = body.split("\n");
+		if (lines.length > 0) {
+			var firstLine = StringTools.trim(lines[0]);
+			if (StringTools.startsWith(firstLine, "--")) {
+				return firstLine.substr(2);
 			}
 		}
+		return "boundary";
 	}
 	
 	/**

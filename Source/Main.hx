@@ -44,6 +44,9 @@ class Main extends Application {
 		// Initialize database and run migrations
 		Database.runMigrations();
 		HybridLogger.init(true, HybridLogger.LogLevel.DEBUG);
+		
+		// Initialize upload directory for file uploads
+		MultipartParser.setUploadDirectory("uploads");
 
 		// Cache service will be resolved from DI
 
@@ -79,6 +82,31 @@ class Main extends Application {
 
 		AutoRouter.build(router, IUserService, function() {
 			return DI.get(IUserService);
+		});
+		
+		// Add file upload test route
+		router.add("POST", "/upload", function(req:Router.Request, res:Router.Response) {
+			res.sendResponse(snake.http.HTTPStatus.OK);
+			res.setHeader("Content-Type", "application/json");
+			res.endHeaders();
+			
+			var response = {
+				message: "Files uploaded successfully",
+				fileCount: req.files.length,
+				files: req.files.map(f -> {
+					return {
+						fieldName: f.fieldName,
+						originalName: f.fileName,
+						savedPath: f.filePath,
+						size: f.size,
+						contentType: f.contentType
+					};
+				}),
+				formFields: [for (k in req.formBody.keys()) {field: k, value: req.formBody.get(k)}]
+			};
+			
+			res.write(haxe.Json.stringify(response, null, "  "));
+			res.end();
 		});
 
 		// Synchronous AutoClient example (legacy port 8080 kept for reference; server actually runs on DEFAULT_PORT)
