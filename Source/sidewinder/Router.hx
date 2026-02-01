@@ -13,6 +13,14 @@ typedef Request = {
 	var jsonBody:Dynamic;
 	var formBody:StringMap<String>;
 	var cookies:StringMap<String>;
+	@:optional var authContext:AuthContext;
+};
+
+typedef AuthContext = {
+	var authenticated:Bool;
+	var userId:Null<Int>;
+	var session:Null<Dynamic>;
+	var token:Null<String>;
 };
 
 typedef Response = {
