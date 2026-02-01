@@ -6,6 +6,22 @@ import haxe.ds.StringMap;
 import Date;
 import Sys;
 
+/**
+ * In-memory thread-safe cache implementation with LRU eviction and TTL support.
+ * 
+ * This implementation uses sharding to reduce lock contention in multi-threaded environments.
+ * Each shard maintains its own LRU doubly-linked list for efficient eviction.
+ * 
+ * Features:
+ * - Thread-safe operations using per-shard mutexes
+ * - LRU (Least Recently Used) eviction policy
+ * - TTL (Time To Live) support for cache entries
+ * - Automatic background sweep of expired entries
+ * - Configurable shard count and max entries per shard
+ * 
+ * For distributed caching needs, consider using RedisCacheService instead.
+ */
+
 typedef Entry = {
     var key:String;
     var value:Dynamic;
@@ -30,7 +46,7 @@ private class Shard {
     }
 }
 
-class CacheService implements ICacheService {
+class InMemoryCacheService implements ICacheService {
 
     private var shards:Array<Shard>;
     private var shardCount:Int;

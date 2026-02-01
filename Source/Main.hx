@@ -60,7 +60,7 @@ class Main extends Application {
 
 		DI.init(c -> {
 			c.addScoped(IUserService, UserService);
-			c.addSingleton(ICacheService, CacheService);
+			c.addSingleton(ICacheService, InMemoryCacheService);
 			c.addSingleton(IMessageBroker, PollingMessageBroker);
 			c.addSingleton(IStreamBroker, LocalStreamBroker);
 		});
