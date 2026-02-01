@@ -10,7 +10,8 @@ A Haxe-based web framework with flexible HTTP server support, dependency injecti
 - **Auto-generated REST Clients**: Synchronous and asynchronous client generation from interfaces
 - **Database Migrations**: SQL migration support
 - **Routing**: Automatic and manual routing capabilities
-- **Message Broker**: Long-polling message broker implementation
+- **Message Broker**: Long-polling message broker for real-time updates
+- **Stream Broker**: Fire-and-forget message handling with consumer groups (Redis Streams compatible)
 - **File Upload**: Multipart form data handling with file system storage
 
 ## Quick Start
@@ -145,6 +146,8 @@ lime test hl
 - [WEB_SERVER_GUIDE.md](WEB_SERVER_GUIDE.md) - Web server abstraction guide
 - [WEBSOCKET_GUIDE.md](WEBSOCKET_GUIDE.md) - WebSocket implementation and examples
 - [POLLING_README.md](POLLING_README.md) - Long-polling message broker
+- [STREAM_BROKER_GUIDE.md](STREAM_BROKER_GUIDE.md) - Stream broker system (fire-and-forget, consumer groups)
+- [MESSAGING_SYSTEMS_COMPARISON.md](MESSAGING_SYSTEMS_COMPARISON.md) - Comparison of all messaging systems
 - [HTML5_GUIDE.md](HTML5_GUIDE.md) - HTML5 target guide
 - [CIVETWEB_INTEGRATION.md](CIVETWEB_INTEGRATION.md) - CivetWeb integration details
 - [SINGLE_THREADED_ARCHITECTURE.md](SINGLE_THREADED_ARCHITECTURE.md) - Threading model

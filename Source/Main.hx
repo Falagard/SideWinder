@@ -62,6 +62,7 @@ class Main extends Application {
 			c.addScoped(IUserService, UserService);
 			c.addSingleton(ICacheService, CacheService);
 			c.addSingleton(IMessageBroker, PollingMessageBroker);
+			c.addSingleton(IStreamBroker, LocalStreamBroker);
 		});
 
 		cache = DI.get(ICacheService);
@@ -417,6 +418,168 @@ class Main extends Application {
 				res.end();
 			}
 		});
+
+		// ===== Stream Broker Demo Routes =====
+		var streamBroker:IStreamBroker = DI.get(IStreamBroker);
+		
+		// Add message to stream (fire-and-forget)
+		App.post("/stream/:streamName/add", (req, res) -> {
+			try {
+				var streamName = req.params.get("streamName");
+				var data:Dynamic = req.jsonBody;
+				
+				if (data == null) {
+					res.sendError(HTTPStatus.BAD_REQUEST);
+					res.setHeader("Content-Type", "application/json");
+					res.endHeaders();
+					res.write('{"error": "message data required"}');
+					res.end();
+					return;
+				}
+
+				var messageId = streamBroker.xadd(streamName, data);
+				
+				res.sendResponse(HTTPStatus.OK);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write('{"status": "added", "messageId": "$messageId", "stream": "$streamName"}');
+				res.end();
+			} catch (e:Dynamic) {
+				HybridLogger.error('Stream add error: ' + Std.string(e));
+				res.sendError(HTTPStatus.INTERNAL_SERVER_ERROR);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write('{"error": "' + Std.string(e) + '"}');
+				res.end();
+			}
+		});
+		
+		// Create consumer group
+		App.post("/stream/:streamName/group/:groupName", (req, res) -> {
+			try {
+				var streamName = req.params.get("streamName");
+				var groupName = req.params.get("groupName");
+				var data:Dynamic = req.jsonBody;
+				var startId:String = data != null && data.startId != null ? data.startId : "$";
+				
+				streamBroker.createGroup(streamName, groupName, startId);
+				
+				res.sendResponse(HTTPStatus.OK);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write('{"status": "created", "stream": "$streamName", "group": "$groupName", "startId": "$startId"}');
+				res.end();
+			} catch (e:Dynamic) {
+				HybridLogger.error('Create group error: ' + Std.string(e));
+				res.sendError(HTTPStatus.INTERNAL_SERVER_ERROR);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write('{"error": "' + Std.string(e) + '"}');
+				res.end();
+			}
+		});
+		
+		// Read messages from consumer group
+		App.get("/stream/:streamName/group/:groupName/consumer/:consumerName", (req, res) -> {
+			try {
+				var streamName = req.params.get("streamName");
+				var groupName = req.params.get("groupName");
+				var consumerName = req.params.get("consumerName");
+				var count:Int = req.query.exists("count") ? Std.parseInt(req.query.get("count")) : 1;
+				var blockMs:Null<Int> = req.query.exists("block") ? Std.parseInt(req.query.get("block")) : 0;
+				
+				var messages = streamBroker.xreadgroup(groupName, consumerName, streamName, count, blockMs);
+				
+				res.sendResponse(HTTPStatus.OK);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write(Json.stringify({
+					stream: streamName,
+					group: groupName,
+					consumer: consumerName,
+					count: messages.length,
+					messages: messages
+				}));
+				res.end();
+			} catch (e:Dynamic) {
+				HybridLogger.error('Read group error: ' + Std.string(e));
+				res.sendError(HTTPStatus.INTERNAL_SERVER_ERROR);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write('{"error": "' + Std.string(e) + '"}');
+				res.end();
+			}
+		});
+		
+		// Acknowledge messages
+		App.post("/stream/:streamName/group/:groupName/ack", (req, res) -> {
+			try {
+				var streamName = req.params.get("streamName");
+				var groupName = req.params.get("groupName");
+				var data:Dynamic = req.jsonBody;
+				var messageIds:Array<String> = data.messageIds;
+				
+				if (messageIds == null || messageIds.length == 0) {
+					res.sendError(HTTPStatus.BAD_REQUEST);
+					res.setHeader("Content-Type", "application/json");
+					res.endHeaders();
+					res.write('{"error": "messageIds array required"}');
+					res.end();
+					return;
+				}
+				
+				var acked = streamBroker.xack(streamName, groupName, messageIds);
+				
+				res.sendResponse(HTTPStatus.OK);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write('{"status": "acknowledged", "count": $acked}');
+				res.end();
+			} catch (e:Dynamic) {
+				HybridLogger.error('Ack error: ' + Std.string(e));
+				res.sendError(HTTPStatus.INTERNAL_SERVER_ERROR);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write('{"error": "' + Std.string(e) + '"}');
+				res.end();
+			}
+		});
+		
+		// Get stream info
+		App.get("/stream/:streamName/info", (req, res) -> {
+			try {
+				var streamName = req.params.get("streamName");
+				var length = streamBroker.xlen(streamName);
+				var groups = streamBroker.getGroupInfo(streamName);
+				
+				res.sendResponse(HTTPStatus.OK);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write(Json.stringify({
+					stream: streamName,
+					length: length,
+					groups: groups
+				}));
+				res.end();
+			} catch (e:Dynamic) {
+				HybridLogger.error('Info error: ' + Std.string(e));
+				res.sendError(HTTPStatus.INTERNAL_SERVER_ERROR);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write('{"error": "' + Std.string(e) + '"}');
+				res.end();
+			}
+		});
+		
+		// Demo: Run StreamBrokerDemo examples in background
+		Timer.delay(() -> {
+			Thread.create(() -> {
+				HybridLogger.info('[Main] Running Stream Broker demos...');
+				var demo = new StreamBrokerDemo(streamBroker);
+				demo.runAll();
+				HybridLogger.info('[Main] Stream Broker demos completed');
+			});
+		}, 2000);
 
 		// Example: Broadcast a test message every 10 seconds
 		Timer.delay(() -> {
