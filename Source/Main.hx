@@ -43,7 +43,21 @@ class Main extends Application {
 	public function new() {
 		super();
 
-		HybridLogger.init(true, HybridLogger.LogLevel.DEBUG);
+		// Initialize logger with minimum level
+		HybridLogger.init(HybridLogger.LogLevel.DEBUG);
+		
+		// Add logging providers
+		// File logging (daily rotation)
+		HybridLogger.addProvider(new FileLogProvider("logs"));
+		
+		// SQLite logging (batched for performance)
+		HybridLogger.addProvider(new SqliteLogProvider("logs", 20, 5.0));
+		
+		// Seq logging (structured logging to Seq server)
+		// Uncomment and configure if you have a Seq server running:
+		// HybridLogger.addProvider(new SeqLogProvider("http://localhost:5341", null, 10));
+		
+		HybridLogger.info("SideWinder application starting");
 		
 		// Initialize upload directory for file uploads
 		MultipartParser.setUploadDirectory("uploads");
