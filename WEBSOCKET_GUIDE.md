@@ -1,7 +1,131 @@
 # WebSocket Support in SideWinder
 
 ## Overview
-SideWinder now supports WebSocket connections through the CivetWeb adapter. This enables real-time bidirectional communication between clients and the server.
+SideWinder supports WebSocket connections through the CivetWeb adapter, enabling real-time bidirectional communication. Multiple handler implementations are provided for different use cases.
+
+## Quick Start
+
+### 1. Select a WebSocket Handler
+
+Edit `Source/Main.hx` and change the `wsHandlerType` variable:
+
+```haxe
+var wsHandlerType = "chat"; // Options: "echo", "chat", "broadcast", "auth"
+```
+
+### 2. Build and Run
+
+```bash
+# Build native library
+./build_civetweb.sh
+
+# Run server
+lime test hl
+```
+
+### 3. Test in Browser
+
+- **Echo**: `http://localhost:8000/websocket_test.html`
+- **Chat Room**: `http://localhost:8000/chatroom_demo.html`
+- **Broadcast**: `http://localhost:8000/broadcast_demo.html`
+- **Authenticated**: `http://localhost:8000/auth_demo.html`
+
+## WebSocket Handler Examples
+
+### Echo Handler
+Simple echo server that reflects messages back to the sender.
+
+**Use Case**: Testing, debugging, simple request-response patterns
+
+**Features**:
+- Echoes text messages with "Echo: " prefix
+- Handles binary data
+- Sends welcome message on connect
+
+**Test Page**: `websocket_test.html`
+
+### Chat Room Handler
+Multi-user chat room with user management and broadcasting.
+
+**Use Case**: Chat applications, collaborative tools, live discussions
+
+**Features**:
+- Automatic user naming (User1, User2, etc.)
+- Join/leave notifications
+- User list updates
+- Broadcast messages to all users
+- Private messaging support
+- User count tracking
+
+**Test Page**: `chatroom_demo.html`
+
+**Message Format**:
+```json
+// Send message
+{"type": "message", "message": "Hello everyone!"}
+
+// Private message
+{"type": "private", "to": "User2", "message": "Secret message"}
+
+// Change username
+{"type": "setname", "username": "CoolUser"}
+```
+
+### Broadcast Handler
+Channel-based pub/sub messaging system.
+
+**Use Case**: News feeds, notifications, multi-topic communication
+
+**Features**:
+- Subscribe to multiple channels
+- Publish to specific channels
+- Create channels dynamically
+- List available channels
+- Message history per channel
+
+**Test Page**: `broadcast_demo.html`
+
+**Message Format**:
+```json
+// Subscribe to channel
+{"type": "subscribe", "channel": "news"}
+
+// Publish to channel
+{"type": "publish", "channel": "news", "message": "Breaking news!"}
+
+// Unsubscribe
+{"type": "unsubscribe", "channel": "news"}
+
+// List channels
+{"type": "list"}
+```
+
+### Authenticated Handler
+Token-based authentication for secure connections.
+
+**Use Case**: Secure applications, user-specific data, access control
+
+**Features**:
+- Token-based authentication
+- Authentication timeout (configurable)
+- Session management
+- User identification
+- Secure message routing
+
+**Test Page**: `auth_demo.html`
+
+**Demo Tokens**:
+- `demo-token-123` (user: demo-user, id: 1)
+- `admin-token-456` (user: admin, id: 2)
+
+**Message Format**:
+```json
+// Authenticate (must be first message)
+{"type": "auth", "token": "demo-token-123"}
+
+// Send message (after authenticated)
+{"type": "message", "message": "Hello!"}
+```
 
 ## Architecture
 
