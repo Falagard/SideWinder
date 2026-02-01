@@ -7,7 +7,6 @@ import sys.FileSystem;
 import sys.thread.Thread;
 import sys.thread.Deque;
 import haxe.Timer;
-import sidewinder.Database;
 
 typedef LogEntry = {
     time:String,
@@ -118,7 +117,7 @@ class HybridLogger {
         try {
             sqliteConn.request("BEGIN TRANSACTION");
             for (entry in sqliteBatch) {
-                var sql = 'INSERT INTO logs VALUES (${Database.quoteString(entry.time)}, ${Database.quoteString(entry.level)}, ${Database.quoteString(entry.message)})';
+                var sql = 'INSERT INTO logs VALUES (${quoteString(entry.time)}, ${quoteString(entry.level)}, ${quoteString(entry.message)})';
                 sqliteConn.request(sql);
             }
             sqliteConn.request("COMMIT");
@@ -127,6 +126,10 @@ class HybridLogger {
             trace("SQLite batch insert failed: " + e);
             try sqliteConn.request("ROLLBACK") catch (err:Dynamic) {}
         }
+    }
+    
+    static function quoteString(str:String):String {
+        return str == null ? "NULL" : "'" + StringTools.replace(str, "'", "''") + "'";
     }
 
     public static function shutdown() {

@@ -19,7 +19,9 @@ import snake.server.*;
 import lime.ui.Gamepad;
 import lime.ui.GamepadButton;
 import Date;
-import sidewinder.Database;
+import sidewinder.IDatabaseService;
+import sidewinder.SqliteDatabaseService;
+import sidewinder.MySqlDatabaseService;
 import hx.injection.Service;
 import sidewinder.*;
 import sidewinder.IWebServer;
@@ -41,8 +43,6 @@ class Main extends Application {
 	public function new() {
 		super();
 
-		// Initialize database and run migrations
-		Database.runMigrations();
 		HybridLogger.init(true, HybridLogger.LogLevel.DEBUG);
 		
 		// Initialize upload directory for file uploads
@@ -59,11 +59,20 @@ class Main extends Application {
 		SideWinderRequestHandler.silent = true;
 
 		DI.init(c -> {
+			// Database service - choose between SQLite and MySQL
+			c.addSingleton(IDatabaseService, SqliteDatabaseService);
+			// For MySQL, use:
+			// c.addSingleton(IDatabaseService, MySqlDatabaseService);
+			
 			c.addScoped(IUserService, UserService);
 			c.addSingleton(ICacheService, InMemoryCacheService);
 			c.addSingleton(IMessageBroker, PollingMessageBroker);
 			c.addSingleton(IStreamBroker, LocalStreamBroker);
 		});
+
+		// Run database migrations after DI is configured
+		var db = DI.get(IDatabaseService);
+		db.runMigrations();
 
 		cache = DI.get(ICacheService);
 		
