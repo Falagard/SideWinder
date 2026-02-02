@@ -97,6 +97,15 @@ class Main extends Application {
 			} else {
 				HybridLogger.warn("SendGrid not configured - set SENDGRID_API_KEY and SENDGRID_FROM_EMAIL environment variables");
 			}
+
+			var stripeSecretKey = Sys.getEnv("STRIPE_SECRET_KEY");
+			if (stripeSecretKey != null && stripeSecretKey != "") {
+				c.addSingleton(IStripeService, StripeService);
+				c.addSingleton(IStripeBillingStore, StripeBillingStore);
+				c.addSingleton(IStripeWebhookService, StripeWebhookService);
+			} else {
+				HybridLogger.warn("Stripe not configured - set STRIPE_SECRET_KEY to enable Stripe services");
+			}
 		});
 
 		// Run database migrations after DI is configured
@@ -191,6 +200,28 @@ class Main extends Application {
 			res.write(haxe.Json.stringify(response, null, "  "));
 			res.end();
 		});
+
+		var stripeSecretKey = Sys.getEnv("STRIPE_SECRET_KEY");
+		if (stripeSecretKey != null && stripeSecretKey != "") {
+			var stripeController:StripeSubscriptionController = null;
+			var getStripeController = function() {
+				if (stripeController == null) {
+					stripeController = new StripeSubscriptionController(
+						DI.get(IStripeService),
+						DI.get(IStripeBillingStore),
+						DI.get(IStripeWebhookService)
+					);
+				}
+				return stripeController;
+			};
+
+			App.post("/stripe/checkout-session", (req, res) -> getStripeController().createCheckoutSession(req, res));
+			App.get("/stripe/subscription/:userId", (req, res) -> getStripeController().getSubscription(req, res));
+			App.post("/stripe/cancel-subscription", (req, res) -> getStripeController().cancelSubscription(req, res));
+			App.post("/stripe/webhooks", (req, res) -> getStripeController().handleWebhook(req, res));
+		} else {
+			HybridLogger.warn("Stripe endpoints not registered - set STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET to enable Stripe routes");
+		}
 
 		// Synchronous AutoClient example (legacy port 8080 kept for reference; server actually runs on DEFAULT_PORT)
 		var userClient:IUserService = AutoClient.create(IUserService, "http://localhost:8080");

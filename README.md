@@ -17,6 +17,7 @@ A Haxe-based web framework with flexible HTTP server support, dependency injecti
 - **Logging System**: Hybrid logging with multiple providers (File, SQLite, Seq)
 - **Authentication & OAuth**: Token-based authentication with OAuth provider support (Google, GitHub, Microsoft)
 - **Email Notifications**: SendGrid integration for email sending
+- **Stripe Subscriptions**: Stripe Checkout subscriptions with webhook handling and recurring billing logs
 
 ## Quick Start
 
@@ -48,6 +49,25 @@ The server will start on `http://127.0.0.1:8000` by default.
 ### Configuration
 
 For optional features like email notifications and OAuth authentication, configure environment variables. See [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md) for a complete reference.
+
+## Stripe Subscriptions
+
+SideWinder includes Stripe Checkout-based subscription support with webhook processing and recurring billing logs.
+
+### Endpoints
+
+- `POST /stripe/checkout-session` — Create a Stripe Checkout Session for subscriptions.
+  - Body: `userId`, `priceId` (optional if `STRIPE_PRICE_ID` is set), `successUrl`, `cancelUrl`
+- `GET /stripe/subscription/:userId` — Fetch subscription status for a user.
+- `POST /stripe/cancel-subscription` — Cancel a user subscription.
+  - Body: `userId`
+- `POST /stripe/webhooks` — Stripe webhook receiver.
+
+### Required Environment Variables
+
+- `STRIPE_SECRET_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+- Optional: `STRIPE_PRICE_ID`
 
 ## Web Server Configuration
 

@@ -16,6 +16,23 @@ This document lists all environment variables used by SideWinder and their purpo
 - **Example:** `noreply@yourdomain.com`
 - **Documentation:** See [NOTIFICATION_SYSTEM.md](NOTIFICATION_SYSTEM.md)
 
+## Stripe Subscriptions
+
+### STRIPE_SECRET_KEY
+- **Required for:** Stripe subscription API calls
+- **Description:** Stripe secret API key
+- **Example:** `your_stripe_secret_key`
+
+### STRIPE_WEBHOOK_SECRET
+- **Required for:** Stripe webhook signature verification
+- **Description:** Stripe webhook signing secret
+- **Example:** `your_stripe_webhook_secret`
+
+### STRIPE_PRICE_ID
+- **Required for:** Stripe Checkout session creation if not provided in request
+- **Description:** Default Stripe price ID for subscription
+- **Example:** `price_1XXXXXXXXXXXXXXX`
+
 ## OAuth Authentication
 
 ### Google OAuth
