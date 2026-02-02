@@ -1,0 +1,11 @@
+Hello ::name::,
+
+Welcome to SideWinder!
+
+Your signup date: ::date::
+Plan: ::plan::
+
+If you have any questions, just reply to this email.
+
+Thanks,
+The SideWinder Team

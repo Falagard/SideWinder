@@ -520,6 +520,15 @@ class Main extends Application {
 
 		// ===== Stream Broker Demo Routes =====
 		var streamBroker:IStreamBroker = DI.get(IStreamBroker);
+
+		// Email template stream consumer (background worker)
+		try {
+			var notificationService = DI.get(INotificationService);
+			var templateEngine = new EmailTemplateEngine();
+			EmailTemplateStreamConsumer.start(streamBroker, notificationService, templateEngine);
+		} catch (e:Dynamic) {
+			HybridLogger.warn('Email template consumer not started: ' + Std.string(e));
+		}
 		
 		// Add message to stream (fire-and-forget)
 		App.post("/stream/:streamName/add", (req, res) -> {
