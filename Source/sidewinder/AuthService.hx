@@ -1,4 +1,4 @@
-package sidewinder;
+MultipartParserpackage sidewinder;
 
 import haxe.crypto.Sha256;
 import haxe.crypto.Base64;
