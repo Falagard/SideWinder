@@ -23,6 +23,14 @@ typedef UploadedFile = {
 	var filePath:String;       // Saved path on server
 	var contentType:String;    // MIME type
 	var size:Int;              // File size in bytes
+	@:optional var authContext:AuthContext;
+};
+
+typedef AuthContext = {
+	var authenticated:Bool;
+	var userId:Null<Int>;
+	var session:Null<Dynamic>;
+	var token:Null<String>;
 };
 
 typedef Response = {
