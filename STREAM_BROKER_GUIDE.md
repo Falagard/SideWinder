@@ -351,6 +351,273 @@ function processWithRateLimit():Void {
 6. **Error handling**: Don't ack messages that failed processing - let auto-claim handle retries
 7. **Blocking reads**: Use blocking reads to reduce polling overhead
 8. **Stream naming**: Use descriptive names (e.g., "user-notifications", "order-events")
+9. **Testing**: Test with local implementation before migrating to Redis
+10. **Monitoring**: Use `xlen()` and `getGroupInfo()` to monitor queue health
+
+## Real-World Example: Fire-and-Forget Email Sending
+
+This example demonstrates using the stream broker for asynchronous email sending with the SendGrid notification service.
+
+### 1. Producer: Enqueue Email Requests
+
+```haxe
+// In your API endpoint or service
+App.post("/api/send-welcome-email", (req, res) -> {
+    var userId = req.jsonBody.userId;
+    var email = req.jsonBody.email;
+    
+    // Fire-and-forget: Add to stream immediately
+    var broker:IStreamBroker = DI.get(IStreamBroker);
+    broker.xadd("emails", {
+        type: "welcome",
+        to: email,
+        userId: userId,
+        timestamp: Date.now().getTime()
+    });
+    
+    // Return immediately without waiting for email to send
+    res.sendResponse(HTTPStatus.OK);
+    res.setHeader("Content-Type", "application/json");
+    res.endHeaders();
+    res.write('{"status": "queued", "message": "Email will be sent shortly"}');
+    res.end();
+});
+
+// Another example: Batch enqueue multiple emails
+function sendNewsletterToUsers(userList:Array<User>):Void {
+    var broker:IStreamBroker = DI.get(IStreamBroker);
+    
+    for (user in userList) {
+        broker.xadd("emails", {
+            type: "newsletter",
+            to: user.email,
+            userId: user.id,
+            subject: "Monthly Newsletter",
+            templateId: "newsletter_2026_01"
+        });
+    }
+    
+    HybridLogger.info('Queued ${userList.length} newsletter emails');
+}
+```
+
+### 2. Consumer: Background Email Worker
+
+```haxe
+// Start background worker thread
+function startEmailWorker():Void {
+    Thread.create(() -> {
+        var broker:IStreamBroker = DI.get(IStreamBroker);
+        var notificationService:INotificationService = DI.get(INotificationService);
+        
+        var streamName = "emails";
+        var groupName = "email-senders";
+        var consumerName = "worker-" + Std.string(Sys.time());
+        
+        // Create consumer group (only needs to be done once)
+        try {
+            broker.createGroup(streamName, groupName, "$"); // Start from new messages
+            HybridLogger.info('[EmailWorker] Created consumer group: $groupName');
+        } catch (e:Dynamic) {
+            // Group might already exist, that's OK
+            HybridLogger.debug('[EmailWorker] Consumer group already exists');
+        }
+        
+        HybridLogger.info('[EmailWorker] Started: $consumerName');
+        
+        // Main processing loop
+        while (true) {
+            try {
+                // Read up to 10 messages, block for 5 seconds if none available
+                var messages = broker.xreadgroup(
+                    groupName,
+                    consumerName,
+                    streamName,
+                    10,      // batch size
+                    5000     // timeout in milliseconds
+                );
+                
+                if (messages.length > 0) {
+                    HybridLogger.info('[EmailWorker] Processing ${messages.length} emails');
+                }
+                
+                for (msg in messages) {
+                    try {
+                        var emailData = msg.data;
+                        
+                        // Send email based on type
+                        switch (emailData.type) {
+                            case "welcome":
+                                sendWelcomeEmail(notificationService, emailData);
+                            case "newsletter":
+                                sendNewsletterEmail(notificationService, emailData);
+                            case "password_reset":
+                                sendPasswordResetEmail(notificationService, emailData);
+                            default:
+                                HybridLogger.warn('[EmailWorker] Unknown email type: ${emailData.type}');
+                        }
+                        
+                        // Acknowledge successful processing
+                        broker.xack(streamName, groupName, [msg.id]);
+                        HybridLogger.debug('[EmailWorker] Sent email: ${msg.id}');
+                        
+                    } catch (e:Dynamic) {
+                        HybridLogger.error('[EmailWorker] Failed to process message ${msg.id}: $e');
+                        // Don't acknowledge - message will be auto-claimed and retried
+                    }
+                }
+                
+                // Auto-claim messages that have been pending for > 60 seconds
+                // (handles worker crashes or hung processes)
+                var claimed = broker.xautoclaim(streamName, groupName, consumerName, 60000, 10);
+                if (claimed.length > 0) {
+                    HybridLogger.warn('[EmailWorker] Auto-claimed ${claimed.length} stale messages');
+                    // Process claimed messages the same way...
+                }
+                
+            } catch (e:Dynamic) {
+                HybridLogger.error('[EmailWorker] Error in main loop: $e');
+                Sys.sleep(1); // Back off on error
+            }
+        }
+    });
+}
+
+function sendWelcomeEmail(service:INotificationService, data:Dynamic):Void {
+    var htmlBody = '
+        <html>
+        <body>
+            <h1>Welcome!</h1>
+            <p>Thank you for joining our platform.</p>
+        </body>
+        </html>
+    ';
+    
+    service.sendEmail(
+        data.to,
+        "Welcome to Our Platform",
+        htmlBody,
+        true, // isHtml
+        function(err:Dynamic) {
+            if (err != null) {
+                throw err;
+            }
+        }
+    );
+}
+
+function sendNewsletterEmail(service:INotificationService, data:Dynamic):Void {
+    // Load template and send...
+    service.sendEmail(
+        data.to,
+        data.subject,
+        getNewsletterTemplate(data.templateId),
+        true,
+        function(err:Dynamic) {
+            if (err != null) {
+                throw err;
+            }
+        }
+    );
+}
+
+function sendPasswordResetEmail(service:INotificationService, data:Dynamic):Void {
+    var resetLink = data.resetLink;
+    var htmlBody = '
+        <html>
+        <body>
+            <h2>Password Reset Request</h2>
+            <p>Click the link below to reset your password:</p>
+            <a href="$resetLink">Reset Password</a>
+        </body>
+        </html>
+    ';
+    
+    service.sendEmail(
+        data.to,
+        "Password Reset Request",
+        htmlBody,
+        true,
+        function(err:Dynamic) {
+            if (err != null) {
+                throw err;
+            }
+        }
+    );
+}
+```
+
+### 3. Start Worker in Main.hx
+
+```haxe
+// In Main.hx, after DI initialization
+public function new() {
+    super();
+    
+    // ... DI setup, database migrations, etc. ...
+    
+    // Start email worker thread
+    Timer.delay(() -> {
+        startEmailWorker();
+        HybridLogger.info('[Main] Email worker started');
+    }, 1000); // Small delay to ensure server is ready
+    
+    // ... rest of initialization ...
+}
+```
+
+### 4. Monitoring and Management
+
+```haxe
+// Add monitoring endpoint
+App.get("/admin/email-queue-status", (req, res) -> {
+    var broker:IStreamBroker = DI.get(IStreamBroker);
+    var streamName = "emails";
+    
+    var queueLength = broker.xlen(streamName);
+    var groups = broker.getGroupInfo(streamName);
+    
+    var status = {
+        queueLength: queueLength,
+        consumerGroups: groups.map(g -> {
+            return {
+                name: g.name,
+                consumers: g.consumers.length,
+                totalPending: g.totalPending,
+                lastDeliveredId: g.lastDeliveredId
+            };
+        })
+    };
+    
+    res.sendResponse(HTTPStatus.OK);
+    res.setHeader("Content-Type", "application/json");
+    res.endHeaders();
+    res.write(Json.stringify(status, null, "  "));
+    res.end();
+});
+```
+
+### Benefits of This Approach
+
+1. **Non-blocking**: API responses return immediately, improving user experience
+2. **Scalable**: Add more worker threads/processes as email volume increases
+3. **Reliable**: Messages are tracked until acknowledged; failures trigger retries
+4. **Fault-tolerant**: Auto-claim recovers from worker crashes
+5. **Monitoring**: Track queue depth and consumer health
+6. **Future-proof**: Identical API works with Redis Streams for distributed deployments
+
+### Multiple Workers for High Volume
+
+```haxe
+// Start multiple worker threads for parallel processing
+for (i in 0...4) { // 4 worker threads
+    Timer.delay(() -> {
+        startEmailWorker();
+    }, 1000 + (i * 100));
+}
+```
+
+Each worker will automatically receive different messages from the consumer group, enabling parallel processing.
 
 ## Migration to Redis
 
@@ -403,6 +670,11 @@ collection.addSingleton(IStreamBroker, RedisStreamBroker);
 
 ## See Also
 
-- [StreamBrokerDemo.hx](StreamBrokerDemo.hx) - Complete working examples
+- [STREAM_BROKER_IMPLEMENTATION.md](STREAM_BROKER_IMPLEMENTATION.md) - Implementation details
+- [STREAM_BROKER_QUICKREF.md](STREAM_BROKER_QUICKREF.md) - Quick reference card
+- [MESSAGING_SYSTEMS_COMPARISON.md](MESSAGING_SYSTEMS_COMPARISON.md) - Compare with other messaging systems
+- [NOTIFICATION_SYSTEM.md](NOTIFICATION_SYSTEM.md) - SendGrid email notification service
+- [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md) - Configure SendGrid for email examples
+- [StreamBrokerDemo.hx](Source/sidewinder/StreamBrokerDemo.hx) - Complete working examples
 - [Redis Streams Documentation](https://redis.io/topics/streams-intro) - Redis Streams reference
-- [IStreamBroker.hx](IStreamBroker.hx) - Full API interface definition
+- [IStreamBroker.hx](Source/sidewinder/IStreamBroker.hx) - Full API interface definition
