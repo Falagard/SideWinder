@@ -183,6 +183,18 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		var query = parseQuery(this.path);
 		var parsed = parseJsonFromBody(headers, body);
 		var formBody = parseFormFromBody(headers, body);
+		
+		// Parse multipart/form-data for file uploads
+		var files:Array<UploadedFile> = [];
+		var ct = headers.get("Content-Type");
+		if (ct != null && ct.indexOf("multipart/form-data") != -1) {
+			var multipartData = MultipartParser.parseMultipart(body, ct);
+			files = multipartData.files;
+			// Merge multipart form fields into formBody
+			for (key in multipartData.fields.keys()) {
+				formBody.set(key, multipartData.fields.get(key));
+			}
+		}
 
 		var cookies = parseCookies(headers.get("Cookie"));
 		var sessionId = cookies.get("session_id");
@@ -201,7 +213,9 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 			jsonBody: parsed,
 			formBody: formBody,
 			params: match.params,
-			cookies: cookies
+			cookies: cookies,
+			files: files,
+			ip: clientAddress.host.toString()
 		};
 
 		var res:Response = {
@@ -236,7 +250,18 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		};
 
 		try {
-			router.handle(req, res, match.route);
+			// If using SnakeServerAdapter, enqueue instead of processing directly
+			if (SnakeServerAdapter.instance != null) {
+				SnakeServerAdapter.instance.enqueueRequest(req, res, match.route);
+				// Send immediate response acknowledging receipt
+				sendResponse(snake.http.HTTPStatus.ACCEPTED); // 202 Accepted
+				sendHeader("Content-Type", "text/plain");
+				endHeaders();
+				wfile.writeString("Request queued for processing");
+			} else {
+				// Direct processing (fallback for non-adapter usage)
+				router.handle(req, res, match.route);
+			}
 		} catch (e:Dynamic) {
 			sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR, "Internal Server Error");
 			trace("Middleware/Handler error: " + Std.string(e));

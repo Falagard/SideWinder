@@ -31,6 +31,19 @@
       "event": [{"listen": "test", "script": {"exec": ["pm.test('Status is 200', function () { pm.response.to.have.status(200); });","pm.test('Contains async HTML snippet', function () { pm.expect(pm.response.text()).to.include('<html>'); });"], "type": "text/javascript"}}]
     },
     {
+      "name": "Send Email",
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"to\": \"recipient@example.com\",\n  \"subject\": \"Test Email from SideWinder\",\n  \"body\": \"This is a test email sent from the SideWinder API.\",\n  \"isHtml\": false\n}"
+        },
+        "url": {"raw": "{{baseUrl}}/send-email", "host": ["{{baseUrl}}"], "path": ["send-email"]}
+      },
+      "event": [{"listen": "test", "script": {"exec": ["pm.test('Status is 200 or 503 (if not configured)', function () { pm.expect([200, 503]).to.include(pm.response.code); });","pm.test('Returns JSON response', function () { pm.response.to.be.json; });"], "type": "text/javascript"}}]
+    },
+    {
       "name": "Users",
       "item": [
         {

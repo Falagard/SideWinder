@@ -19,9 +19,13 @@ import snake.server.*;
 import lime.ui.Gamepad;
 import lime.ui.GamepadButton;
 import Date;
-import sidewinder.Database;
+import sidewinder.IDatabaseService;
+import sidewinder.SqliteDatabaseService;
+import sidewinder.MySqlDatabaseService;
 import hx.injection.Service;
 import sidewinder.*;
+import sidewinder.IWebServer;
+import sidewinder.WebServerFactory;
 
 using hx.injection.ServiceExtensions;
 
@@ -30,7 +34,7 @@ class Main extends Application {
 	private static final DEFAULT_ADDRESS = "127.0.0.1";
 	private static final DEFAULT_PORT = 8000;
 
-	private var httpServer:SideWinderServer;
+	private var webServer:IWebServer;
 
 	public static var router = SideWinderRequestHandler.router;
 
@@ -39,9 +43,24 @@ class Main extends Application {
 	public function new() {
 		super();
 
-		// Initialize database and run migrations
-		Database.runMigrations();
-		HybridLogger.init(true, HybridLogger.LogLevel.DEBUG);
+		// Initialize logger with minimum level
+		HybridLogger.init(HybridLogger.LogLevel.DEBUG);
+		
+		// Add logging providers
+		// File logging (daily rotation)
+		HybridLogger.addProvider(new FileLogProvider("logs"));
+		
+		// SQLite logging (batched for performance)
+		HybridLogger.addProvider(new SqliteLogProvider("logs", 20, 5.0));
+		
+		// Seq logging (structured logging to Seq server)
+		// Uncomment and configure if you have a Seq server running:
+		// HybridLogger.addProvider(new SeqLogProvider("http://localhost:5341", null, 10));
+		
+		HybridLogger.info("SideWinder application starting");
+		
+		// Initialize upload directory for file uploads
+		MultipartParser.setUploadDirectory("uploads");
 
 		// Cache service will be resolved from DI
 
@@ -54,20 +73,123 @@ class Main extends Application {
 		SideWinderRequestHandler.silent = true;
 
 		DI.init(c -> {
+			// Database service - choose between SQLite and MySQL
+			c.addSingleton(IDatabaseService, SqliteDatabaseService);
+			// For MySQL, use:
+			// c.addSingleton(IDatabaseService, MySqlDatabaseService);
+			
 			c.addScoped(IUserService, UserService);
-			c.addSingleton(ICacheService, CacheService);
+			c.addSingleton(ICacheService, InMemoryCacheService);
 			c.addSingleton(IMessageBroker, PollingMessageBroker);
+			c.addSingleton(IStreamBroker, LocalStreamBroker);
+			
+			// Notification service - configure with SendGrid API key
+			// Get API key from environment variable or configuration
+			var sendgridApiKey = Sys.getEnv("SENDGRID_API_KEY");
+			var defaultFromEmail = Sys.getEnv("SENDGRID_FROM_EMAIL");
+			if (sendgridApiKey != null && defaultFromEmail != null) {
+				c.addSingleton(INotificationService, () -> new SendGridNotificationService(
+					sendgridApiKey, 
+					defaultFromEmail, 
+					"SideWinder App",
+					HybridLogger.instance()
+				));
+			} else {
+				HybridLogger.warn("SendGrid not configured - set SENDGRID_API_KEY and SENDGRID_FROM_EMAIL environment variables");
+			}
 		});
+
+		// Run database migrations after DI is configured
+		var db = DI.get(IDatabaseService);
+		db.runMigrations();
 
 		cache = DI.get(ICacheService);
 		
 		// Create singleton cookieJar for all async clients
 		var cookieJar:ICookieJar = new CookieJar();
 
-		httpServer = new SideWinderServer(new Host(DEFAULT_ADDRESS), DEFAULT_PORT, SideWinderRequestHandler, true, directory);
+		// Create web server using factory pattern
+		// Can switch between SnakeServer and CivetWeb implementations
+		webServer = WebServerFactory.create(
+			WebServerFactory.WebServerType.CivetWeb,  // Use CivetWeb for WebSocket support
+			DEFAULT_ADDRESS, 
+			DEFAULT_PORT, 
+			SideWinderRequestHandler, 
+			directory
+		);
+		
+		// Setup WebSocket support if using CivetWeb
+		// Choose which WebSocket handler to use:
+		// - EchoWebSocketHandler: Simple echo server
+		// - ChatRoomWebSocketHandler: Multi-user chat room
+		// - BroadcastWebSocketHandler: Channel-based broadcasting
+		// - AuthenticatedWebSocketHandler: Token-based authentication
+		if (Std.isOfType(webServer, CivetWebAdapter)) {
+			var civetAdapter:CivetWebAdapter = cast webServer;
+			
+			// Change this line to switch between different WebSocket handlers
+			var wsHandlerType = "chat"; // Options: "echo", "chat", "broadcast", "auth"
+			
+			switch (wsHandlerType) {
+				case "echo":
+					var wsHandler = new EchoWebSocketHandler(civetAdapter);
+					civetAdapter.setWebSocketHandler(wsHandler);
+					HybridLogger.info('[Main] WebSocket echo handler enabled');
+					HybridLogger.info('[Main] Test at: http://$DEFAULT_ADDRESS:$DEFAULT_PORT/websocket_test.html');
+					
+				case "chat":
+					var wsHandler = new ChatRoomWebSocketHandler(civetAdapter);
+					civetAdapter.setWebSocketHandler(wsHandler);
+					HybridLogger.info('[Main] WebSocket chat room handler enabled');
+					HybridLogger.info('[Main] Test at: http://$DEFAULT_ADDRESS:$DEFAULT_PORT/chatroom_demo.html');
+					
+				case "broadcast":
+					var wsHandler = new BroadcastWebSocketHandler(civetAdapter);
+					civetAdapter.setWebSocketHandler(wsHandler);
+					HybridLogger.info('[Main] WebSocket broadcast handler enabled');
+					HybridLogger.info('[Main] Test at: http://$DEFAULT_ADDRESS:$DEFAULT_PORT/broadcast_demo.html');
+					
+				case "auth":
+					var wsHandler = new AuthenticatedWebSocketHandler(civetAdapter, 30.0); // 30 second auth timeout
+					civetAdapter.setWebSocketHandler(wsHandler);
+					HybridLogger.info('[Main] WebSocket authenticated handler enabled');
+					HybridLogger.info('[Main] Test at: http://$DEFAULT_ADDRESS:$DEFAULT_PORT/auth_demo.html');
+					HybridLogger.info('[Main] Demo tokens: "demo-token-123" (user), "admin-token-456" (admin)');
+					
+				default:
+					HybridLogger.warn('[Main] Unknown WebSocket handler type: $wsHandlerType');
+			}
+		}
+		
+		webServer.start();
 
 		AutoRouter.build(router, IUserService, function() {
 			return DI.get(IUserService);
+		});
+		
+		// Add file upload test route
+		router.add("POST", "/upload", function(req:Router.Request, res:Router.Response) {
+			res.sendResponse(snake.http.HTTPStatus.OK);
+			res.setHeader("Content-Type", "application/json");
+			res.endHeaders();
+			
+			var response = {
+				message: "Files uploaded successfully",
+				fileCount: req.files.length,
+				files: req.files.map(f -> {
+					return {
+						fieldName: f.fieldName,
+						originalName: f.fileName,
+						savedPath: f.filePath,
+						size: f.size,
+						contentType: f.contentType
+					};
+				}),
+				formFields: [for (k in req.formBody.keys()) {field: k, value: req.formBody.get(k)}]
+			};
+			
+			res.write(haxe.Json.stringify(response, null, "  "));
+			res.end();
 		});
 
 		// Synchronous AutoClient example (legacy port 8080 kept for reference; server actually runs on DEFAULT_PORT)
@@ -179,6 +301,67 @@ class Main extends Application {
 			res.endHeaders();
 			res.write(html);
 			res.end();
+		});
+
+		// Email notification endpoint
+		App.post("/send-email", (req, res) -> {
+			try {
+				// Parse the JSON body to get email parameters
+				var to:String = Reflect.field(req.jsonBody, "to");
+				var subject:String = Reflect.field(req.jsonBody, "subject");
+				var body:String = Reflect.field(req.jsonBody, "body");
+				var isHtml:Bool = Reflect.field(req.jsonBody, "isHtml");
+				
+				if (to == null || subject == null || body == null) {
+					res.sendResponse(snake.http.HTTPStatus.BAD_REQUEST);
+					res.setHeader("Content-Type", "application/json");
+					res.endHeaders();
+					res.write(Json.stringify({error: "Missing required fields: to, subject, body"}));
+					res.end();
+					return;
+				}
+				
+				// Get notification service from DI
+				var notificationService:INotificationService = null;
+				try {
+					notificationService = DI.get(INotificationService);
+				} catch (e:Dynamic) {
+					HybridLogger.warn("Notification service not configured");
+					res.sendResponse(snake.http.HTTPStatus.SERVICE_UNAVAILABLE);
+					res.setHeader("Content-Type", "application/json");
+					res.endHeaders();
+					res.write(Json.stringify({error: "Email service not configured. Please set SENDGRID_API_KEY and SENDGRID_FROM_EMAIL environment variables"}));
+					res.end();
+					return;
+				}
+				
+				// Send email asynchronously
+				notificationService.sendEmail(to, subject, body, isHtml, function(err:Dynamic) {
+					if (err != null) {
+						HybridLogger.error('Failed to send email: $err');
+						res.sendResponse(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR);
+						res.setHeader("Content-Type", "application/json");
+						res.endHeaders();
+						res.write(Json.stringify({error: "Failed to send email", details: Std.string(err)}));
+						res.end();
+					} else {
+						HybridLogger.info('Email sent successfully to: $to');
+						res.sendResponse(snake.http.HTTPStatus.OK);
+						res.setHeader("Content-Type", "application/json");
+						res.endHeaders();
+						res.write(Json.stringify({success: true, message: "Email sent successfully"}));
+						res.end();
+					}
+				});
+				
+			} catch (e:Dynamic) {
+				HybridLogger.error('Exception in /send-email endpoint: $e');
+				res.sendResponse(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write(Json.stringify({error: "Internal server error", details: Std.string(e)}));
+				res.end();
+			}
 		});
 
 		// Polling endpoints for WebSocket-like messaging
@@ -335,6 +518,168 @@ class Main extends Application {
 			}
 		});
 
+		// ===== Stream Broker Demo Routes =====
+		var streamBroker:IStreamBroker = DI.get(IStreamBroker);
+		
+		// Add message to stream (fire-and-forget)
+		App.post("/stream/:streamName/add", (req, res) -> {
+			try {
+				var streamName = req.params.get("streamName");
+				var data:Dynamic = req.jsonBody;
+				
+				if (data == null) {
+					res.sendError(HTTPStatus.BAD_REQUEST);
+					res.setHeader("Content-Type", "application/json");
+					res.endHeaders();
+					res.write('{"error": "message data required"}');
+					res.end();
+					return;
+				}
+
+				var messageId = streamBroker.xadd(streamName, data);
+				
+				res.sendResponse(HTTPStatus.OK);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write('{"status": "added", "messageId": "$messageId", "stream": "$streamName"}');
+				res.end();
+			} catch (e:Dynamic) {
+				HybridLogger.error('Stream add error: ' + Std.string(e));
+				res.sendError(HTTPStatus.INTERNAL_SERVER_ERROR);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write('{"error": "' + Std.string(e) + '"}');
+				res.end();
+			}
+		});
+		
+		// Create consumer group
+		App.post("/stream/:streamName/group/:groupName", (req, res) -> {
+			try {
+				var streamName = req.params.get("streamName");
+				var groupName = req.params.get("groupName");
+				var data:Dynamic = req.jsonBody;
+				var startId:String = data != null && data.startId != null ? data.startId : "$";
+				
+				streamBroker.createGroup(streamName, groupName, startId);
+				
+				res.sendResponse(HTTPStatus.OK);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write('{"status": "created", "stream": "$streamName", "group": "$groupName", "startId": "$startId"}');
+				res.end();
+			} catch (e:Dynamic) {
+				HybridLogger.error('Create group error: ' + Std.string(e));
+				res.sendError(HTTPStatus.INTERNAL_SERVER_ERROR);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write('{"error": "' + Std.string(e) + '"}');
+				res.end();
+			}
+		});
+		
+		// Read messages from consumer group
+		App.get("/stream/:streamName/group/:groupName/consumer/:consumerName", (req, res) -> {
+			try {
+				var streamName = req.params.get("streamName");
+				var groupName = req.params.get("groupName");
+				var consumerName = req.params.get("consumerName");
+				var count:Int = req.query.exists("count") ? Std.parseInt(req.query.get("count")) : 1;
+				var blockMs:Null<Int> = req.query.exists("block") ? Std.parseInt(req.query.get("block")) : 0;
+				
+				var messages = streamBroker.xreadgroup(groupName, consumerName, streamName, count, blockMs);
+				
+				res.sendResponse(HTTPStatus.OK);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write(Json.stringify({
+					stream: streamName,
+					group: groupName,
+					consumer: consumerName,
+					count: messages.length,
+					messages: messages
+				}));
+				res.end();
+			} catch (e:Dynamic) {
+				HybridLogger.error('Read group error: ' + Std.string(e));
+				res.sendError(HTTPStatus.INTERNAL_SERVER_ERROR);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write('{"error": "' + Std.string(e) + '"}');
+				res.end();
+			}
+		});
+		
+		// Acknowledge messages
+		App.post("/stream/:streamName/group/:groupName/ack", (req, res) -> {
+			try {
+				var streamName = req.params.get("streamName");
+				var groupName = req.params.get("groupName");
+				var data:Dynamic = req.jsonBody;
+				var messageIds:Array<String> = data.messageIds;
+				
+				if (messageIds == null || messageIds.length == 0) {
+					res.sendError(HTTPStatus.BAD_REQUEST);
+					res.setHeader("Content-Type", "application/json");
+					res.endHeaders();
+					res.write('{"error": "messageIds array required"}');
+					res.end();
+					return;
+				}
+				
+				var acked = streamBroker.xack(streamName, groupName, messageIds);
+				
+				res.sendResponse(HTTPStatus.OK);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write('{"status": "acknowledged", "count": $acked}');
+				res.end();
+			} catch (e:Dynamic) {
+				HybridLogger.error('Ack error: ' + Std.string(e));
+				res.sendError(HTTPStatus.INTERNAL_SERVER_ERROR);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write('{"error": "' + Std.string(e) + '"}');
+				res.end();
+			}
+		});
+		
+		// Get stream info
+		App.get("/stream/:streamName/info", (req, res) -> {
+			try {
+				var streamName = req.params.get("streamName");
+				var length = streamBroker.xlen(streamName);
+				var groups = streamBroker.getGroupInfo(streamName);
+				
+				res.sendResponse(HTTPStatus.OK);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write(Json.stringify({
+					stream: streamName,
+					length: length,
+					groups: groups
+				}));
+				res.end();
+			} catch (e:Dynamic) {
+				HybridLogger.error('Info error: ' + Std.string(e));
+				res.sendError(HTTPStatus.INTERNAL_SERVER_ERROR);
+				res.setHeader("Content-Type", "application/json");
+				res.endHeaders();
+				res.write('{"error": "' + Std.string(e) + '"}');
+				res.end();
+			}
+		});
+		
+		// Demo: Run StreamBrokerDemo examples in background
+		Timer.delay(() -> {
+			Thread.create(() -> {
+				HybridLogger.info('[Main] Running Stream Broker demos...');
+				var demo = new StreamBrokerDemo(streamBroker);
+				demo.runAll();
+				HybridLogger.info('[Main] Stream Broker demos completed');
+			});
+		}, 2000);
+
 		// Example: Broadcast a test message every 10 seconds
 		Timer.delay(() -> {
 			var counter = 0;
@@ -373,7 +718,7 @@ class Main extends Application {
 
 	// Override update to serve HTTP requests
 	public override function update(deltaTime:Int):Void {
-		httpServer.handleRequest();
+		webServer.handleRequest();
 	}
 
 	// Override createWindow to prevent Lime from creating a window
