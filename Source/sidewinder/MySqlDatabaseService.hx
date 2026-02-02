@@ -62,7 +62,7 @@ class MySqlDatabaseService implements IDatabaseService {
 	}
 
 	function getMigrationFiles():Array<String> {
-		var dir = "migrations";
+		var dir = "migrations/mysql";
 		var files = sys.FileSystem.readDirectory(dir);
 		var sqlFiles = files.filter(function(f) return StringTools.endsWith(f, ".sql"));
 		sqlFiles.sort(function(a, b) return Reflect.compare(a, b));
@@ -191,7 +191,7 @@ class MySqlDatabaseService implements IDatabaseService {
             var record = rs.next();
 			applied.set(record.name, true);
 		}
-		var dir = "migrations";
+		var dir = "migrations/mysql";
 		var files = sys.FileSystem.readDirectory(dir);
 		var sqlFiles = files.filter(function(f) return StringTools.endsWith(f, ".sql"));
 		sqlFiles.sort(function(a, b) return Reflect.compare(a, b));

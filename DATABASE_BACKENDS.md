@@ -121,19 +121,70 @@ class MyService implements IMyService {
 
 ## Migrations
 
-Migrations work the same way across all database backends. The migration system:
+SideWinder supports **per-backend migrations** to accommodate SQL syntax differences between databases. The migration system:
 
 1. Creates a `migrations` table to track applied migrations
-2. Reads all `.sql` files from the `migrations/` directory
+2. Reads all `.sql` files from the backend-specific directory:
+   - SQLite: `migrations/sqlite/`
+   - MySQL: `migrations/mysql/`
 3. Applies migrations in alphabetical order
 4. Records each migration in the `migrations` table
 
-The migrations are automatically run when the application starts:
+### Migration Directory Structure
+
+```
+migrations/
+├── sqlite/
+│   └── 2025102401-initial.sql    # SQLite-specific syntax
+└── mysql/
+    └── 2025102401-initial.sql    # MySQL-specific syntax
+```
+
+### Naming Convention
+
+Use descriptive filenames with timestamps or version numbers:
+- `YYYYMMDDNN-description.sql` (e.g., `2025102401-initial.sql`)
+- Migrations are applied in alphabetical order
+- Each backend maintains its own migration history
+
+### Running Migrations
+
+Migrations are automatically run when the application starts:
 
 ```haxe
 var db = DI.get(IDatabaseService);
 db.runMigrations();
 ```
+
+### Example: SQLite vs MySQL Migrations
+
+**SQLite** (`migrations/sqlite/2025102401-initial.sql`):
+```sql
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT UNIQUE NOT NULL,
+    username TEXT UNIQUE NOT NULL,
+    created_at DATETIME DEFAULT (datetime('now'))
+);
+```
+
+**MySQL** (`migrations/mysql/2025102401-initial.sql`):
+```sql
+CREATE TABLE users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    username VARCHAR(255) UNIQUE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Key Differences to Note
+
+| Feature | SQLite | MySQL |
+|---------|--------|-------|
+| Auto-increment | `INTEGER PRIMARY KEY AUTOINCREMENT` | `INT AUTO_INCREMENT PRIMARY KEY` |
+| String type | `TEXT` | `VARCHAR(n)` or `TEXT` |
+| Datetime | `DATETIME DEFAULT (datetime('now'))` | `TIMESTAMP DEFAULT CURRENT_TIMESTAMP` |
 
 ## Connection Pooling
 
