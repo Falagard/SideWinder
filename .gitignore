@@ -2,12 +2,12 @@
 Export
 uploads/
 
-# Native library build artifacts (platform-specific, build locally)
-*.hdll
-*.obj
-*.o
-*.lib
-*.exp
-*.so
-*.dylib
-*.dll
+# Native library build artifacts in build directories
+native/civetweb/hl/*.obj
+native/civetweb/hl/*.o
+native/civetweb/hl/*.lib
+native/civetweb/hl/*.exp
+native/civetweb/hl/*.hdll
+
+# But allow pre-built platform-specific .hdll files
+!native/civetweb/prebuilt/**/*.hdll
