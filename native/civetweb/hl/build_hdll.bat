@@ -46,12 +46,26 @@ if not exist "%HASHLINK_PATH%\include\hl.h" (
     exit /b 1
 )
 
-if not exist "%HASHLINK_PATH%\Windows64\libhl.lib" (
-    echo ERROR: Cannot find libhl.lib in %HASHLINK_PATH%\Windows64\
-    echo Please verify HASHLINK_PATH is correct
-    exit /b 1
+REM Check for libhl.lib in both possible locations
+set "HL_LIB_PATH="
+if exist "%HASHLINK_PATH%\libhl.lib" (
+    set "HL_LIB_PATH=%HASHLINK_PATH%"
+    echo Found libhl.lib in root directory ^(standalone HashLink^)
+    goto :hl_lib_found
+)
+if exist "%HASHLINK_PATH%\Windows64\libhl.lib" (
+    set "HL_LIB_PATH=%HASHLINK_PATH%\Windows64"
+    echo Found libhl.lib in Windows64 subdirectory ^(Lime's HashLink^)
+    goto :hl_lib_found
 )
 
+echo ERROR: Cannot find libhl.lib in either:
+echo   - %HASHLINK_PATH%\libhl.lib ^(standalone HashLink^)
+echo   - %HASHLINK_PATH%\Windows64\libhl.lib ^(Lime's HashLink^)
+echo Please verify HASHLINK_PATH is correct
+exit /b 1
+
+:hl_lib_found
 echo HashLink headers and libraries found OK
 echo.
 
@@ -146,7 +160,6 @@ REM ==============================
 REM 6. Link into civetweb.hdll
 REM ==============================
 echo [3/3] Linking civetweb.hdll...
-set "HL_LIB_PATH=%HASHLINK_PATH%\Windows64"
 echo Using library path: %HL_LIB_PATH%
 
 REM Copy libhl.lib to current directory to avoid path issues with commas

@@ -12,4 +12,9 @@
 	<assets path="static" />
     <assets path="migrations" />
 	
+	<section if="hl">
+		<!-- HashLink native library 'civetweb.hdll' built by native/civetweb/hl/build_hdll.bat -->
+		<postbuild command="copy-hl-hdll.bat" />
+	</section>
+	
 </project>
