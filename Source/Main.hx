@@ -19,8 +19,8 @@ import lime.ui.Gamepad;
 import lime.ui.GamepadButton;
 import Date;
 import sidewinder.IDatabaseService;
-// import sidewinder.SqliteDatabaseService;
-import sidewinder.MySqlDatabaseService;
+import sidewinder.SqliteDatabaseService;
+// import sidewinder.MySqlDatabaseService;
 import hx.injection.Service;
 import sidewinder.*;
 import sidewinder.IWebServer;
@@ -73,9 +73,9 @@ class Main extends Application {
 
 		DI.init(c -> {
 			// Database service - choose between SQLite and MySQL
-			// c.addSingleton(IDatabaseService, SqliteDatabaseService);
+			c.addSingleton(IDatabaseService, SqliteDatabaseService);
 			// For MySQL, use:
-			c.addSingleton(IDatabaseService, MySqlDatabaseService);
+			// c.addSingleton(IDatabaseService, MySqlDatabaseService);
 
 			c.addScoped(IUserService, UserService);
 			c.addSingleton(ICacheService, InMemoryCacheService);
