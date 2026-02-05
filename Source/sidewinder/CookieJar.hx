@@ -7,7 +7,7 @@ import haxe.ds.StringMap;
  * Handles Set-Cookie header parsing and Cookie header generation.
  */
 class CookieJar implements ICookieJar {
-	private var cookies:Array<Cookie> = [];
+	protected var cookies:Array<Cookie> = [];
 
 	public function new() {}
 
@@ -188,7 +188,7 @@ class CookieJar implements ICookieJar {
 		return StringTools.startsWith(requestPath, cookiePath);
 	}
 	
-	private function isExpired(cookie:Cookie):Bool {
+	protected function isExpired(cookie:Cookie):Bool {
 		var now = Date.now().getTime();
 		
 		// Check max-age first (takes precedence over expires)
