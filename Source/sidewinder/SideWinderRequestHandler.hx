@@ -65,7 +65,9 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 	// Helper to format Date as RFC 1123 UTC string
 	public static function formatUtcRfc1123(date:Date):String {
 		var days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-		var months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+		var months = [
+			"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+		];
 		var d = date;
 		var utcYear = d.getUTCFullYear();
 		var utcMonth = d.getUTCMonth();
@@ -74,17 +76,18 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		var utcHours = d.getUTCHours();
 		var utcMinutes = d.getUTCMinutes();
 		var utcSeconds = d.getUTCSeconds();
-		return days[utcDay] + ", " + (utcDate < 10 ? "0" : "") + utcDate + " " + months[utcMonth] + " " + utcYear + " " +
-			(utcHours < 10 ? "0" : "") + utcHours + ":" + (utcMinutes < 10 ? "0" : "") + utcMinutes + ":" + (utcSeconds < 10 ? "0" : "") + utcSeconds + " GMT";
+		return days[utcDay] + ", " + (utcDate < 10 ? "0" : "") + utcDate + " " + months[utcMonth] + " " + utcYear + " " + (utcHours < 10 ? "0" : "")
+			+ utcHours + ":" + (utcMinutes < 10 ? "0" : "") + utcMinutes + ":" + (utcSeconds < 10 ? "0" : "") + utcSeconds + " GMT";
 	}
 
-		// Add constructor to accept allowOrigin
-		public function new(request:Socket, clientAddress:{host:Host, port:Int}, server:BaseServer, ?directory:String, ?allowOrigin:String) {
-			super(request, clientAddress, server, directory);
-			if (allowOrigin != null) this.allowOrigin = allowOrigin;
-		}
+	// Add constructor to accept allowOrigin
+	public function new(request:Socket, clientAddress:{host:Host, port:Int}, server:BaseServer, ?directory:String, ?allowOrigin:String) {
+		super(request, clientAddress, server, directory);
+		if (allowOrigin != null)
+			this.allowOrigin = allowOrigin;
+	}
 
-		static function parseCookies(header:String):StringMap<String> {
+	static function parseCookies(header:String):StringMap<String> {
 		var cookies = new StringMap<String>();
 		if (header == null)
 			return cookies;
@@ -183,7 +186,7 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		var query = parseQuery(this.path);
 		var parsed = parseJsonFromBody(headers, body);
 		var formBody = parseFormFromBody(headers, body);
-		
+
 		// Parse multipart/form-data for file uploads
 		var files:Array<UploadedFile> = [];
 		var ct = headers.get("Content-Type");
@@ -250,18 +253,10 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		};
 
 		try {
-			// If using SnakeServerAdapter, enqueue instead of processing directly
-			if (SnakeServerAdapter.instance != null) {
-				SnakeServerAdapter.instance.enqueueRequest(req, res, match.route);
-				// Send immediate response acknowledging receipt
-				sendResponse(snake.http.HTTPStatus.ACCEPTED); // 202 Accepted
-				sendHeader("Content-Type", "text/plain");
-				endHeaders();
-				wfile.writeString("Request queued for processing");
-			} else {
-				// Direct processing (fallback for non-adapter usage)
-				router.handle(req, res, match.route);
-			}
+			// Process request synchronously - async queue doesn't work with snake-server's model
+			// because Response closures reference instance members (wfile, sendHeader, etc.)
+			// that become invalid when processed asynchronously
+			router.handle(req, res, match.route);
 		} catch (e:Dynamic) {
 			sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR, "Internal Server Error");
 			trace("Middleware/Handler error: " + Std.string(e));
