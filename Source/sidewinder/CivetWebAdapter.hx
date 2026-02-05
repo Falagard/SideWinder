@@ -71,17 +71,13 @@ class CivetWebAdapter implements IWebServer {
 
 	public function start():Void {
 		if (!running && serverHandle != null) {
-			// Process requests synchronously in callback
-			var callback = function(req:Dynamic):CivetWebResponse {
-				return handleNativeRequest(req);
-			};
-
 			try {
-				var started = CivetWebNative.start(serverHandle, callback);
+				var started = CivetWebNative.start(serverHandle);
 				if (started) {
 					running = true;
 					HybridLogger.info('[CivetWebAdapter] Server started on $host:$port');
 					HybridLogger.info('[CivetWebAdapter] Access at http://$host:$port');
+					HybridLogger.info('[CivetWebAdapter] Using polling architecture - call handleRequest() in main loop');
 				} else {
 					HybridLogger.error('[CivetWebAdapter] Failed to start server');
 				}
@@ -93,11 +89,53 @@ class CivetWebAdapter implements IWebServer {
 	}
 
 	/**
-	 * No-op for CivetWeb (processes synchronously in callback)
+	 * Poll for pending requests and process them on the main thread.
+	 * MUST be called regularly in the main loop for the server to function.
 	 */
 	public function handleRequest():Void {
-		// CivetWeb processes requests synchronously in the native callback
-		// This method is kept for IWebServer interface compatibility
+		if (!running || serverHandle == null)
+			return;
+
+		try {
+			// Poll for pending requests from C layer
+			var requests:Array<Dynamic> = CivetWebNative.pollRequests(serverHandle);
+
+			if (requests == null || requests.length == 0)
+				return;
+
+			for (req in requests) {
+				try {
+					// Convert dynamic request to CivetWebRequest
+					var civetReq:CivetWebRequest = {
+						uri: req.uri,
+						method: req.method,
+						body: req.body,
+						bodyLength: req.bodyLength,
+						queryString: req.queryString,
+						remoteAddr: req.remoteAddr,
+						headers: req.headers
+					};
+
+					// Process request on main thread
+					var response = handleNativeRequest(civetReq);
+
+					// Push response back to C layer
+					var contentTypeBytes = @:privateAccess response.contentType.toUtf8();
+					var bodyBytes = @:privateAccess response.body.toUtf8();
+					CivetWebNative.pushResponse(serverHandle, req.id, response.statusCode, contentTypeBytes, bodyBytes, response.bodyLength);
+				} catch (e:Dynamic) {
+					HybridLogger.error('[CivetWebAdapter] Error handling request: $e');
+
+					// Push error response
+					var errorMsg = "Internal Server Error";
+					var errorContentType = @:privateAccess "text/plain".toUtf8();
+					var errorBody = @:privateAccess errorMsg.toUtf8();
+					CivetWebNative.pushResponse(serverHandle, req.id, 500, errorContentType, errorBody, errorMsg.length);
+				}
+			}
+		} catch (e:Dynamic) {
+			HybridLogger.error('[CivetWebAdapter] Error in polling loop: $e');
+		}
 	}
 
 	/**

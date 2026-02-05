@@ -19,13 +19,12 @@ abstract CivetWebNative(hl.Abstract<"hl_civetweb_server">) {
 	}
 
 	/**
-	 * Start the server with a request handler
+	 * Start the server (uses polling architecture - no callback)
 	 * @param server Server handle
-	 * @param handler Request handler callback
 	 * @return True if started successfully
 	 */
 	@:hlNative("civetweb", "start")
-	public static function start(server:CivetWebNative, handler:Dynamic->Void):Bool {
+	public static function start(server:CivetWebNative):Bool {
 		return false;
 	}
 
@@ -122,6 +121,33 @@ abstract CivetWebNative(hl.Abstract<"hl_civetweb_server">) {
 	 */
 	@:hlNative("civetweb", "websocket_close")
 	public static function websocketClose(conn:Dynamic, code:Int, reason:hl.Bytes):Void {}
+
+	// ============================================================================
+	// POLLING ARCHITECTURE: New Functions
+	// ============================================================================
+
+	/**
+	 * Poll for pending HTTP requests (called from Haxe main thread)
+	 * Returns array of queued requests with their IDs
+	 * @param server Server handle
+	 * @return Array of dynamic objects with request data
+	 */
+	@:hlNative("civetweb", "poll_requests")
+	public static function pollRequests(server:CivetWebNative):Array<Dynamic> {
+		return null;
+	}
+
+	/**
+	 * Push a response for a request ID (called from Haxe main thread)
+	 * @param server Server handle
+	 * @param requestId Request ID from polled request
+	 * @param statusCode HTTP status code
+	 * @param contentType Content-Type header
+	 * @param body Response body
+	 * @param bodyLength Length of response body
+	 */
+	@:hlNative("civetweb", "push_response")
+	public static function pushResponse(server:CivetWebNative, requestId:Int, statusCode:Int, contentType:hl.Bytes, body:hl.Bytes, bodyLength:Int):Void {}
 }
 
 /**
@@ -145,4 +171,29 @@ typedef CivetWebResponse = {
 	var contentType:String;
 	var body:String;
 	var bodyLength:Int;
+}
+
+/**
+ * Queued request with ID (for polling architecture)
+ */
+typedef QueuedRequest = {
+	var id:Int;
+	var uri:String;
+	var method:String;
+	var body:String;
+	var bodyLength:Int;
+	var queryString:String;
+	var remoteAddr:String;
+	var headers:String;
+}
+
+/**
+ * WebSocket opcodes
+ */
+enum abstract WebSocketOpcode(Int) from Int to Int {
+	var TEXT = 0x1;
+	var BINARY = 0x2;
+	var CLOSE = 0x8;
+	var PING = 0x9;
+	var PONG = 0xA;
 }
