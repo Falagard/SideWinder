@@ -1,5 +1,8 @@
 package sidewinder;
 
+import sidewinder.IStripeBillingStore;
+import sidewinder.IDatabaseService;
+
 class StripeBillingStore implements IStripeBillingStore {
 	private var db:IDatabaseService;
 
@@ -7,12 +10,18 @@ class StripeBillingStore implements IStripeBillingStore {
 		db = DI.get(IDatabaseService);
 	}
 
+	public function getConstructorArgs():Array<String> {
+		return [];
+	}
+
 	public function getUserBilling(userId:Int):Null<UserBilling> {
 		var params = new Map<String, Dynamic>();
 		params.set("id", userId);
-		var rs = db.requestWithParams("SELECT id, email, stripe_customer_id, stripe_subscription_id, subscription_status, subscription_current_period_end FROM users WHERE id = @id", params);
+		var rs = db.requestWithParams("SELECT id, email, stripe_customer_id, stripe_subscription_id, subscription_status, subscription_current_period_end FROM users WHERE id = @id",
+			params);
 		var rec = rs.next();
-		if (rec == null) return null;
+		if (rec == null)
+			return null;
 		return {
 			userId: rec.id,
 			email: rec.email,
@@ -36,27 +45,32 @@ class StripeBillingStore implements IStripeBillingStore {
 		params.set("stripe_subscription_id", subscriptionId);
 		params.set("subscription_status", status);
 		params.set("subscription_current_period_end", currentPeriodEnd);
-		db.execute("UPDATE users SET stripe_subscription_id = @stripe_subscription_id, subscription_status = @subscription_status, subscription_current_period_end = @subscription_current_period_end WHERE id = @id", params);
+		db.execute("UPDATE users SET stripe_subscription_id = @stripe_subscription_id, subscription_status = @subscription_status, subscription_current_period_end = @subscription_current_period_end WHERE id = @id",
+			params);
 	}
 
 	public function findUserIdByCustomerId(customerId:String):Null<Int> {
-		if (customerId == null || customerId == "") return null;
+		if (customerId == null || customerId == "")
+			return null;
 		var params = new Map<String, Dynamic>();
 		params.set("stripe_customer_id", customerId);
 		var rs = db.requestWithParams("SELECT id FROM users WHERE stripe_customer_id = @stripe_customer_id", params);
 		var rec = rs.next();
-		if (rec == null) return null;
+		if (rec == null)
+			return null;
 		return rec.id;
 	}
 
 	public function updateSubscriptionByCustomerId(customerId:String, subscriptionId:String, status:Null<String>, currentPeriodEnd:Null<Int>):Null<Int> {
 		var userId = findUserIdByCustomerId(customerId);
-		if (userId == null) return null;
+		if (userId == null)
+			return null;
 		setSubscription(userId, subscriptionId, status, currentPeriodEnd);
 		return userId;
 	}
 
-	public function logBillingEvent(userId:Null<Int>, stripeEventId:String, eventType:String, subscriptionId:Null<String>, invoiceId:Null<String>, amount:Null<Int>, currency:Null<String>, status:Null<String>, rawPayload:String):Void {
+	public function logBillingEvent(userId:Null<Int>, stripeEventId:String, eventType:String, subscriptionId:Null<String>, invoiceId:Null<String>,
+			amount:Null<Int>, currency:Null<String>, status:Null<String>, rawPayload:String):Void {
 		var params = new Map<String, Dynamic>();
 		params.set("user_id", userId);
 		params.set("stripe_event_id", stripeEventId);
@@ -67,11 +81,13 @@ class StripeBillingStore implements IStripeBillingStore {
 		params.set("currency", currency);
 		params.set("status", status);
 		params.set("raw_payload", rawPayload);
-		db.execute("INSERT INTO recurring_billing_logs (user_id, stripe_event_id, event_type, subscription_id, invoice_id, amount, currency, status, raw_payload) VALUES (@user_id, @stripe_event_id, @event_type, @subscription_id, @invoice_id, @amount, @currency, @status, @raw_payload)", params);
+		db.execute("INSERT INTO recurring_billing_logs (user_id, stripe_event_id, event_type, subscription_id, invoice_id, amount, currency, status, raw_payload) VALUES (@user_id, @stripe_event_id, @event_type, @subscription_id, @invoice_id, @amount, @currency, @status, @raw_payload)",
+			params);
 	}
 
 	private function parseInt(value:Dynamic):Null<Int> {
-		if (value == null) return null;
+		if (value == null)
+			return null;
 		return Std.parseInt(Std.string(value));
 	}
 }

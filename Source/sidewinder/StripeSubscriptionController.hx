@@ -24,7 +24,7 @@ class StripeSubscriptionController {
 		try {
 			var userId = parseRequiredInt(req, "userId");
 			if (userId == null) {
-				sendJson(res, HTTPStatus.BAD_REQUEST, { error: "userId is required" });
+				sendJson(res, HTTPStatus.BAD_REQUEST, {error: "userId is required"});
 				return;
 			}
 
@@ -33,20 +33,20 @@ class StripeSubscriptionController {
 				priceId = Sys.getEnv("STRIPE_PRICE_ID");
 			}
 			if (priceId == null || priceId == "") {
-				sendJson(res, HTTPStatus.BAD_REQUEST, { error: "priceId is required" });
+				sendJson(res, HTTPStatus.BAD_REQUEST, {error: "priceId is required"});
 				return;
 			}
 
 			var successUrl = getValue(req, "successUrl");
 			var cancelUrl = getValue(req, "cancelUrl");
 			if (successUrl == null || cancelUrl == null) {
-				sendJson(res, HTTPStatus.BAD_REQUEST, { error: "successUrl and cancelUrl are required" });
+				sendJson(res, HTTPStatus.BAD_REQUEST, {error: "successUrl and cancelUrl are required"});
 				return;
 			}
 
 			var billing = billingStore.getUserBilling(userId);
 			if (billing == null) {
-				sendJson(res, HTTPStatus.NOT_FOUND, { error: "User not found" });
+				sendJson(res, HTTPStatus.NOT_FOUND, {error: "User not found"});
 				return;
 			}
 
@@ -65,7 +65,7 @@ class StripeSubscriptionController {
 				subscriptionId: session.subscription
 			});
 		} catch (e:Dynamic) {
-			sendJson(res, HTTPStatus.INTERNAL_SERVER_ERROR, { error: Std.string(e) });
+			sendJson(res, HTTPStatus.INTERNAL_SERVER_ERROR, {error: Std.string(e)});
 		}
 	}
 
@@ -75,14 +75,14 @@ class StripeSubscriptionController {
 	public function getSubscription(req:Request, res:Response):Void {
 		var userId = parseInt(req.params.get("userId"));
 		if (userId == null) {
-			sendJson(res, HTTPStatus.BAD_REQUEST, { error: "userId is required" });
+			sendJson(res, HTTPStatus.BAD_REQUEST, {error: "userId is required"});
 			return;
 		}
 
 		try {
 			var billing = billingStore.getUserBilling(userId);
 			if (billing == null || billing.stripeSubscriptionId == null || billing.stripeSubscriptionId == "") {
-				sendJson(res, HTTPStatus.NOT_FOUND, { error: "No subscription found" });
+				sendJson(res, HTTPStatus.NOT_FOUND, {error: "No subscription found"});
 				return;
 			}
 
@@ -93,7 +93,7 @@ class StripeSubscriptionController {
 				currentPeriodEnd: subscription.current_period_end
 			});
 		} catch (e:Dynamic) {
-			sendJson(res, HTTPStatus.INTERNAL_SERVER_ERROR, { error: Std.string(e) });
+			sendJson(res, HTTPStatus.INTERNAL_SERVER_ERROR, {error: Std.string(e)});
 		}
 	}
 
@@ -104,14 +104,14 @@ class StripeSubscriptionController {
 	public function cancelSubscription(req:Request, res:Response):Void {
 		var userId = parseRequiredInt(req, "userId");
 		if (userId == null) {
-			sendJson(res, HTTPStatus.BAD_REQUEST, { error: "userId is required" });
+			sendJson(res, HTTPStatus.BAD_REQUEST, {error: "userId is required"});
 			return;
 		}
 
 		try {
 			var billing = billingStore.getUserBilling(userId);
 			if (billing == null || billing.stripeSubscriptionId == null || billing.stripeSubscriptionId == "") {
-				sendJson(res, HTTPStatus.NOT_FOUND, { error: "No subscription found" });
+				sendJson(res, HTTPStatus.NOT_FOUND, {error: "No subscription found"});
 				return;
 			}
 
@@ -123,7 +123,7 @@ class StripeSubscriptionController {
 				currentPeriodEnd: subscription.current_period_end
 			});
 		} catch (e:Dynamic) {
-			sendJson(res, HTTPStatus.INTERNAL_SERVER_ERROR, { error: Std.string(e) });
+			sendJson(res, HTTPStatus.INTERNAL_SERVER_ERROR, {error: Std.string(e)});
 		}
 	}
 
@@ -133,13 +133,14 @@ class StripeSubscriptionController {
 	public function handleWebhook(req:Request, res:Response):Void {
 		var signature = req.headers.get("Stripe-Signature");
 		var result = webhookService.handleWebhook(req.body, signature);
-		sendJson(res, result.status, result.body);
+		sendJson(res, cast result.status, result.body);
 	}
 
 	private function getValue(req:Request, key:String):Null<String> {
 		if (req.jsonBody != null) {
 			var value = Reflect.field(req.jsonBody, key);
-			if (value != null) return Std.string(value);
+			if (value != null)
+				return Std.string(value);
 		}
 		if (req.formBody != null && req.formBody.exists(key)) {
 			return req.formBody.get(key);
@@ -152,7 +153,8 @@ class StripeSubscriptionController {
 	}
 
 	private function parseInt(value:Null<String>):Null<Int> {
-		if (value == null || value == "") return null;
+		if (value == null || value == "")
+			return null;
 		return Std.parseInt(value);
 	}
 

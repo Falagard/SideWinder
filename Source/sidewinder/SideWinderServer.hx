@@ -1,6 +1,5 @@
 package sidewinder;
 
-import snake.server.*;
 import snake.socket.*;
 import sys.net.Host;
 import sys.net.Socket;
@@ -13,7 +12,7 @@ class SideWinderServer extends HTTPServer {
 		this.directory = directory;
 		super(serverHost, serverPort, requestHandlerClass, bindAndActivate);
 		Sys.print('Serving HTTP on ${serverAddress.host} port ${serverAddress.port} (http://${serverAddress.host}:${serverAddress.port})\n');
-        threading = true;
-        requestQueueSize = 128;
+		threading = true;
+		requestQueueSize = 128;
 	}
 }

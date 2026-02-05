@@ -2,9 +2,11 @@ package sidewinder;
 
 import haxe.Http;
 import haxe.Json;
+import sidewinder.IStripeService;
 
 class StripeService implements IStripeService {
 	private var apiKey:String;
+
 	private static inline var API_BASE = "https://api.stripe.com/v1";
 
 	public function new() {
@@ -12,6 +14,10 @@ class StripeService implements IStripeService {
 		if (apiKey == null || apiKey == "") {
 			throw "Stripe not configured. Set STRIPE_SECRET_KEY.";
 		}
+	}
+
+	public function getConstructorArgs():Array<String> {
+		return [];
 	}
 
 	public function createCustomer(email:String, userId:Int):StripeCustomer {
@@ -26,7 +32,8 @@ class StripeService implements IStripeService {
 		};
 	}
 
-	public function createSubscriptionCheckoutSession(customerId:String, priceId:String, successUrl:String, cancelUrl:String, userId:Int):StripeCheckoutSession {
+	public function createSubscriptionCheckoutSession(customerId:String, priceId:String, successUrl:String, cancelUrl:String,
+			userId:Int):StripeCheckoutSession {
 		var params = [
 			"mode=subscription",
 			"success_url=" + StringTools.urlEncode(successUrl),
@@ -132,7 +139,8 @@ class StripeService implements IStripeService {
 	}
 
 	private function toInt(value:Dynamic):Null<Int> {
-		if (value == null) return null;
+		if (value == null)
+			return null;
 		var asString = Std.string(value);
 		return Std.parseInt(asString);
 	}

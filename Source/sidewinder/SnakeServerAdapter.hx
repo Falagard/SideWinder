@@ -1,6 +1,5 @@
 package sidewinder;
 
-import snake.server.*;
 import snake.socket.*;
 import sys.net.Host;
 import sys.net.Socket;
@@ -22,11 +21,11 @@ class SnakeServerAdapter implements IWebServer {
 	private var host:String;
 	private var port:Int;
 	private var running:Bool;
-	
+
 	// Single-threaded request queue
 	private var requestQueue:Array<QueuedSnakeRequest>;
 	private var queueMutex:Mutex;
-	
+
 	public static var instance:SnakeServerAdapter = null;
 
 	/**
@@ -40,17 +39,17 @@ class SnakeServerAdapter implements IWebServer {
 		this.host = host;
 		this.port = port;
 		this.running = false;
-		
+
 		// Initialize request queue for single-threaded processing
 		this.requestQueue = [];
 		this.queueMutex = new Mutex();
-		
+
 		// Store singleton instance so request handler can access it
 		SnakeServerAdapter.instance = this;
-		
+
 		// Create the snake-server instance
 		this.server = new SideWinderServer(new Host(host), port, requestHandlerClass, true, directory);
-		
+
 		HybridLogger.info('[SnakeServerAdapter] Initialized for $host:$port (single-threaded mode)');
 	}
 
@@ -66,12 +65,12 @@ class SnakeServerAdapter implements IWebServer {
 		if (running && server != null) {
 			// First, let snake-server accept connections and enqueue
 			server.handleRequest();
-			
+
 			// Then process all queued requests on main thread
 			processQueue();
 		}
 	}
-	
+
 	/**
 	 * Enqueue a request (called from snake-server thread).
 	 */
@@ -84,37 +83,37 @@ class SnakeServerAdapter implements IWebServer {
 				route: route,
 				timestamp: Date.now().getTime()
 			});
-		} finally {
 			queueMutex.release();
+		} catch (e:Dynamic) {
+			queueMutex.release();
+			throw e;
 		}
 	}
-	
+
 	/**
 	 * Process all queued requests on main thread.
 	 */
 	private function processQueue():Void {
 		var requests:Array<QueuedSnakeRequest> = null;
-		
+
 		queueMutex.acquire();
 		try {
 			if (requestQueue.length > 0) {
 				requests = requestQueue.copy();
 				requestQueue = [];
 			}
-		} finally {
 			queueMutex.release();
+		} catch (e:Dynamic) {
+			queueMutex.release();
+			throw e;
 		}
-		
+
 		if (requests != null && requests.length > 0) {
 			HybridLogger.debug('[SnakeServerAdapter] Processing ${requests.length} queued request(s)');
-			
+
 			for (queuedReq in requests) {
 				try {
-					SideWinderRequestHandler.router.handle(
-						queuedReq.request,
-						queuedReq.response,
-						queuedReq.route
-					);
+					SideWinderRequestHandler.router.handle(queuedReq.request, queuedReq.response, queuedReq.route);
 					HybridLogger.debug('[SnakeServerAdapter] ${queuedReq.request.method} ${queuedReq.request.path}');
 				} catch (e:Dynamic) {
 					HybridLogger.error('[SnakeServerAdapter] Error processing request: $e');
@@ -126,7 +125,7 @@ class SnakeServerAdapter implements IWebServer {
 	public function stop():Void {
 		if (running) {
 			running = false;
-			
+
 			// Clear any remaining queued requests
 			queueMutex.acquire();
 			try {
@@ -134,10 +133,12 @@ class SnakeServerAdapter implements IWebServer {
 					HybridLogger.info('[SnakeServerAdapter] Clearing ${requestQueue.length} queued requests');
 					requestQueue = [];
 				}
-			} finally {
 				queueMutex.release();
+			} catch (e:Dynamic) {
+				queueMutex.release();
+				throw e;
 			}
-			
+
 			// Note: snake-server doesn't have explicit shutdown, but we mark as not running
 			HybridLogger.info('[SnakeServerAdapter] Stopped');
 		}

@@ -1,6 +1,6 @@
 package sidewinder;
 
-import snake.server.BaseRequestHandler;
+import snake.socket.BaseRequestHandler;
 
 /**
  * Web server implementation options.
@@ -25,30 +25,38 @@ class WebServerFactory {
 	 * @param directory Optional directory for serving static files
 	 * @return IWebServer instance
 	 */
-	public static function create(
-		type:WebServerType, 
-		host:String, 
-		port:Int, 
-		?requestHandlerClass:Class<BaseRequestHandler>,
-		?directory:String
-	):IWebServer {
+	public static function create(type:WebServerType, host:String, port:Int, ?requestHandlerClass:Class<BaseRequestHandler>, ?directory:String):IWebServer {
 		return switch (type) {
 			case SnakeServer:
 				if (requestHandlerClass == null) {
 					throw "SnakeServer requires a requestHandlerClass";
 				}
 				new SnakeServerAdapter(host, port, requestHandlerClass, directory);
-				
+
 			case CivetWeb:
-				// CivetWeb uses direct callback, not a handler class
-				// We'll use SideWinderRequestHandler.handleRequest directly
-				var handler = function(req:Router.Request):Router.Response {
-					return SideWinderRequestHandler.router.route(req);
+				// CivetWeb uses direct callback with SimpleResponse
+				// We bridge the async Router to sync CivetWeb response
+				var handler = function(req:Router.Request):CivetWebAdapter.SimpleResponse {
+					var buffered = new BufferedResponse();
+					// Use SideWinderRequestHandler logic if possible, or direct router find/handle
+					var match = SideWinderRequestHandler.router.find(req.method, req.path);
+					if (match != null) {
+						// Note: This loses static file handling from SideWinderRequestHandler base class
+						// TODO: Replicate static file handling if needed for CivetWeb
+						try {
+							SideWinderRequestHandler.router.handle(req, buffered, match.route);
+						} catch (e:Dynamic) {
+							buffered.sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR);
+						}
+					} else {
+						buffered.sendError(snake.http.HTTPStatus.NOT_FOUND);
+					}
+					return buffered.toSimpleResponse();
 				};
 				new CivetWebAdapter(host, port, directory, handler);
 		};
 	}
-	
+
 	/**
 	 * Create a web server with automatic selection based on compilation target.
 	 * 
@@ -58,12 +66,7 @@ class WebServerFactory {
 	 * @param directory Optional directory for serving static files
 	 * @return IWebServer instance
 	 */
-	public static function createDefault(
-		host:String, 
-		port:Int, 
-		?requestHandlerClass:Class<BaseRequestHandler>,
-		?directory:String
-	):IWebServer {
+	public static function createDefault(host:String, port:Int, ?requestHandlerClass:Class<BaseRequestHandler>, ?directory:String):IWebServer {
 		// Default to SnakeServer for hl target, could be extended for other targets
 		#if cpp
 		trace("[WebServerFactory] Using CivetWeb for cpp target");

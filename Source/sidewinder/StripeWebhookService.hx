@@ -4,6 +4,7 @@ import haxe.Json;
 import haxe.crypto.Hmac;
 import haxe.crypto.Sha256;
 import haxe.io.Bytes;
+import sidewinder.IStripeWebhookService;
 
 class StripeWebhookService implements IStripeWebhookService {
 	private static inline var SIGNATURE_TOLERANCE_SECONDS = 300;
@@ -18,18 +19,18 @@ class StripeWebhookService implements IStripeWebhookService {
 
 	public function handleWebhook(rawBody:String, signatureHeader:String):StripeWebhookResult {
 		if (webhookSecret == null || webhookSecret == "") {
-			return { status: 500, body: { error: "Stripe webhook secret not configured" } };
+			return {status: 500, body: {error: "Stripe webhook secret not configured"}};
 		}
 
 		if (!validateSignature(rawBody, signatureHeader)) {
-			return { status: 400, body: { error: "Invalid Stripe signature" } };
+			return {status: 400, body: {error: "Invalid Stripe signature"}};
 		}
 
 		var event:Dynamic = null;
 		try {
 			event = Json.parse(rawBody);
 		} catch (e:Dynamic) {
-			return { status: 400, body: { error: "Invalid JSON payload" } };
+			return {status: 400, body: {error: "Invalid JSON payload"}};
 		}
 
 		var eventType = getString(event, "type");
@@ -73,10 +74,12 @@ class StripeWebhookService implements IStripeWebhookService {
 				invoiceId = getString(obj, "id");
 				subscriptionId = getString(obj, "subscription");
 				amount = getInt(obj, "amount_paid");
-				if (amount == null) amount = getInt(obj, "amount_due");
+				if (amount == null)
+					amount = getInt(obj, "amount_due");
 				currency = getString(obj, "currency");
 				status = getString(obj, "payment_status");
-				if (status == null) status = getString(obj, "status");
+				if (status == null)
+					status = getString(obj, "status");
 				userId = billingStore.findUserIdByCustomerId(customerId);
 
 			default:
@@ -87,17 +90,19 @@ class StripeWebhookService implements IStripeWebhookService {
 		var logEventType = eventType != null ? eventType : "unknown";
 		billingStore.logBillingEvent(userId, logEventId, logEventType, subscriptionId, invoiceId, amount, currency, status, rawBody);
 
-		return { status: 200, body: { received: true } };
+		return {status: 200, body: {received: true}};
 	}
 
 	private function validateSignature(rawBody:String, signatureHeader:String):Bool {
-		if (signatureHeader == null || signatureHeader == "") return false;
+		if (signatureHeader == null || signatureHeader == "")
+			return false;
 		var timestamp:Null<String> = null;
 		var signatures:Array<String> = [];
 
 		for (part in signatureHeader.split(",")) {
 			var kv = part.split("=");
-			if (kv.length != 2) continue;
+			if (kv.length != 2)
+				continue;
 			var key = StringTools.trim(kv[0]);
 			var value = StringTools.trim(kv[1]);
 			switch (key) {
@@ -109,22 +114,26 @@ class StripeWebhookService implements IStripeWebhookService {
 			}
 		}
 
-		if (timestamp == null || signatures.length == 0) return false;
+		if (timestamp == null || signatures.length == 0)
+			return false;
 		var timestampInt = Std.parseInt(timestamp);
-		if (timestampInt == null) return false;
+		if (timestampInt == null)
+			return false;
 		var now = Std.int(Sys.time());
-		if (Math.abs(now - timestampInt) > SIGNATURE_TOLERANCE_SECONDS) return false;
+		if (Math.abs(now - timestampInt) > SIGNATURE_TOLERANCE_SECONDS)
+			return false;
 
 		var signedPayload = timestamp + "." + rawBody;
 		var expectedSignature = computeSignature(signedPayload);
 		for (sig in signatures) {
-			if (timingSafeEquals(expectedSignature, sig)) return true;
+			if (timingSafeEquals(expectedSignature, sig))
+				return true;
 		}
 		return false;
 	}
 
 	private function computeSignature(payload:String):String {
-		var hmac = new Hmac(new Sha256());
+		var hmac = new Hmac(SHA256);
 		var signatureBytes = hmac.make(Bytes.ofString(webhookSecret), Bytes.ofString(payload));
 		return bytesToHex(signatureBytes);
 	}
@@ -138,8 +147,10 @@ class StripeWebhookService implements IStripeWebhookService {
 	}
 
 	private function timingSafeEquals(a:String, b:String):Bool {
-		if (a == null || b == null) return false;
-		if (a.length != b.length) return false;
+		if (a == null || b == null)
+			return false;
+		if (a.length != b.length)
+			return false;
 		var result = 0;
 		for (i in 0...a.length) {
 			result |= a.charCodeAt(i) ^ b.charCodeAt(i);
@@ -148,24 +159,28 @@ class StripeWebhookService implements IStripeWebhookService {
 	}
 
 	private function getField(obj:Dynamic, field:String):Dynamic {
-		if (obj == null) return null;
+		if (obj == null)
+			return null;
 		return Reflect.hasField(obj, field) ? Reflect.field(obj, field) : null;
 	}
 
 	private function getString(obj:Dynamic, field:String):Null<String> {
 		var value = getField(obj, field);
-		if (value == null) return null;
+		if (value == null)
+			return null;
 		return Std.string(value);
 	}
 
 	private function getInt(obj:Dynamic, field:String):Null<Int> {
 		var value = getField(obj, field);
-		if (value == null) return null;
+		if (value == null)
+			return null;
 		return Std.parseInt(Std.string(value));
 	}
 
 	private function parseInt(value:Null<String>):Null<Int> {
-		if (value == null || value == "") return null;
+		if (value == null || value == "")
+			return null;
 		return Std.parseInt(value);
 	}
 }
