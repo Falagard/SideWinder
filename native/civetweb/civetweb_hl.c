@@ -84,7 +84,7 @@ static int websocket_data_handler(struct mg_connection *conn, int flags, char *d
         data_copy[data_len] = '\0';
         hl_dyn_seti(args[2], 0, &hlt_bytes, &data_copy);
         
-        vdynamic *result = hl_dyn_calln(g_websocket_data_handler, args, 3);
+        vdynamic *result = hl_dyn_call(g_websocket_data_handler, args, 3);
         return result ? hl_dyn_geti(result, 0, &hlt_i32) : 1;
     }
     return 1; // Continue
@@ -196,11 +196,6 @@ HL_PRIM bool HL_NAME(start)(hl_civetweb_server *server, vclosure *handler) {
     memset(&server->callbacks, 0, sizeof(server->callbacks));
     server->callbacks.begin_request = request_handler;
     
-    // Setup WebSocket callbacks
-    server->callbacks.websocket_connect = websocket_connect_handler;
-    server->callbacks.websocket_ready = websocket_ready_handler;
-    server->callbacks.websocket_data = websocket_data_handler;
-    
     // Build options array
     char port_str[32];
     snprintf(port_str, sizeof(port_str), "%d", server->port);
@@ -225,9 +220,14 @@ HL_PRIM bool HL_NAME(start)(hl_civetweb_server *server, vclosure *handler) {
     server->ctx = mg_start(&server->callbacks, NULL, options);
     
     if (server->ctx) {
+        // Register WebSocket handlers (Global handlers for all URIs)
+        mg_set_websocket_handler(server->ctx, "/", websocket_connect_handler, websocket_ready_handler, websocket_data_handler, websocket_close_handler, NULL);
+        
         server->running = 1;
         return true;
     }
+    
+    return false;
     
     return false;
 }
