@@ -32,23 +32,42 @@ fi
 # Copy sqlite.hdll from HashLink installation
 SQLITE_DEST="Export/hl/bin/sqlite.hdll"
 if [ ! -f "$SQLITE_DEST" ]; then
-    # Use HASHLINK_PATH environment variable if set, otherwise try default locations
-    if [ -n "$HASHLINK_PATH" ]; then
+    SQLITE_SRC=""
+    
+    # Try 1: Use HASHLINK_PATH environment variable if set
+    if [ -n "$HASHLINK_PATH" ] && [ -f "$HASHLINK_PATH/sqlite.hdll" ]; then
         SQLITE_SRC="$HASHLINK_PATH/sqlite.hdll"
-    elif [ -f "/usr/local/lib/sqlite.hdll" ]; then
-        SQLITE_SRC="/usr/local/lib/sqlite.hdll"
-    elif [ -f "/usr/lib/sqlite.hdll" ]; then
-        SQLITE_SRC="/usr/lib/sqlite.hdll"
-    else
-        SQLITE_SRC="$HOME/.local/lib/sqlite.hdll"
     fi
     
-    if [ -f "$SQLITE_SRC" ]; then
+    # Try 2: Auto-detect by finding hl executable in PATH
+    if [ -z "$SQLITE_SRC" ]; then
+        HL_PATH=$(which hl 2>/dev/null)
+        if [ -n "$HL_PATH" ]; then
+            HL_DIR=$(dirname "$HL_PATH")
+            if [ -f "$HL_DIR/sqlite.hdll" ]; then
+                SQLITE_SRC="$HL_DIR/sqlite.hdll"
+            fi
+        fi
+    fi
+    
+    # Try 3: Check common default locations
+    if [ -z "$SQLITE_SRC" ]; then
+        for path in "/usr/local/lib/sqlite.hdll" "/usr/lib/sqlite.hdll" "$HOME/.local/lib/sqlite.hdll"; do
+            if [ -f "$path" ]; then
+                SQLITE_SRC="$path"
+                break
+            fi
+        done
+    fi
+    
+    # Copy if found
+    if [ -n "$SQLITE_SRC" ]; then
         cp -f "$SQLITE_SRC" "$SQLITE_DEST" 2>/dev/null
         echo "[copy-hl-hdll.sh] Copied sqlite.hdll from $SQLITE_SRC"
     else
-        echo "[copy-hl-hdll.sh] WARNING: sqlite.hdll not found at $SQLITE_SRC"
-        echo "[copy-hl-hdll.sh] Set HASHLINK_PATH environment variable to your HashLink installation path"
+        echo "[copy-hl-hdll.sh] WARNING: sqlite.hdll not found"
+        echo "[copy-hl-hdll.sh] Tried: HASHLINK_PATH env var, hl location in PATH, common system paths"
+        echo "[copy-hl-hdll.sh] You can set HASHLINK_PATH environment variable to your HashLink installation path"
     fi
 fi
 

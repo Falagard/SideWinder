@@ -23,7 +23,20 @@ A Haxe-based web framework with flexible HTTP server support, dependency injecti
 
 ### Prerequisites
 
-Install Haxe Module Manager (hmm):
+**1. HashLink**
+
+Download and install the latest HashLink release from [https://hashlink.haxe.org/](https://hashlink.haxe.org/)
+
+**Installation Options:**
+- **Option A (Recommended):** Install to `C:\HashLink` on Windows or a standard system path on Linux/Mac
+- **Option B:** Install anywhere and add the HashLink directory to your system PATH
+- **Option C:** Install anywhere and set the `HASHLINK_PATH` environment variable to point to your HashLink installation directory
+
+The build scripts will automatically detect HashLink using any of these methods.
+
+**2. Haxe Module Manager (hmm)**
+
+Install Haxe Module Manager:
 
 ```bash
 haxelib --global install hmm
