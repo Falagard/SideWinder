@@ -112,9 +112,7 @@ class Main extends Application {
 
 		// Create web server using factory pattern
 		// Can switch between SnakeServer and CivetWeb implementations
-		webServer = WebServerFactory.create(WebServerFactory.WebServerType.CivetWeb, // Use CivetWeb for WebSocket support
-			DEFAULT_ADDRESS, DEFAULT_PORT,
-			SideWinderRequestHandler, directory);
+		webServer = WebServerFactory.create(WebServerFactory.WebServerType.SnakeServer, DEFAULT_ADDRESS, DEFAULT_PORT, SideWinderRequestHandler, directory);
 
 		// Setup WebSocket support if using CivetWeb
 		// Choose which WebSocket handler to use:
