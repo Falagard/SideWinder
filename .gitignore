@@ -1,3 +1,13 @@
 .haxelib
 Export
 uploads/
+
+# Native library build artifacts (platform-specific, build locally)
+*.hdll
+*.obj
+*.o
+*.lib
+*.exp
+*.so
+*.dylib
+*.dll

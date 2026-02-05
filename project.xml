@@ -13,8 +13,11 @@
     <assets path="migrations" />
 	
 	<section if="hl">
-		<!-- HashLink native library 'civetweb.hdll' built by native/civetweb/hl/build_hdll.bat -->
-		<postbuild command="copy-hl-hdll.bat" />
+		<!-- HashLink native library 'civetweb.hdll' -->
+		<!-- Windows: built by native/civetweb/hl/build_hdll.bat -->
+		<!-- Linux: built by native/civetweb/hl/build_hdll.sh -->
+		<postbuild command="copy-hl-hdll.bat" if="windows" />
+		<postbuild command="bash copy-hl-hdll.sh" if="linux" />
 	</section>
 	
 </project>

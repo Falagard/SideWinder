@@ -1,6 +1,9 @@
-# Building civetweb.hdll for HashLink
+# Building civetweb.hdll for HashLink (Windows)
 
-This guide documents how to build the `civetweb.hdll` native library for HashLink on Windows. This library provides HashLink bindings for the CivetWeb embedded web server, enabling HTTP and WebSocket functionality in the SideWinder project.
+This guide documents how to build the `civetweb.hdll` native library for HashLink on **Windows**. This library provides HashLink bindings for the CivetWeb embedded web server, enabling HTTP and WebSocket functionality in the SideWinder project.
+
+> [!NOTE]
+> **Building on Linux?** See [CIVETWEB_BUILD_GUIDE_LINUX.md](file:///c:/Src/ge/SideWinder/CIVETWEB_BUILD_GUIDE_LINUX.md) for Linux-specific instructions.
 
 ## Overview
 
@@ -533,7 +536,9 @@ To see detailed compiler/linker output, remove the `/nologo` flags and the `>nul
 
 ## Related Files
 
-- [build_hdll.bat](file:///c:/Src/ge/SideWinder/native/civetweb/hl/build_hdll.bat) - Build script
+- [CIVETWEB_BUILD_GUIDE_LINUX.md](file:///c:/Src/ge/SideWinder/CIVETWEB_BUILD_GUIDE_LINUX.md) - Linux build guide
+- [build_hdll.bat](file:///c:/Src/ge/SideWinder/native/civetweb/hl/build_hdll.bat) - Windows build script
+- [build_hdll.sh](file:///c:/Src/ge/SideWinder/native/civetweb/hl/build_hdll.sh) - Linux build script
 - [civetweb_hl.c](file:///c:/Src/ge/SideWinder/native/civetweb/hl/civetweb_hl.c) - HashLink bindings source
 - [civetweb.c](file:///c:/Src/ge/SideWinder/native/civetweb/civetweb.c) - CivetWeb library source
 - [civetweb.h](file:///c:/Src/ge/SideWinder/native/civetweb/civetweb.h) - CivetWeb API header

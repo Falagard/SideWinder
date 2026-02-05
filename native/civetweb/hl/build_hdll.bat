@@ -190,14 +190,6 @@ echo 1. Copy civetweb.hdll to Export/hl/bin/ (or use copy-hl-hdll.bat)
 echo 2. Run: lime build hl
 echo 3. Run: lime test hl
 echo.
-
-REM ==============================
-REM 7. Optional: Copy to HashLink directory
-REM ==============================
-set /p COPY_TO_HL="Copy civetweb.hdll to HashLink directory? (y/n): "
-if /i "%COPY_TO_HL%"=="y" (
-    copy civetweb.hdll "%HASHLINK_PATH%\civetweb.hdll" >nul
-    echo Copied to %HASHLINK_PATH%\civetweb.hdll
-)
+echo The civetweb.hdll will be automatically copied to Export/hl/bin/ when you run 'lime build hl'
 
 endlocal
