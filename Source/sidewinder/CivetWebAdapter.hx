@@ -6,16 +6,17 @@ import sidewinder.native.CivetWebNative.CivetWebResponse;
 import sidewinder.Router;
 import sidewinder.IWebSocketHandler;
 import haxe.io.Bytes;
-import sys.thread.Mutex;
 
 /**
- * Single-threaded adapter for CivetWeb HTTP server using HashLink native bindings.
- * Uses a request queue to ensure all Haxe request handling happens on a single thread.
+ * CivetWeb HTTP server adapter using HashLink native bindings.
+ * Processes requests synchronously in the CivetWeb callback thread.
  * 
- * Architecture:
- * - CivetWeb C threads accept connections and enqueue requests
- * - handleRequest() processes queue one request at a time
- * - Thread-safe via mutex-protected queue
+ * Features:
+ * - JSON and form body parsing
+ * - Cookie parsing and session management
+ * - CORS/OPTIONS support
+ * - Multipart file upload support
+ * - WebSocket support
  * 
  * Requires: civetweb.hdll in Export/hl/bin/
  * To build: cd native/civetweb && make && make install
@@ -28,10 +29,8 @@ class CivetWebAdapter implements IWebServer {
 	private var documentRoot:String;
 	private var requestHandler:Router.Request->Router.Response;
 	private var websocketHandler:IWebSocketHandler;
-	
-	// Single-threaded request queue
-	private var requestQueue:Array<QueuedRequest>;
-	private var queueMutex:Mutex;
+	private var corsEnabled:Bool = true;
+	private var sessionStore:Map<String, Float> = new Map();
 	
 	/**
 	 * Create a new CivetWeb adapter.
@@ -47,11 +46,7 @@ class CivetWebAdapter implements IWebServer {
 		this.documentRoot = documentRoot != null ? documentRoot : "./static";
 		this.requestHandler = handler;
 		
-		// Initialize request queue for single-threaded processing
-		this.requestQueue = [];
-		this.queueMutex = new Mutex();
-		
-		HybridLogger.info('[CivetWebAdapter] Initialized for $host:$port (single-threaded mode)');
+		HybridLogger.info('[CivetWebAdapter] Initialized for $host:$port');
 		HybridLogger.info('[CivetWebAdapter] Document root: ${this.documentRoot}');
 		
 		// Create native server instance
@@ -69,16 +64,16 @@ class CivetWebAdapter implements IWebServer {
 
 	public function start():Void {
 		if (!running && serverHandle != null) {
-			// Define callback that enqueues requests instead of processing immediately
+			// Process requests synchronously in callback
 			var callback = function(req:Dynamic):CivetWebResponse {
-				return enqueueRequest(req);
+				return handleNativeRequest(req);
 			};
 			
 			try {
 				var started = CivetWebNative.start(serverHandle, callback);
 				if (started) {
 					running = true;
-					HybridLogger.info('[CivetWebAdapter] Server started on $host:$port (single-threaded)');
+					HybridLogger.info('[CivetWebAdapter] Server started on $host:$port');
 					HybridLogger.info('[CivetWebAdapter] Access at http://$host:$port');
 				} else {
 					HybridLogger.error('[CivetWebAdapter] Failed to start server');
@@ -91,152 +86,89 @@ class CivetWebAdapter implements IWebServer {
 	}
 	
 	/**
-	 * Enqueue an incoming request (called from C thread).
-	 * Returns immediate response to avoid blocking C thread.
+	 * No-op for CivetWeb (processes synchronously in callback)
 	 */
-	private function enqueueRequest(reqData:Dynamic):CivetWebResponse {
-		queueMutex.acquire();
-		try {
-			var req:CivetWebRequest = cast reqData;
-			
-			// Store request in queue
-			requestQueue.push({
-				request: req,
-				timestamp: Date.now().getTime()
-			});
-			
-			// Return immediate "processing" response
-			return {
-				statusCode: 202,
-				contentType: "text/plain",
-				body: "Processing",
-				bodyLength: 10
-			};
-		} catch (e:Dynamic) {
-			HybridLogger.error('[CivetWebAdapter] Error enqueueing request: $e');
-			return {
-				statusCode: 500,
-				contentType: "text/plain",
-				body: "Error",
-				bodyLength: 5
-			};
-		} finally {
-			queueMutex.release();
-		}
-	}
-	
 	public function handleRequest():Void {
-		if (!running) return;
-		
-		// Process all queued requests on main thread
-		var requests:Array<QueuedRequest> = null;
-		
-		queueMutex.acquire();
-		try {
-			if (requestQueue.length > 0) {
-				requests = requestQueue.copy();
-				requestQueue = [];
-			}
-		} finally {
-			queueMutex.release();
-		}
-		
-		if (requests != null && requests.length > 0) {
-			HybridLogger.debug('[CivetWebAdapter] Processing ${requests.length} queued request(s)');
-			
-			for (queuedReq in requests) {
-				try {
-					processRequest(queuedReq.request);
-				} catch (e:Dynamic) {
-					HybridLogger.error('[CivetWebAdapter] Error processing request: $e');
-				}
-			}
-		}
+		// CivetWeb processes requests synchronously in the native callback
+		// This method is kept for IWebServer interface compatibility
 	}
 	
 	/**
-	 * Process a single request (on main thread).
+	 * Handle incoming HTTP requests from CivetWeb (called from C thread)
 	 */
-	private function processRequest(req:CivetWebRequest):Void {
+	private function handleNativeRequest(reqData:Dynamic):CivetWebResponse {
 		try {
-			// Parse multipart/form-data for file uploads
-			var files:Array<UploadedFile> = [];
-			var formBody = new haxe.ds.StringMap<String>();
-			var jsonBody:Dynamic = null;
-			var body = req.body;
+			var req:CivetWebRequest = cast reqData;
+			var headers = parseHeaders(req.headers);
+			var pathOnly = req.uri.split("?")[0];
 			
-			// TODO: Get content-type from request headers when available
-			// For now, detect multipart from body content
-			if (body.indexOf("Content-Disposition") != -1 && body.indexOf("boundary") != -1) {
-				// Try to parse as multipart
-				var multipartData = MultipartParser.parseMultipart(body, "multipart/form-data; boundary=" + extractBoundaryFromBody(body));
+			// Handle OPTIONS preflight for CORS
+			if (corsEnabled && req.method == "OPTIONS") {
+				return {
+					statusCode: 200,
+					contentType: "text/plain",
+					body: "",
+					bodyLength: 0
+				};
+			}
+			
+			// Parse body based on content-type
+			var contentType = headers.get("Content-Type");
+			if (contentType == null) contentType = headers.get("content-type");
+			
+			var jsonBody:Dynamic = null;
+			var formBody = new haxe.ds.StringMap<String>();
+			var files:Array<UploadedFile> = [];
+			
+			// Parse JSON
+			if (contentType != null && contentType.indexOf("application/json") != -1) {
+				try {
+					jsonBody = haxe.Json.parse(req.body);
+				} catch (e:Dynamic) {
+					HybridLogger.warn('[CivetWebAdapter] Failed to parse JSON: $e');
+				}
+			}
+			// Parse URL-encoded form
+			else if (contentType != null && contentType.indexOf("application/x-www-form-urlencoded") != -1) {
+				for (pair in req.body.split("&")) {
+					var kv = pair.split("=");
+					if (kv.length == 2) {
+						formBody.set(StringTools.urlDecode(kv[0]), StringTools.urlDecode(kv[1]));
+					}
+				}
+			}
+			// Parse multipart (file uploads)
+			else if (contentType != null && contentType.indexOf("multipart/form-data") != -1) {
+				var multipartData = MultipartParser.parseMultipart(req.body, contentType);
 				files = multipartData.files;
 				formBody = multipartData.fields;
 			}
 			
-			// Convert native request to Router.Request
+			// Parse cookies
+			var cookies = parseCookies(headers.get("Cookie"));
+			
+			// Handle session
+			var sessionId = cookies.get("session_id");
+			var newSession = false;
+			if (sessionId == null) {
+				sessionId = generateSessionId();
+				cookies.set("session_id", sessionId);
+				newSession = true;
+			}
+			sessionStore.set(sessionId, Date.now().getTime());
+			
+			// Build router request
 			var routerReq:Router.Request = {
 				method: req.method,
-				path: req.uri,
+				path: pathOnly,
 				query: parseQueryString(req.queryString),
-				headers: new Map<String, String>(),
+				headers: headers,
 				body: req.body,
 				jsonBody: jsonBody,
 				formBody: formBody,
 				params: new Map<String, String>(),
-				cookies: new haxe.ds.StringMap<String>(),
+				cookies: cookies,
 				files: files,
-				ip: req.remoteAddr
-			};
-			
-			// Call the request handler if set
-			var response:Router.Response;
-			if (requestHandler != null) {
-				response = requestHandler(routerReq);
-				HybridLogger.debug('[CivetWebAdapter] ${req.method} ${req.uri} -> ${response.statusCode}');
-			} else {
-				response = {
-					statusCode: 404,
-					body: "Not Found",
-					headers: new Map<String, String>()
-				};
-			}
-			
-			// Note: Response sent via immediate 202 in enqueueRequest
-			// For true async, would need connection tracking and deferred sends
-		} catch (e:Dynamic) {
-			HybridLogger.error('[CivetWebAdapter] Error processing request: $e');
-		}
-	}
-	
-	/**
-	 * Extract boundary from multipart body (fallback method)
-	 */
-	private function extractBoundaryFromBody(body:String):String {
-		var lines = body.split("\n");
-		if (lines.length > 0) {
-			var firstLine = StringTools.trim(lines[0]);
-			if (StringTools.startsWith(firstLine, "--")) {
-				return firstLine.substr(2);
-			}
-		}
-		return "boundary";
-	}
-	
-	/**
-	 * Handle incoming HTTP requests from CivetWeb
-	 */
-	private function handleNativeRequest(reqData:Dynamic):CivetWebResponse {
-		try {
-			// Convert native request to Router.Request
-			var req:CivetWebRequest = cast reqData;
-			
-			var routerReq:Router.Request = {
-				method: req.method,
-				path: req.uri,
-				query: parseQueryString(req.queryString),
-				headers: new Map<String, String>(),
-				body: req.body,
 				ip: req.remoteAddr
 			};
 			
@@ -244,6 +176,7 @@ class CivetWebAdapter implements IWebServer {
 			var response:Router.Response;
 			if (requestHandler != null) {
 				response = requestHandler(routerReq);
+				HybridLogger.debug('[CivetWebAdapter] ${req.method} ${pathOnly} -> ${response.statusCode}');
 			} else {
 				response = {
 					statusCode: 404,
@@ -252,10 +185,66 @@ class CivetWebAdapter implements IWebServer {
 				};
 			}
 			
+			// Add CORS headers if enabled
+			if (corsEnabled) {
+				if (!response.headers.exists("Access-Control-Allow-Origin")) {
+					response.headers.set("Access-Control-Allow-Origin", "*");
+				}
+				if (!response.headers.exists("Access-Control-Allow-Methods")) {
+					response.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+				}
+				if (!response.headers.exists("Access-Control-Allow-Headers")) {
+					response.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+				}
+			}
+			
+			// Add session cookie if new
+			if (newSession) {
+				response.headers.set("Set-Cookie", 'session_id=$sessionId; Path=/; HttpOnly');
+			}
+			
 			// Convert Router.Response to CivetWebResponse
-			var contentType = response.headers.get("Content-Type");
-			if (contentType == null) contentType = "text/html; charset=utf-8";
+			var respContentType = response.headers.get("Content-Type");
+			if (respContentType == null) respContentType = "text/html; charset=utf-8";
+			
+			return {
+				statusCode: response.statusCode,
+				contentType: respContentType,
+				body: response.body != null ? response.body : "",
+				bodyLength: response.body != null ? response.body.length : 0
+			};
+		} catch (e:Dynamic) {
+			HybridLogger.error('[CivetWebAdapter] Error handling request: $e');
+			return {
+				statusCode: 500,
+				contentType: "text/plain",
+				body: "Internal Server Error",
+				bodyLength: 21
+			};
+		}
+	}
 	
+	/**
+	 * Parse headers from CivetWeb headers string format
+	 * Format: "Name: Value\nName: Value\n"
+	 */
+	private function parseHeaders(headersStr:String):Map<String, String> {
+		var result = new Map<String, String>();
+		if (headersStr == null || headersStr == "") return result;
+		
+		var lines = headersStr.split("\n");
+		for (line in lines) {
+			if (line == "") continue;
+			var colonPos = line.indexOf(":");
+			if (colonPos > 0) {
+				var name = line.substr(0, colonPos);
+				var value = StringTools.trim(line.substr(colonPos + 1));
+				result.set(name, value);
+			}
+		}
+		return result;
+	}
+
 	/**
 	 * Parse query string into map
 	 */
@@ -274,24 +263,35 @@ class CivetWebAdapter implements IWebServer {
 		}
 		return result;
 	}
+	
+	/**
+	 * Parse cookies from Cookie header
+	 */
+	private function parseCookies(cookieHeader:String):haxe.ds.StringMap<String> {
+		var cookies = new haxe.ds.StringMap<String>();
+		if (cookieHeader == null || cookieHeader == "") return cookies;
+		
+		for (pair in cookieHeader.split(";")) {
+			var kv = pair.split("=");
+			if (kv.length == 2) {
+				cookies.set(StringTools.trim(kv[0]), StringTools.trim(kv[1]));
+			}
+		}
+		return cookies;
+	}
+	
+	/**
+	 * Generate a unique session ID
+	 */
+	private function generateSessionId():String {
+		return Std.string(Math.floor(Math.random() * 1000000000)) + "_" + Std.string(Date.now().getTime());
+	}
 
 	public function stop():Void {
 		if (running && serverHandle != null) {
 			try {
 				CivetWebNative.stop(serverHandle);
 				running = false;
-				
-				// Clear any remaining queued requests
-				queueMutex.acquire();
-				try {
-					if (requestQueue.length > 0) {
-						HybridLogger.info('[CivetWebAdapter] Clearing ${requestQueue.length} queued requests');
-						requestQueue = [];
-					}
-				} finally {
-					queueMutex.release();
-				}
-				
 				HybridLogger.info('[CivetWebAdapter] Server stopped');
 			} catch (e:Dynamic) {
 				HybridLogger.error('[CivetWebAdapter] Error stopping server: $e');
@@ -380,12 +380,4 @@ class CivetWebAdapter implements IWebServer {
 		var reasonBytes = reason != null ? @:privateAccess reason.toUtf8() : null;
 		CivetWebNative.websocketClose(conn, code, reasonBytes);
 	}
-}
-
-/**
- * Request queue entry
- */
-typedef QueuedRequest = {
-	var request:CivetWebRequest;
-	var timestamp:Float;
 }

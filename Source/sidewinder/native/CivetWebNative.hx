@@ -146,6 +146,7 @@ typedef CivetWebRequest = {
     var bodyLength:Int;
     var queryString:String;
     var remoteAddr:String;
+    var headers:String;
 }
 
 /**

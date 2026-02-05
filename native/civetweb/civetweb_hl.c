@@ -26,6 +26,7 @@ typedef struct {
     int body_length;
     vbyte *query_string;
     vbyte *remote_addr;
+    vbyte *headers;
 } hl_http_request;
 
 typedef struct {
@@ -116,6 +117,22 @@ static int request_handler(struct mg_connection *conn, void *user_data) {
     req.method = (vbyte*)request_info->request_method;
     req.query_string = (vbyte*)request_info->query_string;
     req.remote_addr = (vbyte*)request_info->remote_addr;
+    
+    // Collect headers
+    char headers_buffer[4096];
+    headers_buffer[0] = '\0';
+    int headers_offset = 0;
+    for (int i = 0; i < request_info->num_headers && headers_offset < sizeof(headers_buffer) - 100; i++) {
+        int written = snprintf(headers_buffer + headers_offset, 
+                              sizeof(headers_buffer) - headers_offset,
+                              "%s: %s\n",
+                              request_info->http_headers[i].name,
+                              request_info->http_headers[i].value);
+        if (written > 0) {
+            headers_offset += written;
+        }
+    }
+    req.headers = (vbyte*)headers_buffer;
     
     // Read request body if present
     char body_buffer[8192];
