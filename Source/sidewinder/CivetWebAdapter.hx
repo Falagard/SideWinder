@@ -98,12 +98,17 @@ class CivetWebAdapter implements IWebServer {
 
 		try {
 			// Poll for pending requests from C layer
-			var requests:Array<Dynamic> = CivetWebNative.pollRequests(serverHandle);
+			// We process all available requests in the queue
+			var maxRequests = 100; // Limit per frame to prevent freezing
+			var processed = 0;
 
-			if (requests == null || requests.length == 0)
-				return;
+			while (processed < maxRequests) {
+				var req:Dynamic = CivetWebNative.pollRequest(serverHandle);
+				if (req == null)
+					break;
 
-			for (req in requests) {
+				processed++;
+
 				try {
 					// Convert dynamic request to CivetWebRequest
 					var civetReq:CivetWebRequest = {

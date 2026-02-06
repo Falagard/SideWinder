@@ -465,56 +465,42 @@ HL_PRIM void HL_NAME(websocket_close)(struct mg_connection *conn, int code, vbyt
 // ============================================================================
 
 // Poll for pending requests (called from Haxe main thread)
-HL_PRIM varray* HL_NAME(poll_requests)(hl_civetweb_server *server) {
+HL_PRIM vdynamic* HL_NAME(poll_request)(hl_civetweb_server *server) {
     if (!server) return NULL;
     
     lock_request_mutex();
     
-    // Count requests
-    int count = 0;
-    queued_request *curr = g_request_queue_head;
-    while (curr) {
-        count++;
-        curr = curr->next;
-    }
-    
-    if (count == 0) {
+    if (!g_request_queue_head) {
         unlock_request_mutex();
-        return hl_alloc_array(&hlt_dyn, 0);
+        return NULL;
     }
     
-    // Create array
-    varray *arr = hl_alloc_array(&hlt_dyn, count);
-    
-    // Dequeue all requests
-    curr = g_request_queue_head;
-    int index = 0;
-    
-    while (curr) {
-        // Create dynamic object for this request
-        vdynamic *obj = hl_alloc_dynamic(&hlt_dyn);
-        
-        // Set fields
-        hl_dyn_setp(obj, hl_hash_utf8("id"), &hlt_i32, &curr->request_id);
-        hl_dyn_setp(obj, hl_hash_utf8("uri"), &hlt_bytes, &curr->uri);
-        hl_dyn_setp(obj, hl_hash_utf8("method"), &hlt_bytes, &curr->method);
-        hl_dyn_setp(obj, hl_hash_utf8("body"), &hlt_bytes, &curr->body);
-        hl_dyn_setp(obj, hl_hash_utf8("bodyLength"), &hlt_i32, &curr->body_length);
-        hl_dyn_setp(obj, hl_hash_utf8("queryString"), &hlt_bytes, &curr->query_string);
-        hl_dyn_setp(obj, hl_hash_utf8("remoteAddr"), &hlt_bytes, &curr->remote_addr);
-        hl_dyn_setp(obj, hl_hash_utf8("headers"), &hlt_bytes, &curr->headers);
-        
-        hl_aptr(arr, vdynamic*)[index++] = obj;
-        curr = curr->next;
+    // Dequeue one request
+    queued_request *curr = g_request_queue_head;
+    g_request_queue_head = curr->next;
+    if (g_request_queue_head == NULL) {
+        g_request_queue_tail = NULL;
     }
     
-    // Clear the queue (requests are now being processed)
-    g_request_queue_head = NULL;
-    g_request_queue_tail = NULL;
+    // Create dynamic object for this request
+    vdynamic *obj = hl_alloc_dynamic(&hlt_dyn);
+    
+    // Set fields
+    hl_dyn_setp(obj, hl_hash_utf8("id"), &hlt_i32, &curr->request_id);
+    hl_dyn_setp(obj, hl_hash_utf8("uri"), &hlt_bytes, &curr->uri);
+    hl_dyn_setp(obj, hl_hash_utf8("method"), &hlt_bytes, &curr->method);
+    hl_dyn_setp(obj, hl_hash_utf8("body"), &hlt_bytes, &curr->body);
+    hl_dyn_setp(obj, hl_hash_utf8("bodyLength"), &hlt_i32, &curr->body_length);
+    hl_dyn_setp(obj, hl_hash_utf8("queryString"), &hlt_bytes, &curr->query_string);
+    hl_dyn_setp(obj, hl_hash_utf8("remoteAddr"), &hlt_bytes, &curr->remote_addr);
+    hl_dyn_setp(obj, hl_hash_utf8("headers"), &hlt_bytes, &curr->headers);
+    
+    // Free the queued request structure (we've copied data to HL object)
+    free(curr);
     
     unlock_request_mutex();
     
-    return arr;
+    return obj;
 }
 
 // Push a response for a request ID (called from Haxe main thread)
@@ -570,6 +556,9 @@ DEFINE_PRIM(_VOID, set_websocket_data_handler, _FUN(_VOID, _DYN _I32 _BYTES _I32
 DEFINE_PRIM(_VOID, set_websocket_close_handler, _FUN(_VOID, _DYN));
 DEFINE_PRIM(_I32, websocket_send, _DYN _I32 _BYTES _I32);
 DEFINE_PRIM(_VOID, websocket_close, _DYN _I32 _BYTES);
-DEFINE_PRIM(_ARR, poll_requests, _ABSTRACT(hl_civetweb_server));
+DEFINE_PRIM(_DYN, poll_request, _ABSTRACT(hl_civetweb_server));
 DEFINE_PRIM(_VOID, push_response, _ABSTRACT(hl_civetweb_server) _I32 _I32 _BYTES _BYTES _I32);
+
+
+
 

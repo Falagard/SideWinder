@@ -127,13 +127,13 @@ abstract CivetWebNative(hl.Abstract<"hl_civetweb_server">) {
 	// ============================================================================
 
 	/**
-	 * Poll for pending HTTP requests (called from Haxe main thread)
-	 * Returns array of queued requests with their IDs
+	 * Poll for a single pending HTTP request (called from Haxe main thread)
+	 * Returns request data object or null if queue is empty
 	 * @param server Server handle
-	 * @return Array of dynamic objects with request data
+	 * @return Dynamic request object or null
 	 */
-	@:hlNative("civetweb", "poll_requests")
-	public static function pollRequests(server:CivetWebNative):Array<Dynamic> {
+	@:hlNative("civetweb", "poll_request")
+	public static function pollRequest(server:CivetWebNative):Dynamic {
 		return null;
 	}
 
