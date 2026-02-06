@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SideWinder Demos</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent: #38bdf8;
+            --accent-hover: #0ea5e9;
+            --border: #334155;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            margin: 0;
+            padding: 2rem;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        header {
+            margin-bottom: 3rem;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(to right, #38bdf8, #818cf8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        p.subtitle {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            transition: transform 0.2s, border-color 0.2s;
+            text-decoration: none;
+            color: inherit;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .card:hover {
+            transform: translateY(-4px);
+            border-color: var(--accent);
+        }
+
+        .card h2 {
+            margin: 0 0 0.5rem 0;
+            font-size: 1.25rem;
+            color: var(--accent);
+        }
+
+        .card p {
+            margin: 0;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .card-icon {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        footer {
+            margin-top: 4rem;
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            border-top: 1px solid var(--border);
+            padding-top: 2rem;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>SideWinder Demos</h1>
+            <p class="subtitle">Quick access to feature demonstrations and test pages</p>
+        </header>
+
+        <div class="grid">
+            <a href="upload_test.html" class="card">
+                <div class="card-icon">📁</div>
+                <h2>File Uploads</h2>
+                <p>Test multipart form data and file upload handling capabilities.</p>
+            </a>
+
+            <a href="websocket_test.html" class="card">
+                <div class="card-icon">🔌</div>
+                <h2>WebSockets</h2>
+                <p>Test real-time connection, echo, or chat depending on server config.</p>
+            </a>
+
+            <a href="broadcast_demo.html" class="card">
+                <div class="card-icon">📡</div>
+                <h2>Broadcast</h2>
+                <p>Demonstration of server-to-client message broadcasting.</p>
+            </a>
+
+            <a href="stream_demo.html" class="card">
+                <div class="card-icon">🌊</div>
+                <h2>Data Streams</h2>
+                <p>Interactive demo of the Redis-like stream message broker.</p>
+            </a>
+
+            <a href="polling_demo.html" class="card">
+                <div class="card-icon">🔄</div>
+                <h2>Long Polling</h2>
+                <p>Demonstrates fallback messaging mechanism for environments without WebSockets.</p>
+            </a>
+
+            <a href="chatroom_demo.html" class="card">
+                <div class="card-icon">💬</div>
+                <h2>Chat Room</h2>
+                <p>Multi-user chat example utilizing WebSocket handlers.</p>
+            </a>
+
+            <a href="auth_demo.html" class="card">
+                <div class="card-icon">🔐</div>
+                <h2>Authentication</h2>
+                <p>Test authentication flows and token management.</p>
+            </a>
+
+            <a href="email_demo.html" class="card">
+                <div class="card-icon">📧</div>
+                <h2>Email Services</h2>
+                <p>Test email composition and sending capabilities.</p>
+            </a>
+
+            <a href="hello.html" class="card">
+                <div class="card-icon">👋</div>
+                <h2>Hello World</h2>
+                <p>Simple static page test.</p>
+            </a>
+        </div>
+
+        <footer>
+            <p>SideWinder Server running on port 8000</p>
+        </footer>
+    </div>
+</body>
+
+</html>
