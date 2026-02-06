@@ -265,12 +265,24 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 
 	function handleStatic() {
 		var url = this.path;
+		var staticDir = Path.addTrailingSlash(Sys.getCwd()) + "static";
+		var fileToServe = url;
+		var isStaticPrefix = false;
+
+		// Check if we are asking for /static/... explicitly
 		if (StringTools.startsWith(url, "/static/")) {
-			var staticDir = Path.addTrailingSlash(Sys.getCwd()) + "static";
+			fileToServe = url.substr("/static".length);
+			isStaticPrefix = true;
+		}
+
+		// Check if the file exists in the static directory
+		// We treat the static directory as the root for static content
+		var localPath = staticDir + fileToServe;
+		if (isStaticPrefix || (sys.FileSystem.exists(localPath) && !sys.FileSystem.isDirectory(localPath))) {
 			var oldDir = this.directory;
 			var oldPath = this.path;
 			this.directory = staticDir;
-			this.path = url.substr("/static".length);
+			this.path = fileToServe;
 			this.isServingStatic = true;
 
 			try {
@@ -282,13 +294,18 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 					super.do_GET();
 				} else {
 					trace("Error serving static file: " + e);
+					sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR, "Internal Server Error");
 				}
 			} catch (e:Dynamic) {
 				trace("Error serving static file: " + e);
+				sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR, "Internal Server Error");
 			}
 			this.isServingStatic = false;
 			this.directory = oldDir;
 			this.path = oldPath;
+		} else {
+			// No static file found, and no route matched
+			sendError(snake.http.HTTPStatus.NOT_FOUND, "Not Found");
 		}
 	}
 

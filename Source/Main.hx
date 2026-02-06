@@ -63,7 +63,7 @@ class Main extends Application {
 
 		// Cache service will be resolved from DI
 
-		var directory:String = null;
+		var directory:String = "static";
 
 		// Configure SideWinderRequestHandler
 		BaseHTTPRequestHandler.protocolVersion = DEFAULT_PROTOCOL;
