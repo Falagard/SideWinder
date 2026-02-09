@@ -58,16 +58,18 @@ class LocalStreamBroker implements IStreamBroker {
 			}
 
 			// Generate message ID (timestamp-sequence)
-			var timestamp = Sys.time();
+			// Use Date.now().getTime() to get milliseconds as Float, then convert to string
+			// This avoids integer overflow that occurs with Math.floor() on large timestamps
+			var timestampMs = Date.now().getTime();
 			var sequence = messageSequence.get(stream);
 			messageSequence.set(stream, sequence + 1);
-			var messageId = '${Math.floor(timestamp * 1000)}-${sequence}';
+			var messageId = '${Std.string(timestampMs).split(".")[0]}-${sequence}';
 
 			// Create message
 			var message:StreamMessage = {
 				id: messageId,
 				data: data,
-				timestamp: timestamp
+				timestamp: timestampMs / 1000
 			};
 
 			// Add to stream
