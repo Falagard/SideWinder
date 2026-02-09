@@ -27,47 +27,54 @@ if exist "%SRC%" (
 	)
 )
 
-REM Copy sqlite.hdll from HashLink installation
+REM Copy sqlite.hdll - prefer prebuilt from git, fallback to HashLink installation
 set SQLITE_DEST=Export\hl\bin\sqlite.hdll
+set SQLITE_PREBUILT=native\civetweb\prebuilt\windows\sqlite.hdll
+
 if not exist "%SQLITE_DEST%" (
-	set SQLITE_SRC=
-	
-	REM Try 1: Use HASHLINK_PATH environment variable if set
-	if defined HASHLINK_PATH (
-		if exist "!HASHLINK_PATH!\sqlite.hdll" (
-			set SQLITE_SRC=!HASHLINK_PATH!\sqlite.hdll
+	REM Try 1: Use prebuilt from git (preferred)
+	if exist "%SQLITE_PREBUILT%" (
+		copy /Y "%SQLITE_PREBUILT%" "%SQLITE_DEST%" >nul 2>&1
+		echo [copy-hl-hdll.bat] Copied sqlite.hdll from prebuilt
+	) else (
+		set SQLITE_SRC=
+		
+		REM Try 2: Use HASHLINK_PATH environment variable if set
+		if defined HASHLINK_PATH (
+			if exist "!HASHLINK_PATH!\sqlite.hdll" (
+				set SQLITE_SRC=!HASHLINK_PATH!\sqlite.hdll
+			)
 		)
-	)
-	
-	REM Try 2: Auto-detect by finding hl.exe in PATH
-	if "!SQLITE_SRC!"=="" (
-		for %%i in (hl.exe) do (
-			set HL_PATH=%%~dp$PATH:i
-			if not "!HL_PATH!"=="" (
-				REM Remove trailing backslash
-				set HL_PATH=!HL_PATH:~0,-1!
-				if exist "!HL_PATH!\sqlite.hdll" (
-					set SQLITE_SRC=!HL_PATH!\sqlite.hdll
+		
+		REM Try 3: Auto-detect by finding hl.exe in PATH
+		if "!SQLITE_SRC!"=="" (
+			for %%i in (hl.exe) do (
+				set HL_PATH=%%~dp$PATH:i
+				if not "!HL_PATH!"=="" (
+					REM Remove trailing backslash
+					set HL_PATH=!HL_PATH:~0,-1!
+					if exist "!HL_PATH!\sqlite.hdll" (
+						set SQLITE_SRC=!HL_PATH!\sqlite.hdll
+					)
 				)
 			)
 		)
-	)
-	
-	REM Try 3: Check default location
-	if "!SQLITE_SRC!"=="" (
-		if exist "C:\HashLink\sqlite.hdll" (
-			set SQLITE_SRC=C:\HashLink\sqlite.hdll
+		
+		REM Try 4: Check default location
+		if "!SQLITE_SRC!"=="" (
+			if exist "C:\HashLink\sqlite.hdll" (
+				set SQLITE_SRC=C:\HashLink\sqlite.hdll
+			)
 		)
-	)
-	
-	REM Copy if found
-	if not "!SQLITE_SRC!"=="" (
-		copy /Y "!SQLITE_SRC!" "%SQLITE_DEST%" >nul 2>&1
-		echo [copy-hl-hdll.bat] Copied sqlite.hdll from !SQLITE_SRC!
-	) else (
-		echo [copy-hl-hdll.bat] WARNING: sqlite.hdll not found
-		echo [copy-hl-hdll.bat] Tried: HASHLINK_PATH env var, hl.exe location in PATH, C:\HashLink
-		echo [copy-hl-hdll.bat] You can set HASHLINK_PATH environment variable to your HashLink installation path
+		
+		REM Copy if found
+		if not "!SQLITE_SRC!"=="" (
+			copy /Y "!SQLITE_SRC!" "%SQLITE_DEST%" >nul 2>&1
+			echo [copy-hl-hdll.bat] Copied sqlite.hdll from !SQLITE_SRC!
+		) else (
+			echo [copy-hl-hdll.bat] WARNING: sqlite.hdll not found
+			echo [copy-hl-hdll.bat] Tried: prebuilt, HASHLINK_PATH env var, hl.exe location in PATH, C:\HashLink
+		)
 	)
 )
 
