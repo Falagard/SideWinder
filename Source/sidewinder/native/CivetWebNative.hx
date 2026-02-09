@@ -72,33 +72,20 @@ abstract CivetWebNative(hl.Abstract<"hl_civetweb_server">) {
 	@:hlNative("civetweb", "free")
 	public static function free(server:CivetWebNative):Void {}
 
-	/**
-	 * Set WebSocket connect handler
-	 * @param handler Handler called when WebSocket connection is established
-	 */
-	@:hlNative("civetweb", "set_websocket_connect_handler")
-	public static function setWebSocketConnectHandler(handler:Int->Void):Void {}
+	// ============================================================================
+	// POLLING ARCHITECTURE: WebSocket Functions
+	// ============================================================================
 
 	/**
-	 * Set WebSocket ready handler
-	 * @param handler Handler called when WebSocket is ready to communicate
+	 * Poll for a single pending WebSocket event (called from Haxe main thread)
+	 * Returns event object or null if queue is empty
+	 * @param server Server handle
+	 * @return Dynamic event object or null
 	 */
-	@:hlNative("civetweb", "set_websocket_ready_handler")
-	public static function setWebSocketReadyHandler(handler:Dynamic->Void):Void {}
-
-	/**
-	 * Set WebSocket data handler
-	 * @param handler Handler called when WebSocket data is received
-	 */
-	@:hlNative("civetweb", "set_websocket_data_handler")
-	public static function setWebSocketDataHandler(handler:Dynamic->Int->hl.Bytes->Int->Void):Void {}
-
-	/**
-	 * Set WebSocket close handler
-	 * @param handler Handler called when WebSocket connection is closed
-	 */
-	@:hlNative("civetweb", "set_websocket_close_handler")
-	public static function setWebSocketCloseHandler(handler:Dynamic->Void):Void {}
+	@:hlNative("civetweb", "poll_websocket_event")
+	public static function pollWebSocketEvent(server:CivetWebNative):Dynamic {
+		return null;
+	}
 
 	/**
 	 * Send data through WebSocket
@@ -109,7 +96,7 @@ abstract CivetWebNative(hl.Abstract<"hl_civetweb_server">) {
 	 * @return Bytes sent or -1 on error
 	 */
 	@:hlNative("civetweb", "websocket_send")
-	public static function websocketSend(conn:Dynamic, opcode:Int, data:hl.Bytes, length:Int):Int {
+	public static function websocketSend(conn:hl.Bytes, opcode:Int, data:hl.Bytes, length:Int):Int {
 		return -1;
 	}
 
@@ -120,7 +107,7 @@ abstract CivetWebNative(hl.Abstract<"hl_civetweb_server">) {
 	 * @param reason Close reason
 	 */
 	@:hlNative("civetweb", "websocket_close")
-	public static function websocketClose(conn:Dynamic, code:Int, reason:hl.Bytes):Void {}
+	public static function websocketClose(conn:hl.Bytes, code:Int, reason:hl.Bytes):Void {}
 
 	// ============================================================================
 	// POLLING ARCHITECTURE: New Functions

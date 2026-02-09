@@ -39,11 +39,11 @@ class BufferedResponse {
 		};
 
 		sendError = function(code:snake.http.HTTPStatus):Void {
-			statusCode = cast code;
+			statusCode = code.code;
 		};
 
 		sendResponse = function(code:snake.http.HTTPStatus):Void {
-			statusCode = cast code;
+			statusCode = code.code;
 		};
 
 		endHeaders = function():Void {};

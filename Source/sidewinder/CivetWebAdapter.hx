@@ -6,6 +6,7 @@ import sidewinder.native.CivetWebNative.CivetWebResponse;
 import sidewinder.Router;
 import sidewinder.IWebSocketHandler;
 import haxe.io.Bytes;
+import hl.Bytes;
 
 typedef SimpleResponse = {
 	var statusCode:Int;
@@ -38,6 +39,7 @@ class CivetWebAdapter implements IWebServer {
 	private var websocketHandler:IWebSocketHandler;
 	private var corsEnabled:Bool = true;
 	private var sessionStore:Map<String, Float> = new Map();
+	private var pollCounter:Int = 0;
 
 	/**
 	 * Create a new CivetWeb adapter.
@@ -57,8 +59,8 @@ class CivetWebAdapter implements IWebServer {
 		HybridLogger.info('[CivetWebAdapter] Document root: ${this.documentRoot}');
 
 		// Create native server instance
-		var hostBytes = @:privateAccess host.toUtf8();
-		var docRootBytes = @:privateAccess this.documentRoot.toUtf8();
+		var hostBytes = stringToUtf8(host);
+		var docRootBytes = stringToUtf8(this.documentRoot);
 
 		try {
 			serverHandle = CivetWebNative.create(hostBytes, port, docRootBytes);
@@ -102,45 +104,141 @@ class CivetWebAdapter implements IWebServer {
 			var maxRequests = 100; // Limit per frame to prevent freezing
 			var processed = 0;
 
+			// Debug: Log periodically
+			pollCounter++;
+			if (pollCounter % 60 == 0) {
+				HybridLogger.debug('[CivetWebAdapter] Polling...');
+			}
+
 			while (processed < maxRequests) {
-				var req:Dynamic = CivetWebNative.pollRequest(serverHandle);
+				var req:Dynamic = null;
+				try {
+					req = CivetWebNative.pollRequest(serverHandle);
+				} catch (e:Dynamic) {
+					HybridLogger.error('[CivetWebAdapter] pollRequest threw: ' + e + '\n' + haxe.CallStack.toString(haxe.CallStack.exceptionStack()));
+					throw e;
+				}
+
 				if (req == null)
 					break;
+
+				HybridLogger.debug('[CivetWebAdapter] Got request object');
+
+				var requestId:Int = 0;
+				try {
+					requestId = untyped req.id;
+					HybridLogger.debug('[CivetWebAdapter] Req ID: ' + requestId);
+					var rawMethod:hl.Bytes = untyped req.method;
+					HybridLogger.debug('[CivetWebAdapter] Req Method: ' + bytesToString(rawMethod));
+					var rawUri:hl.Bytes = untyped req.uri;
+					HybridLogger.debug('[CivetWebAdapter] Req URI: ' + bytesToString(rawUri));
+				} catch (e:Dynamic) {
+					HybridLogger.error('[CivetWebAdapter] Error accessing fields: ' + e);
+					throw e; // Rethrow to main catch
+				}
 
 				processed++;
 
 				try {
 					// Convert dynamic request to CivetWebRequest
+					// Native fields are hl.Bytes, need conversion to String
+					var uriBytes:hl.Bytes = untyped req.uri;
+					var methodBytes:hl.Bytes = untyped req.method;
+					var bodyBytes:hl.Bytes = untyped req.body;
+					var queryStringBytes:hl.Bytes = untyped req.queryString;
+					var remoteAddrBytes:hl.Bytes = untyped req.remoteAddr;
+					var headersBytes:hl.Bytes = untyped req.headers;
+					var bodyLength:Int = untyped req.bodyLength;
+
 					var civetReq:CivetWebRequest = {
-						uri: req.uri,
-						method: req.method,
-						body: req.body,
-						bodyLength: req.bodyLength,
-						queryString: req.queryString,
-						remoteAddr: req.remoteAddr,
-						headers: req.headers
+						uri: bytesToString(uriBytes),
+						method: bytesToString(methodBytes),
+						body: bytesToStringWithLen(bodyBytes, bodyLength),
+						bodyLength: bodyLength,
+						queryString: bytesToString(queryStringBytes),
+						remoteAddr: bytesToString(remoteAddrBytes),
+						headers: bytesToString(headersBytes)
 					};
 
 					// Process request on main thread
 					var response = handleNativeRequest(civetReq);
 
 					// Push response back to C layer
-					var contentTypeBytes = @:privateAccess response.contentType.toUtf8();
-					var bodyBytes = @:privateAccess response.body.toUtf8();
-					CivetWebNative.pushResponse(serverHandle, req.id, response.statusCode, contentTypeBytes, bodyBytes, response.bodyLength);
+					var contentTypeBytes = stringToUtf8(response.contentType);
+					var bodyBytesRef = haxe.io.Bytes.ofString(response.body);
+					var respBodyBytes = @:privateAccess bodyBytesRef.b;
+					CivetWebNative.pushResponse(serverHandle, requestId, response.statusCode, contentTypeBytes, respBodyBytes, bodyBytesRef.length);
 				} catch (e:Dynamic) {
 					HybridLogger.error('[CivetWebAdapter] Error handling request: $e');
 
 					// Push error response
 					var errorMsg = "Internal Server Error";
-					var errorContentType = @:privateAccess "text/plain".toUtf8();
-					var errorBody = @:privateAccess errorMsg.toUtf8();
-					CivetWebNative.pushResponse(serverHandle, req.id, 500, errorContentType, errorBody, errorMsg.length);
+					var errorBytes = haxe.io.Bytes.ofString(errorMsg);
+					var errorContentType = stringToUtf8("text/plain");
+					var errorBody = @:privateAccess errorBytes.b;
+					CivetWebNative.pushResponse(serverHandle, requestId, 500, errorContentType, errorBody, errorBytes.length);
 				}
 			}
 		} catch (e:Dynamic) {
-			HybridLogger.error('[CivetWebAdapter] Error in polling loop: $e');
+			HybridLogger.error('[CivetWebAdapter] Error in polling loop: $e\n' + haxe.CallStack.toString(haxe.CallStack.exceptionStack()));
 		}
+		// Poll for WebSocket events
+		if (websocketHandler != null) {
+			var maxWsEvents = 100;
+			var wsProcessed = 0;
+
+			while (wsProcessed < maxWsEvents) {
+				var evt:Dynamic = null;
+
+				try {
+					evt = CivetWebNative.pollWebSocketEvent(serverHandle);
+				} catch (e:Dynamic) {
+					HybridLogger.error('[CivetWebAdapter] pollWebSocketEvent threw: ' + e);
+					break;
+				}
+				if (evt == null)
+					break;
+				wsProcessed++;
+				try {
+					// Event types: 0=Connect, 1=Ready, 2=Data, 3=Close
+					// evt fields: type, conn, flags, data, dataLength
+					switch (evt.type) {
+						case 0: // Connect
+							websocketHandler.onConnect();
+						case 1: // Ready
+							// Cast the conn to Dynamic/Abstract expected by handler
+							websocketHandler.onReady(evt.conn);
+						case 2: // Data
+							var dataBytes:hl.Bytes = evt.data;
+							websocketHandler.onData(evt.conn, evt.flags, dataBytes, evt.dataLength);
+						case 3: // Close
+							websocketHandler.onClose(evt.conn);
+					}
+				} catch (e:Dynamic) {
+					HybridLogger.error('[CivetWebAdapter] Error handling WebSocket event: ' + e);
+				}
+			}
+		}
+	}
+
+	private function stringToUtf8(s:String):hl.Bytes {
+		if (s == null)
+			return null;
+		var b = haxe.io.Bytes.ofString(s);
+		return @:privateAccess b.b;
+	}
+
+	private function bytesToString(b:hl.Bytes):String {
+		if (b == null)
+			return "";
+		return @:privateAccess String.fromUTF8(b);
+	}
+
+	private function bytesToStringWithLen(b:hl.Bytes, len:Int):String {
+		if (b == null || len <= 0)
+			return "";
+		var hxBytes = b.toBytes(len);
+		return hxBytes.toString();
 	}
 
 	/**
@@ -374,34 +472,6 @@ class CivetWebAdapter implements IWebServer {
 	 */
 	public function setWebSocketHandler(handler:IWebSocketHandler):Void {
 		this.websocketHandler = handler;
-
-		// Register WebSocket callbacks with native layer
-		CivetWebNative.setWebSocketConnectHandler(function(result:Int):Void {
-			if (websocketHandler != null) {
-				var accepted = websocketHandler.onConnect();
-				// Store result for C layer (1 = accept, 0 = reject)
-				// Note: This is simplified, real implementation would need proper return value handling
-			}
-		});
-
-		CivetWebNative.setWebSocketReadyHandler(function(conn:Dynamic):Void {
-			if (websocketHandler != null) {
-				websocketHandler.onReady(conn);
-			}
-		});
-
-		CivetWebNative.setWebSocketDataHandler(function(conn:Dynamic, flags:Int, data:hl.Bytes, length:Int):Void {
-			if (websocketHandler != null) {
-				websocketHandler.onData(conn, flags, data, length);
-			}
-		});
-
-		CivetWebNative.setWebSocketCloseHandler(function(conn:Dynamic):Void {
-			if (websocketHandler != null) {
-				websocketHandler.onClose(conn);
-			}
-		});
-
 		HybridLogger.info('[CivetWebAdapter] WebSocket handler registered');
 	}
 
@@ -411,8 +481,8 @@ class CivetWebAdapter implements IWebServer {
 	 * @param text Text data to send
 	 * @return Bytes sent or -1 on error
 	 */
-	public function websocketSendText(conn:Dynamic, text:String):Int {
-		var bytes = @:privateAccess text.toUtf8();
+	public function websocketSendText(conn:hl.Bytes, text:String):Int {
+		var bytes = stringToUtf8(text);
 		return CivetWebNative.websocketSend(conn, WebSocketOpcode.TEXT, bytes, text.length);
 	}
 
@@ -422,7 +492,7 @@ class CivetWebAdapter implements IWebServer {
 	 * @param data Binary data to send
 	 * @return Bytes sent or -1 on error
 	 */
-	public function websocketSendBinary(conn:Dynamic, data:haxe.io.Bytes):Int {
+	public function websocketSendBinary(conn:hl.Bytes, data:haxe.io.Bytes):Int {
 		var hlBytes = @:privateAccess data.b;
 		return CivetWebNative.websocketSend(conn, WebSocketOpcode.BINARY, hlBytes, data.length);
 	}
@@ -433,8 +503,8 @@ class CivetWebAdapter implements IWebServer {
 	 * @param code Close status code (default: 1000 NORMAL)
 	 * @param reason Optional close reason
 	 */
-	public function websocketClose(conn:Dynamic, code:Int = 1000, ?reason:String):Void {
-		var reasonBytes = reason != null ? @:privateAccess reason.toUtf8() : null;
+	public function websocketClose(conn:hl.Bytes, code:Int = 1000, ?reason:String):Void {
+		var reasonBytes = reason != null ? stringToUtf8(reason) : null;
 		CivetWebNative.websocketClose(conn, code, reasonBytes);
 	}
 }

@@ -112,7 +112,7 @@ class Main extends Application {
 
 		// Create web server using factory pattern
 		// Can switch between SnakeServer and CivetWeb implementations
-		webServer = WebServerFactory.create(WebServerFactory.WebServerType.SnakeServer, DEFAULT_ADDRESS, DEFAULT_PORT, SideWinderRequestHandler, directory);
+		webServer = WebServerFactory.create(WebServerFactory.WebServerType.CivetWeb, DEFAULT_ADDRESS, DEFAULT_PORT, SideWinderRequestHandler, directory);
 
 		// Setup WebSocket support if using CivetWeb
 		// Choose which WebSocket handler to use:
@@ -157,7 +157,14 @@ class Main extends Application {
 			}
 		}
 
+		// Start the web server
 		webServer.start();
+
+		// Ensure request handling happens even if main loop update isn't consistent (headless mode)
+		var requestTimer = new haxe.Timer(16); // ~60fps
+		requestTimer.run = function() {
+			webServer.handleRequest();
+		};
 
 		AutoRouter.build(router, IUserService, function() {
 			return DI.get(IUserService);
@@ -210,30 +217,30 @@ class Main extends Application {
 		var userClient:IUserService = AutoClient.create(IUserService, "http://localhost:8080");
 
 		// AutoClientAsync example: create async client pointed at the active server port and perform calls.
-		// Each interface method getAll() becomes getAllAsync(onSuccess, onFailure).
-		var userClientAsync = AutoClientAsync.create(IUserService, 'http://' + DEFAULT_ADDRESS + ':' + DEFAULT_PORT, cookieJar);
+		// Each interface		// AutoClientAsync example: create async client pointed at the active server port and perform calls.
+		// var userClientAsync = AutoClientAsync.create(IUserService, 'http://' + DEFAULT_ADDRESS + ':' + DEFAULT_PORT, cookieJar);
 
 		// Delay invocation slightly to allow server startup.
 		Timer.delay(() -> {
-			userClientAsync.getAllAsync(function(users:Array<IUserService.User>) {
-				HybridLogger.debug('AutoClientAsync getAll returned ' + (users == null ? 0 : users.length) + ' users');
-			}, function(err:Dynamic) {
-				HybridLogger.error('AutoClientAsync getAll failed: ' + Std.string(err));
-			});
+			// userClientAsync.getAllAsync(function(users:Array<IUserService.User>) {
+			// 	HybridLogger.debug('AutoClientAsync getAll returned ' + (users == null ? 0 : users.length) + ' users');
+			// }, function(err:Dynamic) {
+			// 	HybridLogger.error('AutoClientAsync getAll failed: ' + Std.string(err));
+			// });
 		}, 100);
 
 		// Demonstrate createAsync + deleteAsync to verify DELETE handling (raw socket implementation in AutoClientAsync for DELETE).
 		Timer.delay(() -> {
-			userClientAsync.createAsync({id: 0, name: 'TempUser', email: 'tempuser@example.com'}, function(newUser:IUserService.User) {
-				HybridLogger.debug('AutoClientAsync create returned id=' + newUser.id);
-				userClientAsync.deleteAsync(newUser.id, function(result:Bool) {
-					HybridLogger.debug('AutoClientAsync delete returned ' + result + ' for id=' + newUser.id);
-				}, function(err:Dynamic) {
-					HybridLogger.error('AutoClientAsync delete failed: ' + Std.string(err));
-				});
-			}, function(err:Dynamic) {
-				HybridLogger.error('AutoClientAsync create failed: ' + Std.string(err));
-			});
+			// userClientAsync.createAsync({id: 0, name: 'TempUser', email: 'tempuser@example.com'}, function(newUser:IUserService.User) {
+			// 	HybridLogger.debug('AutoClientAsync create returned id=' + newUser.id);
+			// 	userClientAsync.deleteAsync(newUser.id, function(result:Bool) {
+			// 		HybridLogger.debug('AutoClientAsync delete returned ' + result + ' for id=' + newUser.id);
+			// 	}, function(err:Dynamic) {
+			// 		HybridLogger.error('AutoClientAsync delete failed: ' + Std.string(err));
+			// 	});
+			// }, function(err:Dynamic) {
+			// 	HybridLogger.error('AutoClientAsync create failed: ' + Std.string(err));
+			// });
 		}, 300);
 
 		// Example middleware: logging

@@ -13,20 +13,17 @@ REM Ensure destination directory exists
 if not exist "Export\hl\bin" mkdir "Export\hl\bin"
 
 REM Copy civetweb.hdll
-REM If destination already exists, we're done with civetweb
-if not exist "%DEST%" (
-	REM Try to copy from build directory first, then prebuilt
-	if exist "%SRC%" (
-		copy /Y "%SRC%" "%DEST%" >nul 2>&1
-	) else if exist "%PREBUILT%" (
-		copy /Y "%PREBUILT%" "%DEST%" >nul 2>&1
-	) else (
-		REM If we get here, neither source exists - but don't fail the build
-		REM The file might have been copied by Lime already
-		if not exist "%DEST%" (
-			echo [copy-hl-hdll.bat] WARNING: civetweb.hdll not found in build or prebuilt directories
-			echo [copy-hl-hdll.bat] Please build it by running: native\civetweb\hl\build_hdll.bat
-		)
+REM Try to copy from build directory first, then prebuilt
+if exist "%SRC%" (
+	copy /Y "%SRC%" "%DEST%" >nul 2>&1
+) else if exist "%PREBUILT%" (
+	copy /Y "%PREBUILT%" "%DEST%" >nul 2>&1
+) else (
+	REM If we get here, neither source exists - but don't fail the build
+	REM The file might have been copied by Lime already
+	if not exist "%DEST%" (
+		echo [copy-hl-hdll.bat] WARNING: civetweb.hdll not found in build or prebuilt directories
+		echo [copy-hl-hdll.bat] Please build it by running: native\civetweb\hl\build_hdll.bat
 	)
 )
 
