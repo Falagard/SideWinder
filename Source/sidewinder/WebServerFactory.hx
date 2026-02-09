@@ -41,6 +41,8 @@ class WebServerFactory {
 					// Use SideWinderRequestHandler logic if possible, or direct router find/handle
 					var match = SideWinderRequestHandler.router.find(req.method, req.path);
 					if (match != null) {
+						// Important: Copy matched params to request
+						req.params = match.params;
 						// Note: This loses static file handling from SideWinderRequestHandler base class
 						// TODO: Replicate static file handling if needed for CivetWeb
 						try {

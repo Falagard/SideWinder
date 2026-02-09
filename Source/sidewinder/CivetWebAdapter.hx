@@ -165,7 +165,8 @@ class CivetWebAdapter implements IWebServer {
 
 					// Push response back to C layer
 					var contentTypeBytes = stringToUtf8(response.contentType);
-					var bodyBytesRef = haxe.io.Bytes.ofString(response.body);
+					var bodyStr = response.body != null ? response.body : "";
+					var bodyBytesRef = haxe.io.Bytes.ofString(bodyStr);
 					var respBodyBytes = @:privateAccess bodyBytesRef.b;
 					CivetWebNative.pushResponse(serverHandle, requestId, response.statusCode, contentTypeBytes, respBodyBytes, bodyBytesRef.length);
 				} catch (e:Dynamic) {
