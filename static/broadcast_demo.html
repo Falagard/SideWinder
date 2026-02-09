@@ -380,6 +380,11 @@
 
         function handleMessage(data) {
             switch (data.type) {
+                case 'router_init':
+                    // Router initialization - can ignore, handler selection is automatic
+                    console.log('Router init:', data.message);
+                    break;
+
                 case 'welcome':
                     myClientId = data.clientId;
                     document.getElementById('clientId').textContent = data.clientId;
@@ -417,7 +422,12 @@
                     break;
 
                 case 'error':
-                    addMessage('system', 'Error: ' + data.message);
+                    // Only show errors that aren't from router negotiation
+                    if (!data.available) {
+                        addMessage('system', 'Error: ' + data.message);
+                    } else {
+                        console.log('Router error (expected during init):', data.message);
+                    }
                     break;
             }
         }
