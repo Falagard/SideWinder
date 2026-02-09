@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -12,37 +13,45 @@
             padding: 20px;
             background: #f5f5f5;
         }
+
         .container {
             background: white;
             padding: 30px;
             border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
         }
+
         h1 {
             color: #333;
             margin-top: 0;
         }
+
         .status {
             padding: 10px;
             border-radius: 4px;
             margin: 20px 0;
             font-weight: bold;
         }
+
         .status.connected {
             background: #d4edda;
             color: #155724;
         }
+
         .status.disconnected {
             background: #f8d7da;
             color: #721c24;
         }
+
         .status.connecting {
             background: #fff3cd;
             color: #856404;
         }
+
         .controls {
             margin: 20px 0;
         }
+
         button {
             padding: 10px 20px;
             margin-right: 10px;
@@ -52,24 +61,30 @@
             font-size: 14px;
             transition: background 0.3s;
         }
+
         button.primary {
             background: #007bff;
             color: white;
         }
+
         button.primary:hover {
             background: #0056b3;
         }
+
         button.danger {
             background: #dc3545;
             color: white;
         }
+
         button.danger:hover {
             background: #c82333;
         }
+
         button:disabled {
             background: #6c757d;
             cursor: not-allowed;
         }
+
         .messages {
             margin-top: 20px;
             max-height: 400px;
@@ -79,6 +94,7 @@
             padding: 15px;
             background: #fafafa;
         }
+
         .message {
             padding: 8px;
             margin: 5px 0;
@@ -86,25 +102,30 @@
             background: white;
             border-radius: 3px;
         }
+
         .message.error {
             border-left-color: #dc3545;
             background: #fff5f5;
         }
+
         .message .time {
             color: #666;
             font-size: 12px;
         }
+
         .message .content {
             margin-top: 5px;
             font-family: 'Courier New', monospace;
             font-size: 13px;
         }
+
         .info {
             background: #e7f3ff;
             padding: 15px;
             border-radius: 4px;
             margin: 20px 0;
         }
+
         .info code {
             background: #fff;
             padding: 2px 6px;
@@ -113,10 +134,11 @@
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <h1>🔄 SideWinder Polling Client Demo</h1>
-        
+
         <div class="info">
             <strong>Server URL:</strong> <code id="serverUrl">http://127.0.0.1:8000</code><br>
             <strong>Client ID:</strong> <code id="clientId">Not connected</code>
@@ -138,7 +160,6 @@
         </div>
     </div>
 
-    <script src="polling_client_demo.js"></script>
     <script>
         // This will be populated by the Haxe-compiled JavaScript
         // For now, here's a pure JS implementation for demonstration
@@ -162,17 +183,17 @@
         function addMessage(content, isError = false) {
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message' + (isError ? ' error' : '');
-            
+
             const time = new Date().toLocaleTimeString();
             messageDiv.innerHTML = `
                 <div class="time">${time}</div>
                 <div class="content">${escapeHtml(content)}</div>
             `;
-            
+
             if (messagesEl.querySelector('em')) {
                 messagesEl.innerHTML = '';
             }
-            
+
             messagesEl.appendChild(messageDiv);
             messagesEl.scrollTop = messagesEl.scrollHeight;
         }
@@ -263,10 +284,10 @@
                 poll();
             }
 
-            onConnect() {}
-            onDisconnect() {}
-            onMessage(msg) {}
-            onError(err) {}
+            onConnect() { }
+            onDisconnect() { }
+            onMessage(msg) { }
+            onError(err) { }
         }
 
         // Event handlers
@@ -277,7 +298,7 @@
             connectBtn.disabled = true;
 
             client = new SimplePollingClient(serverUrl);
-            
+
             client.onConnect = () => {
                 connected = true;
                 updateStatus('connected', 'Connected');
@@ -327,4 +348,5 @@
         addMessage('💡 Make sure the SideWinder server is running on http://127.0.0.1:8000');
     </script>
 </body>
+
 </html>
