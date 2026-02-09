@@ -115,46 +115,22 @@ class Main extends Application {
 		webServer = WebServerFactory.create(WebServerFactory.WebServerType.CivetWeb, DEFAULT_ADDRESS, DEFAULT_PORT, SideWinderRequestHandler, directory);
 
 		// Setup WebSocket support if using CivetWeb
-		// Choose which WebSocket handler to use:
-		// - EchoWebSocketHandler: Simple echo server
-		// - ChatRoomWebSocketHandler: Multi-user chat room
-		// - BroadcastWebSocketHandler: Channel-based broadcasting
-		// - AuthenticatedWebSocketHandler: Token-based authentication
+		// Using WebSocketRouter to support multiple handlers on a single endpoint
+		// Client sends {"handler": "echo|chat|broadcast|auth"} as first message
 		if (Std.isOfType(webServer, CivetWebAdapter)) {
 			var civetAdapter:CivetWebAdapter = cast webServer;
 
-			// Change this line to switch between different WebSocket handlers
-			var wsHandlerType = "chat"; // Options: "echo", "chat", "broadcast", "auth"
+			// Use the WebSocket router for multi-handler support
+			var wsRouter = new WebSocketRouter(civetAdapter);
+			civetAdapter.setWebSocketHandler(wsRouter);
 
-			switch (wsHandlerType) {
-				case "echo":
-					var wsHandler = new EchoWebSocketHandler(civetAdapter);
-					civetAdapter.setWebSocketHandler(wsHandler);
-					HybridLogger.info('[Main] WebSocket echo handler enabled');
-					HybridLogger.info('[Main] Test at: http://$DEFAULT_ADDRESS:$DEFAULT_PORT/websocket_test.html');
-
-				case "chat":
-					var wsHandler = new ChatRoomWebSocketHandler(civetAdapter);
-					civetAdapter.setWebSocketHandler(wsHandler);
-					HybridLogger.info('[Main] WebSocket chat room handler enabled');
-					HybridLogger.info('[Main] Test at: http://$DEFAULT_ADDRESS:$DEFAULT_PORT/chatroom_demo.html');
-
-				case "broadcast":
-					var wsHandler = new BroadcastWebSocketHandler(civetAdapter);
-					civetAdapter.setWebSocketHandler(wsHandler);
-					HybridLogger.info('[Main] WebSocket broadcast handler enabled');
-					HybridLogger.info('[Main] Test at: http://$DEFAULT_ADDRESS:$DEFAULT_PORT/broadcast_demo.html');
-
-				case "auth":
-					var wsHandler = new AuthenticatedWebSocketHandler(civetAdapter, 30.0); // 30 second auth timeout
-					civetAdapter.setWebSocketHandler(wsHandler);
-					HybridLogger.info('[Main] WebSocket authenticated handler enabled');
-					HybridLogger.info('[Main] Test at: http://$DEFAULT_ADDRESS:$DEFAULT_PORT/auth_demo.html');
-					HybridLogger.info('[Main] Demo tokens: "demo-token-123" (user), "admin-token-456" (admin)');
-
-				default:
-					HybridLogger.warn('[Main] Unknown WebSocket handler type: $wsHandlerType');
-			}
+			HybridLogger.info('[Main] WebSocket router enabled with handlers: echo, chat, broadcast, auth');
+			HybridLogger.info('[Main] Connect to ws://localhost:$DEFAULT_PORT/ws');
+			HybridLogger.info('[Main] Send {"handler": "<name>"} to select handler');
+			HybridLogger.info('[Main] Test pages:');
+			HybridLogger.info('[Main]   Echo: http://$DEFAULT_ADDRESS:$DEFAULT_PORT/websocket_test.html');
+			HybridLogger.info('[Main]   Chat: http://$DEFAULT_ADDRESS:$DEFAULT_PORT/chatroom_demo.html');
+			HybridLogger.info('[Main]   Broadcast: http://$DEFAULT_ADDRESS:$DEFAULT_PORT/broadcast_demo.html');
 		}
 
 		// Start the web server

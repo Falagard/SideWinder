@@ -452,7 +452,7 @@ HL_PRIM bool HL_NAME(start)(hl_civetweb_server *server) {
     if (server->ctx) {
         // Register WebSocket handlers (Global handlers for all URIs)
         // Use our internal static handlers that queue events
-        mg_set_websocket_handler(server->ctx, "/", websocket_connect_handler, websocket_ready_handler, websocket_data_handler, websocket_close_handler, NULL);
+        		mg_set_websocket_handler(server->ctx, "/ws", websocket_connect_handler, websocket_ready_handler, websocket_data_handler, websocket_close_handler, NULL);
         
         server->running = 1;
         return true;

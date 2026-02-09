@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,7 +11,7 @@
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -20,11 +21,11 @@
             align-items: center;
             padding: 20px;
         }
-        
+
         .container {
             background: white;
             border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
             padding: 30px;
             max-width: 1000px;
             width: 100%;
@@ -33,7 +34,7 @@
             gap: 20px;
             height: 700px;
         }
-        
+
         .sidebar {
             border-right: 2px solid #f0f0f0;
             padding-right: 20px;
@@ -41,20 +42,20 @@
             flex-direction: column;
             gap: 15px;
         }
-        
+
         .main-content {
             display: flex;
             flex-direction: column;
             gap: 15px;
         }
-        
+
         h1 {
             color: #667eea;
             margin-bottom: 5px;
             font-size: 24px;
             grid-column: 1 / -1;
         }
-        
+
         .status {
             padding: 10px;
             border-radius: 8px;
@@ -64,49 +65,69 @@
             align-items: center;
             gap: 8px;
         }
-        
-        .status.disconnected { background: #fee; color: #c33; }
-        .status.connected { background: #efe; color: #3c3; }
-        
+
+        .status.disconnected {
+            background: #fee;
+            color: #c33;
+        }
+
+        .status.connected {
+            background: #efe;
+            color: #3c3;
+        }
+
         .status-dot {
             width: 8px;
             height: 8px;
             border-radius: 50%;
         }
-        
-        .status.disconnected .status-dot { background: #c33; }
-        .status.connected .status-dot { background: #3c3; animation: pulse 2s infinite; }
-        
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+
+        .status.disconnected .status-dot {
+            background: #c33;
         }
-        
+
+        .status.connected .status-dot {
+            background: #3c3;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
         .form-group {
             display: flex;
             flex-direction: column;
             gap: 5px;
         }
-        
+
         label {
             font-size: 11px;
             font-weight: 600;
             color: #666;
             text-transform: uppercase;
         }
-        
+
         input[type="text"] {
             padding: 8px 12px;
             border: 2px solid #e0e0e0;
             border-radius: 6px;
             font-size: 14px;
         }
-        
+
         input[type="text"]:focus {
             outline: none;
             border-color: #667eea;
         }
-        
+
         button {
             padding: 10px 16px;
             border: none;
@@ -116,50 +137,50 @@
             cursor: pointer;
             transition: all 0.2s;
         }
-        
+
         button:hover:not(:disabled) {
             transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         }
-        
+
         button:disabled {
             opacity: 0.5;
             cursor: not-allowed;
         }
-        
+
         .btn-primary {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
         }
-        
+
         .btn-secondary {
             background: #e74c3c;
             color: white;
         }
-        
+
         .btn-success {
             background: #27ae60;
             color: white;
         }
-        
+
         .room-info {
             padding: 10px;
             background: #f8f9fa;
             border-radius: 6px;
             font-size: 12px;
         }
-        
+
         .room-info strong {
             color: #667eea;
         }
-        
+
         .chat-area {
             flex: 1;
             display: flex;
             flex-direction: column;
             min-height: 0;
         }
-        
+
         .chat-header {
             padding: 15px;
             background: #f8f9fa;
@@ -168,12 +189,12 @@
             justify-content: space-between;
             align-items: center;
         }
-        
+
         .chat-header h2 {
             font-size: 16px;
             color: #333;
         }
-        
+
         .chat-messages {
             flex: 1;
             background: #fafafa;
@@ -185,7 +206,7 @@
             gap: 8px;
             min-height: 0;
         }
-        
+
         .message {
             padding: 10px 12px;
             border-radius: 6px;
@@ -193,12 +214,19 @@
             animation: slideIn 0.2s ease;
             max-width: 80%;
         }
-        
+
         @keyframes slideIn {
-            from { opacity: 0; transform: translateY(-5px); }
-            to { opacity: 1; transform: translateY(0); }
+            from {
+                opacity: 0;
+                transform: translateY(-5px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
-        
+
         .message.system {
             background: #e3f2fd;
             border-left: 3px solid #2196f3;
@@ -207,45 +235,45 @@
             max-width: 100%;
             text-align: center;
         }
-        
+
         .message.error {
             background: #ffebee;
             border-left: 3px solid #f44336;
             color: #c62828;
         }
-        
+
         .message.sent {
             background: #e8f5e9;
             border-left: 3px solid #4caf50;
             margin-left: auto;
         }
-        
+
         .message.received {
             background: #fff;
             border-left: 3px solid #9c27b0;
         }
-        
+
         .message .nickname {
             font-weight: 700;
             color: #9c27b0;
             margin-right: 5px;
         }
-        
+
         .message .time {
             font-size: 10px;
             color: #999;
             margin-top: 4px;
         }
-        
+
         .chat-input {
             display: flex;
             gap: 10px;
         }
-        
+
         .chat-input input {
             flex: 1;
         }
-        
+
         .commands {
             background: #f8f9fa;
             padding: 10px;
@@ -254,20 +282,20 @@
             color: #666;
             margin-top: auto;
         }
-        
+
         .commands strong {
             display: block;
             margin-bottom: 5px;
             color: #333;
         }
-        
+
         .commands code {
             background: #fff;
             padding: 2px 6px;
             border-radius: 3px;
             font-family: 'Courier New', monospace;
         }
-        
+
         .empty-state {
             text-align: center;
             color: #999;
@@ -276,37 +304,38 @@
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <h1>💬 Chat Room Demo</h1>
-        
+
         <div class="sidebar">
             <div id="status" class="status disconnected">
                 <span class="status-dot"></span>
                 <span>Disconnected</span>
             </div>
-            
+
             <div class="form-group">
                 <label>Nickname</label>
                 <input type="text" id="nicknameInput" placeholder="Enter nickname">
                 <button class="btn-success" onclick="setNickname()" id="nicknameBtn">Set Nickname</button>
             </div>
-            
+
             <div class="form-group">
                 <label>Room</label>
                 <input type="text" id="roomInput" placeholder="Enter room name">
                 <button class="btn-primary" onclick="joinRoom()" id="joinBtn" disabled>Join Room</button>
                 <button class="btn-secondary" onclick="leaveRoom()" id="leaveBtn" disabled>Leave Room</button>
             </div>
-            
+
             <div class="room-info">
                 <strong>Current Room:</strong>
                 <div id="currentRoom">Not in a room</div>
             </div>
-            
+
             <button class="btn-primary" onclick="listRooms()">List Rooms</button>
             <button class="btn-primary" onclick="listUsers()">List Users</button>
-            
+
             <div class="commands">
                 <strong>Commands:</strong>
                 <div><code>/nick name</code> - Set nickname</div>
@@ -316,47 +345,51 @@
                 <div><code>/users</code> - List users in room</div>
             </div>
         </div>
-        
+
         <div class="main-content">
             <div class="chat-area">
                 <div class="chat-header">
                     <h2 id="chatTitle">Chat Messages</h2>
-                    <button class="btn-secondary" onclick="clearMessages()" style="padding: 6px 12px; font-size: 11px;">Clear</button>
+                    <button class="btn-secondary" onclick="clearMessages()"
+                        style="padding: 6px 12px; font-size: 11px;">Clear</button>
                 </div>
-                
+
                 <div id="messages" class="chat-messages">
                     <div class="empty-state">Set a nickname and join a room to start chatting...</div>
                 </div>
-                
+
                 <div class="chat-input">
-                    <input type="text" id="messageInput" placeholder="Type a message..." onkeypress="if(event.key==='Enter')sendMessage()" disabled>
+                    <input type="text" id="messageInput" placeholder="Type a message..."
+                        onkeypress="if(event.key==='Enter')sendMessage()" disabled>
                     <button class="btn-primary" onclick="sendMessage()" id="sendBtn" disabled>Send</button>
                 </div>
             </div>
         </div>
     </div>
-    
+
     <script>
         let ws = null;
         let currentNickname = null;
         let currentRoom = null;
-        
+
         // Auto-connect on load
         window.onload = () => {
             connect();
         };
-        
+
         function connect() {
             const wsUrl = 'ws://' + window.location.hostname + ':' + (window.location.port || '8000') + '/ws';
-            
+
             try {
                 ws = new WebSocket(wsUrl);
-                
+
                 ws.onopen = () => {
                     updateStatus('connected', 'Connected');
+                    // Select the chat handler via router
+                    ws.send(JSON.stringify({ handler: "chat" }));
                     document.getElementById('nicknameBtn').disabled = false;
                 };
-                
+
                 ws.onmessage = (event) => {
                     try {
                         const data = JSON.parse(event.data);
@@ -365,12 +398,12 @@
                         console.error('Error parsing message:', e);
                     }
                 };
-                
+
                 ws.onerror = (error) => {
                     console.error('WebSocket error:', error);
                     addMessage('error', 'Connection error occurred');
                 };
-                
+
                 ws.onclose = () => {
                     updateStatus('disconnected', 'Disconnected');
                     document.getElementById('nicknameBtn').disabled = true;
@@ -387,9 +420,13 @@
                 updateStatus('disconnected', 'Failed to connect');
             }
         }
-        
+
         function handleMessage(data) {
             switch (data.type) {
+                case 'router_init':
+                    // Router initialization message - ignore
+                    console.log('Router init:', data.message);
+                    break;
                 case 'system':
                     addMessage('system', data.message);
                     break;
@@ -401,109 +438,109 @@
                     break;
             }
         }
-        
+
         function setNickname() {
             const nickname = document.getElementById('nicknameInput').value.trim();
             if (!nickname) return;
-            
+
             sendCommand('/nick ' + nickname);
             currentNickname = nickname;
             document.getElementById('joinBtn').disabled = false;
             document.getElementById('messageInput').disabled = false;
             document.getElementById('sendBtn').disabled = false;
         }
-        
+
         function joinRoom() {
             const room = document.getElementById('roomInput').value.trim();
             if (!room || !currentNickname) return;
-            
+
             sendCommand('/join ' + room);
             currentRoom = room;
             updateRoomDisplay();
             document.getElementById('leaveBtn').disabled = false;
         }
-        
+
         function leaveRoom() {
             sendCommand('/leave');
             currentRoom = null;
             updateRoomDisplay();
             document.getElementById('leaveBtn').disabled = true;
         }
-        
+
         function listRooms() {
             sendCommand('/rooms');
         }
-        
+
         function listUsers() {
             sendCommand('/users');
         }
-        
+
         function sendMessage() {
             const input = document.getElementById('messageInput');
             const message = input.value.trim();
-            
+
             if (!message || !ws || ws.readyState !== WebSocket.OPEN) return;
-            
+
             if (message.startsWith('/')) {
                 sendCommand(message);
             } else {
                 ws.send(message);
                 addMessage('sent', message, currentNickname);
             }
-            
+
             input.value = '';
         }
-        
+
         function sendCommand(command) {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(command);
             }
         }
-        
+
         function addMessage(type, content, nickname = null) {
             const messagesDiv = document.getElementById('messages');
-            
+
             const emptyState = messagesDiv.querySelector('.empty-state');
             if (emptyState) emptyState.remove();
-            
+
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message ' + type;
-            
+
             if (nickname) {
                 const nicknameSpan = document.createElement('span');
                 nicknameSpan.className = 'nickname';
                 nicknameSpan.textContent = nickname + ':';
                 messageDiv.appendChild(nicknameSpan);
             }
-            
+
             const textSpan = document.createElement('span');
             textSpan.textContent = content;
             messageDiv.appendChild(textSpan);
-            
+
             const timeDiv = document.createElement('div');
             timeDiv.className = 'time';
             timeDiv.textContent = new Date().toLocaleTimeString();
             messageDiv.appendChild(timeDiv);
-            
+
             messagesDiv.appendChild(messageDiv);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
-        
+
         function clearMessages() {
             const messagesDiv = document.getElementById('messages');
             messagesDiv.innerHTML = '<div class="empty-state">Messages cleared</div>';
         }
-        
+
         function updateStatus(state, text) {
             const statusDiv = document.getElementById('status');
             statusDiv.className = 'status ' + state;
             statusDiv.innerHTML = `<span class="status-dot"></span><span>${text}</span>`;
         }
-        
+
         function updateRoomDisplay() {
             const roomDisplay = document.getElementById('currentRoom');
             const chatTitle = document.getElementById('chatTitle');
-            
+
             if (currentRoom) {
                 roomDisplay.textContent = currentRoom;
                 chatTitle.textContent = 'Chat: ' + currentRoom;
@@ -514,4 +551,5 @@
         }
     </script>
 </body>
+
 </html>

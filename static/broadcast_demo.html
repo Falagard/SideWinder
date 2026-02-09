@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,7 +11,7 @@
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
@@ -20,56 +21,56 @@
             align-items: center;
             padding: 20px;
         }
-        
+
         .container {
             background: white;
             border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
             padding: 40px;
             max-width: 900px;
             width: 100%;
         }
-        
+
         h1 {
             color: #f5576c;
             margin-bottom: 10px;
             font-size: 28px;
         }
-        
+
         .subtitle {
             color: #666;
             margin-bottom: 30px;
             font-size: 14px;
         }
-        
+
         .status-bar {
             display: grid;
             grid-template-columns: 1fr 1fr 1fr;
             gap: 15px;
             margin-bottom: 20px;
         }
-        
+
         .status-card {
             padding: 15px;
             border-radius: 10px;
             text-align: center;
         }
-        
+
         .status-card.disconnected {
             background: #fee;
             color: #c33;
         }
-        
+
         .status-card.connected {
             background: #efe;
             color: #3c3;
         }
-        
+
         .status-card.info {
             background: #f0f9ff;
             color: #0369a1;
         }
-        
+
         .status-card .label {
             font-size: 11px;
             font-weight: 600;
@@ -77,18 +78,18 @@
             margin-bottom: 5px;
             opacity: 0.7;
         }
-        
+
         .status-card .value {
             font-size: 24px;
             font-weight: 700;
         }
-        
+
         .controls {
             display: flex;
             gap: 10px;
             margin-bottom: 20px;
         }
-        
+
         button {
             padding: 12px 24px;
             border: none;
@@ -98,40 +99,40 @@
             cursor: pointer;
             transition: all 0.3s ease;
         }
-        
+
         button:hover:not(:disabled) {
             transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         }
-        
+
         button:disabled {
             opacity: 0.5;
             cursor: not-allowed;
         }
-        
+
         .btn-connect {
             background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
             color: white;
             flex: 1;
         }
-        
+
         .btn-disconnect {
             background: #e74c3c;
             color: white;
             flex: 1;
         }
-        
+
         .btn-stats {
             background: #3498db;
             color: white;
         }
-        
+
         .broadcast-input {
             display: flex;
             gap: 10px;
             margin-bottom: 20px;
         }
-        
+
         input[type="text"] {
             flex: 1;
             padding: 12px 16px;
@@ -140,18 +141,18 @@
             font-size: 14px;
             transition: border-color 0.3s ease;
         }
-        
+
         input[type="text"]:focus {
             outline: none;
             border-color: #f5576c;
         }
-        
+
         .btn-broadcast {
             background: #f5576c;
             color: white;
             min-width: 120px;
         }
-        
+
         .messages-container {
             background: #f8f9fa;
             border-radius: 10px;
@@ -159,19 +160,19 @@
             max-height: 500px;
             overflow-y: auto;
         }
-        
+
         .messages-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-bottom: 15px;
         }
-        
+
         .messages-header h3 {
             color: #333;
             font-size: 16px;
         }
-        
+
         .btn-clear {
             background: #95a5a6;
             color: white;
@@ -179,13 +180,13 @@
             font-size: 12px;
             min-width: auto;
         }
-        
+
         .messages {
             display: flex;
             flex-direction: column;
             gap: 10px;
         }
-        
+
         .message {
             padding: 12px 16px;
             border-radius: 8px;
@@ -193,75 +194,76 @@
             line-height: 1.5;
             animation: slideIn 0.3s ease;
         }
-        
+
         @keyframes slideIn {
             from {
                 opacity: 0;
                 transform: translateX(-10px);
             }
+
             to {
                 opacity: 1;
                 transform: translateX(0);
             }
         }
-        
+
         .message.welcome {
             background: #dbeafe;
             border-left: 4px solid #3b82f6;
         }
-        
+
         .message.system {
             background: #fafafa;
             border-left: 4px solid #9e9e9e;
             color: #666;
             font-style: italic;
         }
-        
+
         .message.broadcast {
             background: #fef3c7;
             border-left: 4px solid #f59e0b;
         }
-        
+
         .message.server {
             background: #dcfce7;
             border-left: 4px solid #22c55e;
         }
-        
+
         .message.my-broadcast {
             background: #fce7f3;
             border-left: 4px solid #ec4899;
         }
-        
+
         .message-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-bottom: 4px;
         }
-        
+
         .message-from {
             font-weight: 600;
             font-size: 12px;
         }
-        
+
         .message-id {
             font-size: 11px;
             color: #999;
         }
-        
+
         .message-time {
             font-size: 11px;
             color: #999;
             margin-top: 4px;
         }
-        
+
         .empty-state {
             text-align: center;
             color: #999;
             padding: 40px;
             font-style: italic;
         }
-        
+
         .info-box {
             background: #f0f9ff;
             border-left: 4px solid #0369a1;
@@ -273,15 +275,17 @@
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <h1>📡 Broadcast Demo</h1>
         <p class="subtitle">Real-time broadcasting to all connected clients</p>
-        
+
         <div class="info-box">
-            <strong>About:</strong> This demo shows broadcasting where messages sent by one client are received by all connected clients in real-time.
+            <strong>About:</strong> This demo shows broadcasting where messages sent by one client are received by all
+            connected clients in real-time.
         </div>
-        
+
         <div class="status-bar">
             <div id="statusCard" class="status-card disconnected">
                 <div class="label">Connection</div>
@@ -296,18 +300,19 @@
                 <div class="value" id="clientCount">0</div>
             </div>
         </div>
-        
+
         <div class="controls">
             <button id="connectBtn" class="btn-connect" onclick="connect()">Connect</button>
             <button id="disconnectBtn" class="btn-disconnect" onclick="disconnect()" disabled>Disconnect</button>
             <button id="statsBtn" class="btn-stats" onclick="requestStats()" disabled>Request Stats</button>
         </div>
-        
+
         <div class="broadcast-input">
-            <input type="text" id="messageInput" placeholder="Type a message to broadcast..." onkeypress="if(event.key==='Enter')broadcastMessage()" disabled>
+            <input type="text" id="messageInput" placeholder="Type a message to broadcast..."
+                onkeypress="if(event.key==='Enter')broadcastMessage()" disabled>
             <button id="broadcastBtn" class="btn-broadcast" onclick="broadcastMessage()" disabled>Broadcast</button>
         </div>
-        
+
         <div class="messages-container">
             <div class="messages-header">
                 <h3>Broadcast Feed</h3>
@@ -318,23 +323,25 @@
             </div>
         </div>
     </div>
-    
+
     <script>
         let ws = null;
         let myClientId = null;
-        
+
         function connect() {
             const wsUrl = 'ws://' + window.location.hostname + ':' + (window.location.port || '8000') + '/ws';
-            
+
             updateStatus('connecting', 'Connecting...');
-            
+
             try {
                 ws = new WebSocket(wsUrl);
-                
+
                 ws.onopen = () => {
                     console.log('WebSocket connected');
+                    // Select the broadcast handler via router
+                    ws.send(JSON.stringify({ handler: "broadcast" }));
                 };
-                
+
                 ws.onmessage = (event) => {
                     try {
                         const data = JSON.parse(event.data);
@@ -343,12 +350,12 @@
                         console.error('Error parsing message:', e);
                     }
                 };
-                
+
                 ws.onerror = (error) => {
                     console.error('WebSocket error:', error);
                     updateStatus('disconnected', 'Error');
                 };
-                
+
                 ws.onclose = () => {
                     updateStatus('disconnected', 'Offline');
                     document.getElementById('connectBtn').disabled = false;
@@ -364,13 +371,13 @@
                 updateStatus('disconnected', 'Failed');
             }
         }
-        
+
         function disconnect() {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.close(1000, 'User disconnected');
             }
         }
-        
+
         function handleMessage(data) {
             switch (data.type) {
                 case 'welcome':
@@ -385,50 +392,50 @@
                     document.getElementById('statsBtn').disabled = false;
                     addMessage('welcome', data.message, null, data.clientId);
                     break;
-                    
+
                 case 'system':
                     addMessage('system', data.message);
                     break;
-                    
+
                 case 'broadcast':
                     const isMyMessage = data.from === myClientId;
                     addMessage(isMyMessage ? 'my-broadcast' : 'broadcast', data.message, data.messageId, data.from);
                     break;
-                    
+
                 case 'server':
                     addMessage('server', data.message, data.messageId, 'SERVER');
                     break;
-                    
+
                 case 'stats':
-                    addMessage('system', 
-                        `Stats - Total Clients: ${data.totalClients}, Total Messages: ${data.totalMessages}, Your Messages: ${data.yourMessages}, Uptime: ${Math.floor(data.uptime/1000)}s`
+                    addMessage('system',
+                        `Stats - Total Clients: ${data.totalClients}, Total Messages: ${data.totalMessages}, Your Messages: ${data.yourMessages}, Uptime: ${Math.floor(data.uptime / 1000)}s`
                     );
                     break;
-                    
+
                 case 'pong':
                     console.log('Pong received');
                     break;
-                    
+
                 case 'error':
                     addMessage('system', 'Error: ' + data.message);
                     break;
             }
         }
-        
+
         function broadcastMessage() {
             const input = document.getElementById('messageInput');
             const message = input.value.trim();
-            
+
             if (!message || !ws || ws.readyState !== WebSocket.OPEN) return;
-            
+
             ws.send(JSON.stringify({
                 type: 'broadcast',
                 message: message
             }));
-            
+
             input.value = '';
         }
-        
+
         function requestStats() {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({
@@ -436,67 +443,68 @@
                 }));
             }
         }
-        
+
         function addMessage(type, content, messageId = null, from = null) {
             const messagesDiv = document.getElementById('messages');
-            
+
             const emptyState = messagesDiv.querySelector('.empty-state');
             if (emptyState) emptyState.remove();
-            
+
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message ' + type;
-            
+
             if (from || messageId) {
                 const headerDiv = document.createElement('div');
                 headerDiv.className = 'message-header';
-                
+
                 if (from) {
                     const fromSpan = document.createElement('span');
                     fromSpan.className = 'message-from';
                     fromSpan.textContent = from === myClientId ? 'You' : from;
                     headerDiv.appendChild(fromSpan);
                 }
-                
+
                 if (messageId) {
                     const idSpan = document.createElement('span');
                     idSpan.className = 'message-id';
                     idSpan.textContent = '#' + messageId;
                     headerDiv.appendChild(idSpan);
                 }
-                
+
                 messageDiv.appendChild(headerDiv);
             }
-            
+
             const contentDiv = document.createElement('div');
             contentDiv.textContent = content;
             messageDiv.appendChild(contentDiv);
-            
+
             const timeDiv = document.createElement('div');
             timeDiv.className = 'message-time';
             timeDiv.textContent = new Date().toLocaleTimeString();
             messageDiv.appendChild(timeDiv);
-            
+
             messagesDiv.appendChild(messageDiv);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
-        
+
         function clearMessages() {
             const messagesDiv = document.getElementById('messages');
             messagesDiv.innerHTML = '<div class="empty-state">Messages cleared</div>';
         }
-        
+
         function updateStatus(state, text) {
             const statusCard = document.getElementById('statusCard');
             const statusText = document.getElementById('statusText');
-            
+
             statusCard.className = 'status-card ' + state;
             statusText.textContent = text;
         }
-        
+
         // Auto-connect on load
         window.onload = () => {
             connect();
         };
     </script>
 </body>
+
 </html>
