@@ -15,6 +15,31 @@ The build process compiles CivetWeb's C source code along with custom HashLink b
 
 ---
 
+## Build Workflow
+
+The build system uses a two-step approach:
+
+### 1. Development Builds (Local Testing)
+
+Run `rebuild_civetweb.bat` to create a local build:
+- **Output**: `native/civetweb/hl/civetweb.hdll`
+- **Git Status**: Ignored (not tracked)
+- **Purpose**: Local development and testing
+- **Usage**: Automatically used by `lime build hl` via `copy-hl-hdll.bat`
+
+### 2. Publishing Prebuilt (For Source Control)
+
+Run `publish_prebuilt.bat` to update the prebuilt version:
+- **Output**: `native/civetweb/prebuilt/windows/civetweb.hdll`
+- **Git Status**: Tracked (committed to repository)
+- **Purpose**: Shared with other developers, used when local build doesn't exist
+- **When**: Only when you've modified `civetweb_hl.c` or updated CivetWeb
+
+> [!IMPORTANT]
+> **Don't publish every build!** Only publish when you need to update the version in source control. Regular development builds should stay local.
+
+---
+
 ## Prerequisites
 
 ### Required Software
@@ -148,18 +173,29 @@ The build process should work with HashLink 1.11+ (tested with 1.15.0). If you e
 
 ### Quick Start
 
+**Development Build (Local Testing):**
 ```batch
-cd c:\Src\ge\SideWinder\native\civetweb\hl
-build_hdll.bat
+cd c:\Src\ge\SideWinder\native\civetweb
+rebuild_civetweb.bat
 ```
+
+This creates `hl/civetweb.hdll` (git-ignored) for local development.
+
+**Publishing to Prebuilt (For Committing):**
+```batch
+cd c:\Src\ge\SideWinder\native\civetweb
+publish_prebuilt.bat
+```
+
+This copies the local build to `prebuilt/windows/civetweb.hdll` for git tracking.
 
 The script will:
 1. ✅ Locate HashLink installation
 2. ✅ Configure Visual Studio build environment
-3. ✅ Clean previous build artifacts
-4. ✅ Compile `civetweb.c` (CivetWeb library)
-5. ✅ Compile `civetweb_hl.c` (HashLink bindings)
-6. ✅ Link into `civetweb.hdll`
+3. ✅ Compile `civetweb.c` (CivetWeb library)
+4. ✅ Compile `civetweb_hl.c` (HashLink bindings)
+5. ✅ Link into `hl/civetweb.hdll`
+
 
 ### Build Steps Explained
 
@@ -324,15 +360,21 @@ The `civetweb.hdll` library exports these functions to HashLink:
 
 ### Deployment
 
-After building, the `.hdll` must be copied to the HashLink runtime directory:
+The `.hdll` deployment is handled automatically by the build system:
 
-**Option 1: Manual Copy**
+**Automatic Deployment:**
+When you run `lime build hl`, the `copy-hl-hdll.bat` script automatically:
+1. Checks for `native/civetweb/hl/civetweb.hdll` (your local build)
+2. Falls back to `native/civetweb/prebuilt/windows/civetweb.hdll` if local build doesn't exist
+3. Copies the file to `Export/hl/bin/civetweb.hdll`
+
+**Manual Deployment (if needed):**
 ```batch
-copy civetweb.hdll c:\Src\ge\SideWinder\Export\hl\bin\
+copy native\civetweb\hl\civetweb.hdll Export\hl\bin\
 ```
 
-**Option 2: Interactive Prompt**
-The build script offers to copy to the HashLink directory automatically.
+> [!TIP]
+> For new developers who haven't built locally, the prebuilt version is automatically used. This allows quick setup without requiring build tools.
 
 ### Usage in Haxe
 

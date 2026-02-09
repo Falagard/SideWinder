@@ -38,19 +38,29 @@ cd native/civetweb/hl
 
 ## Updating Pre-built Libraries
 
-After building locally, you can update the pre-built version:
+After building locally, you can update the pre-built version using the publish scripts:
 
 **Windows:**
 ```batch
-copy native\civetweb\hl\civetweb.hdll native\civetweb\prebuilt\windows\civetweb.hdll
+cd native\civetweb
+.\publish_prebuilt.bat
 ```
 
 **Linux:**
 ```bash
-cp native/civetweb/hl/civetweb.hdll native/civetweb/prebuilt/linux/civetweb.hdll
+cd native/civetweb
+./publish_prebuilt.sh
 ```
 
-Then commit the updated file to git.
+The publish scripts will:
+- Verify the local build exists
+- Show file size and timestamp information
+- Prompt for confirmation before overwriting
+- Remind you to commit the change to git
+
+> [!IMPORTANT]
+> Only publish prebuilt libraries when you've made changes to `civetweb_hl.c`, updated CivetWeb, or need to update the version in source control. Regular development builds don't need to be published.
+
 
 ## Why Pre-built Libraries?
 
