@@ -8,16 +8,20 @@ cd /d "%~dp0"
 set SRC=native\civetweb\hl\civetweb.hdll
 set PREBUILT=native\civetweb\prebuilt\windows\civetweb.hdll
 set DEST=Export\hl\bin\civetweb.hdll
+set DEST_HLC=Export\hlc\bin\civetweb.hdll
 
 REM Ensure destination directory exists
 if not exist "Export\hl\bin" mkdir "Export\hl\bin"
+if not exist "Export\hlc\bin" mkdir "Export\hlc\bin"
 
 REM Copy civetweb.hdll
 REM Try to copy from build directory first, then prebuilt
 if exist "%SRC%" (
 	copy /Y "%SRC%" "%DEST%" >nul 2>&1
+	copy /Y "%SRC%" "%DEST_HLC%" >nul 2>&1
 ) else if exist "%PREBUILT%" (
 	copy /Y "%PREBUILT%" "%DEST%" >nul 2>&1
+	copy /Y "%PREBUILT%" "%DEST_HLC%" >nul 2>&1
 ) else (
 	REM If we get here, neither source exists - but don't fail the build
 	REM The file might have been copied by Lime already
@@ -29,12 +33,14 @@ if exist "%SRC%" (
 
 REM Copy sqlite.hdll - prefer prebuilt from git, fallback to HashLink installation
 set SQLITE_DEST=Export\hl\bin\sqlite.hdll
+set SQLITE_DEST_HLC=Export\hlc\bin\sqlite.hdll
 set SQLITE_PREBUILT=native\civetweb\prebuilt\windows\sqlite.hdll
 
 if not exist "%SQLITE_DEST%" (
 	REM Try 1: Use prebuilt from git (preferred)
 	if exist "%SQLITE_PREBUILT%" (
 		copy /Y "%SQLITE_PREBUILT%" "%SQLITE_DEST%" >nul 2>&1
+		copy /Y "%SQLITE_PREBUILT%" "%SQLITE_DEST_HLC%" >nul 2>&1
 		echo [copy-hl-hdll.bat] Copied sqlite.hdll from prebuilt
 	) else (
 		set SQLITE_SRC=
@@ -70,12 +76,16 @@ if not exist "%SQLITE_DEST%" (
 		REM Copy if found
 		if not "!SQLITE_SRC!"=="" (
 			copy /Y "!SQLITE_SRC!" "%SQLITE_DEST%" >nul 2>&1
+			copy /Y "!SQLITE_SRC!" "%SQLITE_DEST_HLC%" >nul 2>&1
 			echo [copy-hl-hdll.bat] Copied sqlite.hdll from !SQLITE_SRC!
 		) else (
 			echo [copy-hl-hdll.bat] WARNING: sqlite.hdll not found
 			echo [copy-hl-hdll.bat] Tried: prebuilt, HASHLINK_PATH env var, hl.exe location in PATH, C:\HashLink
 		)
 	)
+) else (
+	REM If sqlite.hdll already exists in HL bin, ensure it's copied to HLC bin
+	copy /Y "%SQLITE_DEST%" "%SQLITE_DEST_HLC%" >nul 2>&1
 )
 
 REM Exit with success to not break the build

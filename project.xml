@@ -19,5 +19,11 @@
 		<postbuild command="copy-hl-hdll.bat" if="windows" />
 		<postbuild command="bash copy-hl-hdll.sh" if="linux" />
 	</section>
+
+	<section if="hlc">
+		<postbuild command="copy-hl-hdll.bat" if="windows" />
+	</section>
+
+
 	
 </project>
