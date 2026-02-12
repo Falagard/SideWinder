@@ -143,6 +143,14 @@ class AutoClientAsync {
                             if (cookieHeader != "") {
                                 h.setHeader("Cookie", cookieHeader);
                                 trace('[AutoClientAsync] Sending Cookie header: ' + cookieHeader);
+
+                                // Polyfill: Also set Authorization header if we have a session_token
+                                for (c in cookieJar.getAllCookies()) {
+                                    if (c.name == "session_token") {
+                                        h.setHeader("Authorization", "Bearer " + c.value);
+                                        trace('[AutoClientAsync] Added Authorization header from session_token cookie');
+                                    }
+                                }
                             } else {
                                 trace('[AutoClientAsync] No matching cookies to send for URL: ' + full);
                             }

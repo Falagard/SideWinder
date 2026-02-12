@@ -164,10 +164,30 @@ class AutoRouter {
                                             } else {
                                                 trace('[AutoRouter] session_token not found in cookies.');
                                             }
+
+                                            // Fallback: Check Authorization header
+                                            if (__sessionToken == null) {
+                                                var authHeader = req.headers.get("Authorization");
+                                                if (authHeader != null && authHeader.indexOf("Bearer ") == 0) {
+                                                    __sessionToken = authHeader.substring(7);
+                                                    trace('[AutoRouter] Found session_token in Authorization header: ' + __sessionToken);
+                                                }
+                                            }
                                             trace('[AutoRouter] Checking for userId in cache using session_token...');
                                             if (__sessionToken != null && $cacheExpr != null) {
                                                 // Look up user from cache
                                                 var cachedData = ($cacheExpr).get("session:" + __sessionToken);
+                                                
+                                                // Parse JSON if it's a string (since cache stores stringified JSON)
+                                                if (cachedData != null && Std.isOfType(cachedData, String)) {
+                                                    try {
+                                                        cachedData = haxe.Json.parse(cachedData);
+                                                    } catch (e:Dynamic) {
+                                                        trace("[AutoRouter] Failed to parse cached session JSON: " + e);
+                                                        cachedData = null;
+                                                    }
+                                                }
+
                                                 if (cachedData != null) {
                                                     if (Reflect.hasField(cachedData, "id")) {
                                                         __userId = Reflect.field(cachedData, "id");
