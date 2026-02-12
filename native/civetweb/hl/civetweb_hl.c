@@ -244,7 +244,8 @@ static int is_static_file(const char *uri) {
     
     const char *static_exts[] = {
         ".html", ".htm", ".js", ".jsx", ".css", ".png", ".jpg", ".jpeg", 
-        ".gif", ".svg", ".ico", ".txt", ".json", ".map", ".wasm", ".woff", ".woff2", ".ttf"
+        ".gif", ".svg", ".ico", ".txt", ".json", ".map", ".wasm", ".woff", ".woff2", ".ttf",
+        ".xml", ".zip", ".mp4", ".mov", ".webm", ".pdf", ".csv"
     };
     int num_exts = sizeof(static_exts) / sizeof(static_exts[0]);
     
