@@ -143,18 +143,20 @@ class AutoClientAsync {
                             if (cookieHeader != "") {
                                 h.setHeader("Cookie", cookieHeader);
                                 trace('[AutoClientAsync] Sending Cookie header: ' + cookieHeader);
+                            } else {
+                                trace('[AutoClientAsync] No matching cookies to send for URL: ' + full);
+                            }
+                            #end
 
-                                // Polyfill: Also set Authorization header if we have a session_token
+                            // Polyfill: Also set Authorization header if we have a session_token (ALL targets)
+                            if (cookieJar != null) {
                                 for (c in cookieJar.getAllCookies()) {
                                     if (c.name == "session_token") {
                                         h.setHeader("Authorization", "Bearer " + c.value);
                                         trace('[AutoClientAsync] Added Authorization header from session_token cookie');
                                     }
                                 }
-                            } else {
-                                trace('[AutoClientAsync] No matching cookies to send for URL: ' + full);
                             }
-                            #end
                             
                             h.onError = function(e:String) onError(e);
                             
@@ -214,6 +216,15 @@ class AutoClientAsync {
                                 xhr.withCredentials = true;
                                 xhr.setRequestHeader("Accept", "application/json");
                                 if (jsonBody != null) xhr.setRequestHeader("Content-Type", "application/json");
+                                
+                                // Inject Authorization header from cookieJar
+                                if (cookieJar != null) {
+                                    for (c in cookieJar.getAllCookies()) {
+                                        if (c.name == "session_token") {
+                                            xhr.setRequestHeader("Authorization", "Bearer " + c.value);
+                                        }
+                                    }
+                                }
                                 xhr.onreadystatechange = function() {
                                     if (xhr.readyState == 4) {
                                         if (xhr.status >= 200 && xhr.status < 300) {

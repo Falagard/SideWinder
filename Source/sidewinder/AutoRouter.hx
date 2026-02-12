@@ -173,6 +173,8 @@ class AutoRouter {
                                                     trace('[AutoRouter] Found session_token in Authorization header: ' + __sessionToken);
                                                 }
                                             }
+
+
                                             trace('[AutoRouter] Checking for userId in cache using session_token...');
                                             if (__sessionToken != null && $cacheExpr != null) {
                                                 // Look up user from cache
