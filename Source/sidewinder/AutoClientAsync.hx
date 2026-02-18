@@ -312,8 +312,13 @@ class AutoClientAsync {
 								case TFun(args, ret):
 									var pathParamNames:Array<String> = [];
 									for (segment in path.split("/"))
-										if (StringTools.startsWith(segment, ":"))
-											pathParamNames.push(segment.substr(1));
+										if (StringTools.startsWith(segment, ":")) {
+											var paramName = segment.substr(1);
+											// Strip * prefix for catch-all params (e.g. :*slug -> slug)
+											if (StringTools.startsWith(paramName, "*"))
+												paramName = paramName.substr(1);
+											pathParamNames.push(paramName);
+										}
 									var argDecls:Array<FunctionArg> = [];
 									var renamed = new Map<String, String>();
 									for (a in args) {
@@ -331,6 +336,7 @@ class AutoClientAsync {
 									for (pp in pathParamNames) {
 										var renamedIdent = renamed.get(pp);
 										var identExpr:Expr = {expr: EConst(CIdent(renamedIdent)), pos: Context.currentPos()};
+										bodyExprs.push(macro _p = StringTools.replace(_p, ":*" + $v{pp}, Std.string($identExpr)));
 										bodyExprs.push(macro _p = StringTools.replace(_p, ":" + $v{pp}, Std.string($identExpr)));
 									}
 									// Determine body arg (first non-path param for POST/PUT)

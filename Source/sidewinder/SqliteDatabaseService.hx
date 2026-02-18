@@ -12,7 +12,7 @@ import sidewinder.IDatabaseService;
 class SqliteDatabaseService implements IDatabaseService {
 
 	static inline var DB_PATH = "data.db";
-	static inline var MAX_POOL_SIZE = 8;
+	static inline var MAX_POOL_SIZE = 32;
 
 	var mutex = new Mutex();
 	var pool:Array<Connection> = [];

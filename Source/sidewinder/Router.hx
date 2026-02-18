@@ -65,8 +65,13 @@ class Route {
 		paramNames = [];
 		for (p in parts) {
 			if (StringTools.startsWith(p, ":")) {
-				paramNames.push(p.substr(1));
-				reParts.push("([^/]+)");
+				if (StringTools.startsWith(p, ":*")) {
+					paramNames.push(p.substr(2));
+					reParts.push("(.+)");
+				} else {
+					paramNames.push(p.substr(1));
+					reParts.push("([^/]+)");
+				}
 			} else {
 				reParts.push(EReg.escape(p));
 			}
@@ -76,8 +81,9 @@ class Route {
 	}
 
 	public function matches(path:String):Null<Map<String, String>> {
-		if (!regex.match(path))
+		if (!regex.match(path)) {
 			return null;
+		}
 		var params = new Map<String, String>();
 		for (i in 0...paramNames.length) {
 			params.set(paramNames[i], regex.matched(i + 1));
