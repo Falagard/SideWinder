@@ -266,12 +266,13 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 	function handleStatic() {
 		var url = this.path;
 		var staticDir = Path.addTrailingSlash(Sys.getCwd()) + "static";
-		var fileToServe = url;
+		var pathOnly = url.split("?")[0];
+		var fileToServe = pathOnly;
 		var isStaticPrefix = false;
 
 		// Check if we are asking for /static/... explicitly
-		if (StringTools.startsWith(url, "/static/")) {
-			fileToServe = url.substr("/static".length);
+		if (StringTools.startsWith(pathOnly, "/static/")) {
+			fileToServe = pathOnly.substr("/static".length);
 			isStaticPrefix = true;
 		}
 
