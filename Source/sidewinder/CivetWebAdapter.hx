@@ -40,6 +40,7 @@ class CivetWebAdapter implements IWebServer implements IWebSocketServer {
 	private var corsEnabled:Bool = true;
 	private var sessionStore:Map<String, Float> = new Map();
 	private var pollCounter:Int = 0;
+	private var islandManager:IslandManager;
 
 	/**
 	 * Create a new CivetWeb adapter.
@@ -47,13 +48,14 @@ class CivetWebAdapter implements IWebServer implements IWebSocketServer {
 	 * @param port Server port number (e.g., 8000)
 	 * @param documentRoot Optional document root for serving static files
 	 */
-	public function new(host:String, port:Int, ?documentRoot:String, ?handler:Router.Request->SimpleResponse) {
+	public function new(host:String, port:Int, ?documentRoot:String, ?handler:Router.Request->SimpleResponse, numIslands:Int = 4) {
 		this.host = host;
 		this.port = port;
 		this.running = false;
 		this.serverHandle = null;
 		this.documentRoot = documentRoot != null ? documentRoot : "./static";
 		this.requestHandler = handler;
+		this.islandManager = new IslandManager(numIslands);
 
 		HybridLogger.info('[CivetWebAdapter] Initialized for $host:$port');
 		HybridLogger.info('[CivetWebAdapter] Document root: ${this.documentRoot}');
@@ -141,7 +143,6 @@ class CivetWebAdapter implements IWebServer implements IWebSocketServer {
 
 				try {
 					// Convert dynamic request to CivetWebRequest
-					// Native fields are hl.Bytes, need conversion to String
 					var uriBytes:hl.Bytes = untyped req.uri;
 					var methodBytes:hl.Bytes = untyped req.method;
 					var bodyBytes:hl.Bytes = untyped req.body;
@@ -160,24 +161,34 @@ class CivetWebAdapter implements IWebServer implements IWebSocketServer {
 						headers: bytesToString(headersBytes)
 					};
 
-					// Process request on main thread
-					var response = handleNativeRequest(civetReq);
+					// Dispatch to island for processing
+					// We extract the session ID first for stickiness
+					var sessionId:Null<String> = null;
+					var cookies = parseCookies(bytesToString(headersBytes));
+					sessionId = cookies.get("session_id");
 
-					// Push response back to C layer
-					var contentTypeBytes = stringToUtf8(response.contentType);
-					var bodyStr = response.body != null ? response.body : "";
-					var bodyBytesRef = haxe.io.Bytes.ofString(bodyStr);
-					var respBodyBytes = @:privateAccess bodyBytesRef.b;
-					CivetWebNative.pushResponse(serverHandle, requestId, response.statusCode, contentTypeBytes, respBodyBytes, bodyBytesRef.length);
+					islandManager.dispatch(sessionId, () -> {
+						try {
+							var response = handleNativeRequest(civetReq);
+							
+							// Push response back to C layer (from island thread)
+							var contentTypeBytes = stringToUtf8(response.contentType);
+							var bodyStr = response.body != null ? response.body : "";
+							var bodyBytesRef = haxe.io.Bytes.ofString(bodyStr);
+							var respBodyBytes = @:privateAccess bodyBytesRef.b;
+							CivetWebNative.pushResponse(serverHandle, requestId, response.statusCode, contentTypeBytes, respBodyBytes, bodyBytesRef.length);
+						} catch (e:Dynamic) {
+							HybridLogger.error('[CivetWebAdapter] Island processing error: $e');
+							// Push error response
+							var errorMsg = "Internal Server Error";
+							var errorBytes = haxe.io.Bytes.ofString(errorMsg);
+							var errorContentType = stringToUtf8("text/plain");
+							var errorBody = @:privateAccess errorBytes.b;
+							CivetWebNative.pushResponse(serverHandle, requestId, 500, errorContentType, errorBody, errorBytes.length);
+						}
+					});
 				} catch (e:Dynamic) {
-					HybridLogger.error('[CivetWebAdapter] Error handling request: $e');
-
-					// Push error response
-					var errorMsg = "Internal Server Error";
-					var errorBytes = haxe.io.Bytes.ofString(errorMsg);
-					var errorContentType = stringToUtf8("text/plain");
-					var errorBody = @:privateAccess errorBytes.b;
-					CivetWebNative.pushResponse(serverHandle, requestId, 500, errorContentType, errorBody, errorBytes.length);
+					HybridLogger.error('[CivetWebAdapter] Error dispatching request: $e');
 				}
 			}
 		} catch (e:Dynamic) {

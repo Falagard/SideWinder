@@ -22,9 +22,8 @@ class SnakeServerAdapter implements IWebServer {
 	private var port:Int;
 	private var running:Bool;
 
-	// Single-threaded request queue
-	private var requestQueue:Array<QueuedSnakeRequest>;
-	private var queueMutex:Mutex;
+	// Logic islands for parallel processing
+	private var islandManager:IslandManager;
 
 	public static var instance:SnakeServerAdapter = null;
 
@@ -35,14 +34,13 @@ class SnakeServerAdapter implements IWebServer {
 	 * @param requestHandlerClass Request handler class (typically SideWinderRequestHandler)
 	 * @param directory Optional directory for serving static files
 	 */
-	public function new(host:String, port:Int, requestHandlerClass:Class<BaseRequestHandler>, ?directory:String) {
+	public function new(host:String, port:Int, requestHandlerClass:Class<BaseRequestHandler>, ?directory:String, numIslands:Int = 4) {
 		this.host = host;
 		this.port = port;
 		this.running = false;
 
-		// Initialize request queue for single-threaded processing
-		this.requestQueue = [];
-		this.queueMutex = new Mutex();
+		// Initialize island manager
+		this.islandManager = new IslandManager(numIslands);
 
 		// Store singleton instance so request handler can access it
 		SnakeServerAdapter.instance = this;
@@ -63,11 +61,8 @@ class SnakeServerAdapter implements IWebServer {
 
 	public function handleRequest():Void {
 		if (running && server != null) {
-			// First, let snake-server accept connections and enqueue
+			// Let snake-server accept connections and trigger enqueueRequest
 			server.handleRequest();
-
-			// Then process all queued requests on main thread
-			processQueue();
 		}
 	}
 
@@ -75,71 +70,21 @@ class SnakeServerAdapter implements IWebServer {
 	 * Enqueue a request (called from snake-server thread).
 	 */
 	public function enqueueRequest(req:Router.Request, res:Router.Response, route:Router.Route):Void {
-		queueMutex.acquire();
-		try {
-			requestQueue.push({
-				request: req,
-				response: res,
-				route: route,
-				timestamp: Date.now().getTime()
-			});
-			queueMutex.release();
-		} catch (e:Dynamic) {
-			queueMutex.release();
-			throw e;
-		}
-	}
-
-	/**
-	 * Process all queued requests on main thread.
-	 */
-	private function processQueue():Void {
-		var requests:Array<QueuedSnakeRequest> = null;
-
-		queueMutex.acquire();
-		try {
-			if (requestQueue.length > 0) {
-				requests = requestQueue.copy();
-				requestQueue = [];
+		var sessionId = req.cookies.get("session_id");
+		islandManager.dispatch(sessionId, () -> {
+			try {
+				SideWinderRequestHandler.router.handle(req, res, route);
+				HybridLogger.debug('[SnakeServerAdapter] ${req.method} ${req.path} (Island)');
+			} catch (e:Dynamic) {
+				HybridLogger.error('[SnakeServerAdapter] Error processing request on island: $e');
 			}
-			queueMutex.release();
-		} catch (e:Dynamic) {
-			queueMutex.release();
-			throw e;
-		}
-
-		if (requests != null && requests.length > 0) {
-			HybridLogger.debug('[SnakeServerAdapter] Processing ${requests.length} queued request(s)');
-
-			for (queuedReq in requests) {
-				try {
-					SideWinderRequestHandler.router.handle(queuedReq.request, queuedReq.response, queuedReq.route);
-					HybridLogger.debug('[SnakeServerAdapter] ${queuedReq.request.method} ${queuedReq.request.path}');
-				} catch (e:Dynamic) {
-					HybridLogger.error('[SnakeServerAdapter] Error processing request: $e');
-				}
-			}
-		}
+		});
 	}
 
 	public function stop():Void {
 		if (running) {
 			running = false;
-
-			// Clear any remaining queued requests
-			queueMutex.acquire();
-			try {
-				if (requestQueue.length > 0) {
-					HybridLogger.info('[SnakeServerAdapter] Clearing ${requestQueue.length} queued requests');
-					requestQueue = [];
-				}
-				queueMutex.release();
-			} catch (e:Dynamic) {
-				queueMutex.release();
-				throw e;
-			}
-
-			// Note: snake-server doesn't have explicit shutdown, but we mark as not running
+			islandManager.shutdown();
 			HybridLogger.info('[SnakeServerAdapter] Stopped');
 		}
 	}
@@ -155,14 +100,4 @@ class SnakeServerAdapter implements IWebServer {
 	public function isRunning():Bool {
 		return running;
 	}
-}
-
-/**
- * Queued request entry for snake-server
- */
-typedef QueuedSnakeRequest = {
-	var request:Router.Request;
-	var response:Router.Response;
-	var route:Router.Route;
-	var timestamp:Float;
 }

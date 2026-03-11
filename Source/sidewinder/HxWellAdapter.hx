@@ -26,17 +26,17 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 	private var host:String;
 	private var port:Int;
 	private var running:Bool = false;
-	private var requestQueue:Array<QueuedRequest> = [];
-	private var queueMutex:Mutex = new Mutex();
+	private var islandManager:IslandManager;
 	private var directory:String;
 	private var websocketHandler:IWebSocketHandler;
 	private var wsEventQueue:Array<WebSocketEvent> = [];
 	private var wsMutex:Mutex = new Mutex();
 
-	public function new(host:String, port:Int, ?directory:String) {
+	public function new(host:String, port:Int, ?directory:String, numIslands:Int = 4) {
 		this.host = host;
 		this.port = port;
 		this.directory = directory;
+		this.islandManager = new IslandManager(numIslands);
 
 		var config = new SocketDriverConfig();
 		config.host = host;
@@ -63,20 +63,6 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 		if (!running)
 			return;
 		
-
-		var requests:Array<QueuedRequest> = null;
-		queueMutex.acquire();
-		if (requestQueue.length > 0) {
-			requests = requestQueue.copy();
-			requestQueue = [];
-		}
-		queueMutex.release();
-
-		if (requests != null) {
-			for (q in requests) {
-				processQueuedRequest(q);
-			}
-		}
 
 		// Process WebSocket events
 		var wsEvents:Array<WebSocketEvent> = null;
@@ -380,9 +366,25 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 		return running;
 
 	public function enqueue(q:QueuedRequest):Void {
-		queueMutex.acquire();
-		requestQueue.push(q);
-		queueMutex.release();
+		// Extract session ID for sticky routing
+		var sessionId:Null<String> = null;
+		@:privateAccess {
+			var cookieHeader = q.hxRequest.header("Cookie");
+			if (cookieHeader != null) {
+				var pairs = cookieHeader.split(";");
+				for (pair in pairs) {
+					var kv = pair.split("=");
+					if (kv.length == 2 && StringTools.trim(kv[0]) == "session_id") {
+						sessionId = StringTools.trim(kv[1]);
+						break;
+					}
+				}
+			}
+		}
+
+		islandManager.dispatch(sessionId, () -> {
+			processQueuedRequest(q);
+		});
 	}
 
 	public function setWebSocketHandler(handler:IWebSocketHandler):Void {

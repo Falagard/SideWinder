@@ -26,13 +26,13 @@ class WebServerFactory {
 	 * @param directory Optional directory for serving static files
 	 * @return IWebServer instance
 	 */
-	public static function create(type:WebServerType, host:String, port:Int, ?requestHandlerClass:Class<BaseRequestHandler>, ?directory:String):IWebServer {
+	public static function create(type:WebServerType, host:String, port:Int, ?requestHandlerClass:Class<BaseRequestHandler>, ?directory:String, numIslands:Int = 4):IWebServer {
 		return switch (type) {
 			case SnakeServer:
 				if (requestHandlerClass == null) {
 					throw "SnakeServer requires a requestHandlerClass";
 				}
-				new SnakeServerAdapter(host, port, requestHandlerClass, directory);
+				new SnakeServerAdapter(host, port, requestHandlerClass, directory, numIslands);
 
 			case CivetWeb:
 				// CivetWeb uses direct callback with SimpleResponse
@@ -56,10 +56,10 @@ class WebServerFactory {
 					}
 					return buffered.toSimpleResponse();
 				};
-				new CivetWebAdapter(host, port, directory, handler);
+				new CivetWebAdapter(host, port, directory, handler, numIslands);
 
 			case HxWell:
-				new HxWellAdapter(host, port, directory);
+				new HxWellAdapter(host, port, directory, numIslands);
 		};
 	}
 
@@ -72,14 +72,14 @@ class WebServerFactory {
 	 * @param directory Optional directory for serving static files
 	 * @return IWebServer instance
 	 */
-	public static function createDefault(host:String, port:Int, ?requestHandlerClass:Class<BaseRequestHandler>, ?directory:String):IWebServer {
+	public static function createDefault(host:String, port:Int, ?requestHandlerClass:Class<BaseRequestHandler>, ?directory:String, numIslands:Int = 4):IWebServer {
 		// Default to SnakeServer for hl target, could be extended for other targets
 		#if cpp
 		trace("[WebServerFactory] Using CivetWeb for cpp target");
-		return create(CivetWeb, host, port, requestHandlerClass, directory);
+		return create(CivetWeb, host, port, requestHandlerClass, directory, numIslands);
 		#else
 		trace("[WebServerFactory] Using SnakeServer (default)");
-		return create(SnakeServer, host, port, requestHandlerClass, directory);
+		return create(SnakeServer, host, port, requestHandlerClass, directory, numIslands);
 		#end
 	}
 }

@@ -127,7 +127,12 @@ class Main extends Application {
 			serverType = WebServerFactory.WebServerType.SnakeServer;
 		}
 
-		webServer = WebServerFactory.create(serverType, DEFAULT_ADDRESS, DEFAULT_PORT, SideWinderRequestHandler, directory);
+		var numIslandsStr = Sys.getEnv("SIDEWINDER_ISLANDS");
+		var numIslands = numIslandsStr != null ? Std.parseInt(numIslandsStr) : 4;
+		if (numIslands == null || numIslands < 1) numIslands = 4;
+
+		webServer = WebServerFactory.create(serverType, DEFAULT_ADDRESS, DEFAULT_PORT, SideWinderRequestHandler, directory, numIslands);
+		HybridLogger.info('[Main] Server initialized with $numIslands logic islands (shared-state workers)');
 
 		// Setup WebSocket support if using CivetWeb
 		// Using WebSocketRouter to support multiple handlers on a single endpoint
