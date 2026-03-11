@@ -98,6 +98,8 @@ class Main extends Application {
 			} else {
 				HybridLogger.warn("Stripe not configured - set STRIPE_SECRET_KEY to enable Stripe services");
 			}
+
+			c.addSingleton(IJobStore, InMemoryJobStore);
 		});
 
 		// Run database migrations after DI is configured
@@ -105,6 +107,12 @@ class Main extends Application {
 		db.runMigrations();
 
 		cache = DI.get(ICacheService);
+		var jobStore = DI.get(IJobStore);
+		var streamBroker = DI.get(IStreamBroker);
+		var messageBroker = DI.get(IMessageBroker);
+
+		// Start the background job worker
+		GenericJobWorker.start(streamBroker, jobStore, messageBroker);
 
 		// Create singleton cookieJar for all async clients
 		var cookieJar:ICookieJar = new CookieJar();
@@ -248,6 +256,60 @@ class Main extends Application {
 				res.write("Unauthorized");
 			} else
 				next();
+		});
+
+		// --- Non-Blocking Job Demo Routes ---
+		
+		// Dispatch a job: POST /job/dispatch { "type": "delay", "data": { "seconds": 5 } }
+		App.post("/job/dispatch", (req, res) -> {
+			var type = Reflect.field(req.jsonBody, "type");
+			if (type == null) type = "delay";
+			
+			var jobId = Std.string(Math.floor(Math.random() * 1000000000)) + "_" + Std.string(Date.now().getTime());
+			var clientId = req.cookies.get("session_id"); // Use session ID as clientId for notifications
+			
+			// 1. Create entry in JobStore
+			var store = DI.get(IJobStore);
+			store.create(jobId, type);
+			
+			// 2. Dispatch to stream
+			var broker = DI.get(IStreamBroker);
+			broker.xadd(GenericJobWorker.DEFAULT_STREAM, {
+				id: jobId,
+				type: type,
+				clientId: clientId,
+				data: req.jsonBody.data
+			});
+			
+			// 3. Return 202 immediately
+			res.sendResponse(snake.http.HTTPStatus.ACCEPTED);
+			res.setHeader("Content-Type", "application/json");
+			res.endHeaders();
+			res.write(haxe.Json.stringify({
+				status: "Pending",
+				jobId: jobId,
+				message: "Job dispatched successfully. Use /job/status/" + jobId + " to check progress."
+			}));
+			res.end();
+		});
+
+		// Check job status: GET /job/status/:id
+		App.get("/job/status/:id", (req, res) -> {
+			var jobId = req.params.get("id");
+			var store = DI.get(IJobStore);
+			var job = store.get(jobId);
+			
+			if (job == null) {
+				res.sendError(snake.http.HTTPStatus.NOT_FOUND);
+				res.end();
+				return;
+			}
+			
+			res.sendResponse(snake.http.HTTPStatus.OK);
+			res.setHeader("Content-Type", "application/json");
+			res.endHeaders();
+			res.write(haxe.Json.stringify(job));
+			res.end();
 		});
 
 		// Example route: /hello

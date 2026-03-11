@@ -63,7 +63,8 @@ class LocalStreamBroker implements IStreamBroker {
 			var timestampMs = Date.now().getTime();
 			var sequence = messageSequence.get(stream);
 			messageSequence.set(stream, sequence + 1);
-			var messageId = '${Std.string(timestampMs).split(".")[0]}-${sequence}';
+			// Use fixed-point string representation for large timestamps
+			var messageId = '${Math.ffloor(timestampMs)}-${sequence}';
 
 			// Create message
 			var message:StreamMessage = {
@@ -598,8 +599,8 @@ class LocalStreamBroker implements IStreamBroker {
 		var parts1 = id1.split('-');
 		var parts2 = id2.split('-');
 
-		var timestamp1 = Std.parseInt(parts1[0]);
-		var timestamp2 = Std.parseInt(parts2[0]);
+		var timestamp1 = Std.parseFloat(parts1[0]);
+		var timestamp2 = Std.parseFloat(parts2[0]);
 
 		if (timestamp1 < timestamp2)
 			return -1;
