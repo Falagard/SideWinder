@@ -43,13 +43,8 @@ if exist "%DEST%" (
 )
 echo.
 
-:: Confirm before overwriting
-set /p CONFIRM="Update prebuilt library? This will be tracked in git. (y/N): "
-if /i not "%CONFIRM%"=="y" (
-    echo.
-    echo Cancelled.
-    exit /b 0
-)
+:: Push response: automated build, removed manual confirmation
+echo Updating prebuilt library...
 
 :: Copy the file
 copy /Y "%SRC%" "%DEST%" >nul 2>&1

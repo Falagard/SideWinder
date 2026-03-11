@@ -118,7 +118,7 @@ class Main extends Application {
 		} else if (serverTypeStr == "snake") {
 			serverType = WebServerFactory.WebServerType.SnakeServer;
 		}
-		
+
 		webServer = WebServerFactory.create(serverType, DEFAULT_ADDRESS, DEFAULT_PORT, SideWinderRequestHandler, directory);
 
 		// Setup WebSocket support if using CivetWeb
@@ -288,30 +288,30 @@ class Main extends Application {
 			res.end();
 		});
 
-		App.get("/async", (req, res) -> {
-			// Requests run in their own thread, so we can block here.
-			// In fact, async operations must block the request thread to avoid issues, because otherwise the request may finish before the async operation completes.
+		// App.get("/async", (req, res) -> {
+		// 	// Requests run in their own thread, so we can block here.
+		// 	// In fact, async operations must block the request thread to avoid issues, because otherwise the request may finish before the async operation completes.
 
-			// Simulate an asynchronous operation using AsyncBlockerPool, create a new thread aysncOperationSimulation which takes some time to complete and then calls the cb
-			// callback with the result
-			var html = AsyncBlockerPool.run(cb -> {
-				// do some async work, call cb when done
-				Thread.create(() -> {
-					asyncOperationSimulation(function(result:String) {
-						cb(result);
-					}, function() {
-						// failure callback simulation
-						cb("<html><body><p>Async operation failed.</p></body></html>");
-					});
-				});
-			});
+		// 	// Simulate an asynchronous operation using AsyncBlockerPool, create a new thread aysncOperationSimulation which takes some time to complete and then calls the cb
+		// 	// callback with the result
+		// 	var html = AsyncBlockerPool.run(cb -> {
+		// 		// do some async work, call cb when done
+		// 		Thread.create(() -> {
+		// 			asyncOperationSimulation(function(result:String) {
+		// 				cb(result);
+		// 			}, function() {
+		// 				// failure callback simulation
+		// 				cb("<html><body><p>Async operation failed.</p></body></html>");
+		// 			});
+		// 		});
+		// 	});
 
-			res.sendResponse(snake.http.HTTPStatus.OK);
-			res.setHeader("Content-Type", "text/html");
-			res.endHeaders();
-			res.write(html);
-			res.end();
-		});
+		// 	res.sendResponse(snake.http.HTTPStatus.OK);
+		// 	res.setHeader("Content-Type", "text/html");
+		// 	res.endHeaders();
+		// 	res.write(html);
+		// 	res.end();
+		// });
 
 		// Email notification endpoint
 		App.post("/send-email", (req, res) -> {
