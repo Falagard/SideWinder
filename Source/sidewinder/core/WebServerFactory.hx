@@ -3,7 +3,6 @@ package sidewinder.core;
 import sidewinder.routing.Router.UploadedFile;
 import sidewinder.routing.Router.Request;
 import sidewinder.routing.Router.Response;
-
 import sidewinder.adapters.*;
 import sidewinder.services.*;
 import sidewinder.interfaces.*;
@@ -16,8 +15,6 @@ import sidewinder.client.*;
 import sidewinder.messaging.*;
 import sidewinder.logging.*;
 import sidewinder.core.*;
-
-
 import snake.socket.BaseRequestHandler;
 
 /**
@@ -44,7 +41,8 @@ class WebServerFactory {
 	 * @param directory Optional directory for serving static files
 	 * @return IWebServer instance
 	 */
-	public static function create(type:WebServerType, host:String, port:Int, ?requestHandlerClass:Class<BaseRequestHandler>, ?directory:String, numIslands:Int = 4):IWebServer {
+	public static function create(type:WebServerType, host:String, port:Int, ?requestHandlerClass:Class<BaseRequestHandler>, ?directory:String,
+			numIslands:Int = 4):IWebServer {
 		return switch (type) {
 			case SnakeServer:
 				if (requestHandlerClass == null) {
@@ -74,10 +72,10 @@ class WebServerFactory {
 					}
 					return buffered.toSimpleResponse();
 				};
-				new CivetWebAdapter(host, port, directory, handler, numIslands);
+				return new CivetWebAdapter(host, port, directory, handler, numIslands);
 
 			case HxWell:
-				new HxWellAdapter(host, port, directory, numIslands);
+				return new HxWellAdapter(host, port, directory, numIslands);
 		};
 	}
 
@@ -90,7 +88,8 @@ class WebServerFactory {
 	 * @param directory Optional directory for serving static files
 	 * @return IWebServer instance
 	 */
-	public static function createDefault(host:String, port:Int, ?requestHandlerClass:Class<BaseRequestHandler>, ?directory:String, numIslands:Int = 4):IWebServer {
+	public static function createDefault(host:String, port:Int, ?requestHandlerClass:Class<BaseRequestHandler>, ?directory:String,
+			numIslands:Int = 4):IWebServer {
 		// Default to SnakeServer for hl target, could be extended for other targets
 		#if cpp
 		trace("[WebServerFactory] Using CivetWeb for cpp target");
@@ -101,7 +100,3 @@ class WebServerFactory {
 		#end
 	}
 }
-
-
-
-
