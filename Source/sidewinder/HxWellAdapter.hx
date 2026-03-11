@@ -7,6 +7,7 @@ import hx.well.http.Request as HxRequest;
 import sys.net.Socket;
 import sys.thread.Thread;
 import sys.thread.Mutex;
+import hx.well.http.RequestStatic;
 import sidewinder.Router;
 import snake.http.HTTPStatus;
 import haxe.io.Bytes;
@@ -365,7 +366,7 @@ private class CustomSocketDriver extends SocketDriver {
 		// Run in background threadpool provided by SocketDriver
 		@:privateAccess executor.submit(() -> {
 			try {
-				socket.setTimeout(5);
+				socket.setTimeout(30);
 				var hxReq = hx.well.http.driver.socket.SocketRequestParser.parseFromSocket(socket);
 				
 				// Handle body parsing if Content-Length is present
@@ -376,7 +377,16 @@ private class CustomSocketDriver extends SocketDriver {
 					if (len > 0) {
 						var input = new hx.well.http.driver.socket.SocketInput(socket);
 						input.length = len;
-						hx.well.http.driver.socket.SocketRequestParser.parseBody(hxReq, input);
+						
+						// Set static context so hxwell internal parsers can find the request
+						hx.well.http.RequestStatic.set(hxReq);
+						try {
+							hx.well.http.driver.socket.SocketRequestParser.parseBody(hxReq, input);
+						} catch (e:Dynamic) {
+							// If abort() was called or other parse error, we log it
+							HybridLogger.warn('[HxWellAdapter] Body parse error: ' + e);
+						}
+						hx.well.http.RequestStatic.set(null);
 					}
 				}
 				
