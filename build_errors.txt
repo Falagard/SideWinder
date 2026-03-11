@@ -1,0 +1,23 @@
+C:/Src/ge/SideWinder/.haxelib/haxe-concurrent/5,1,5/src/hx/concurrent/internal/Macros.hx:35: [INFO] Setting compiler define 'threads'.
+C:/Src/ge/SideWinder/.haxelib/haxe-concurrent/5,1,5/src/hx/concurrent/internal/Macros.hx:35: [INFO] Setting compiler define 'threads'.
+C:/Src/ge/SideWinder/.haxelib/hxwell/git/src/hx/well/macro/CommandMacro.hx:9: StartServerCommand
+C:/Src/ge/SideWinder/.haxelib/hxwell/git/src/hx/well/template/TemplateData.hx:5: characters 1-8 : Uncaught exception C:/Src/ge/SideWinder/resources/views: No such file or directory
+C:/Src/ge/SideWinder/.haxelib/hxwell/git/src/hx/well/macro/TemplateMacro.hx:52: characters 21-51 : Called from here
+C:/Src/ge/SideWinder/.haxelib/hxwell/git/src/hx/well/macro/TemplateMacro.hx:24: characters 9-62 : Called from here
+C:/Src/ge/SideWinder/.haxelib/hxwell/git/src/hx/well/template/TemplateData.hx:5: characters 1-8 : Called from here
+Source/sidewinder/WebServerFactory.hx:61: lines 61-62 : Void should be sidewinder.IWebServer
+C:/Src/ge/SideWinder/.haxelib/hxwell/git/src/hx/well/http/RequestParser.hx:41: characters 37-71 : Class<hx.well.config.ConfigData> has no field httpconfig
+C:/Src/ge/SideWinder/.haxelib/hxwell/git/src/hx/well/handler/PublicHandler.hx:82: characters 16-46 : Class<hx.well.config.ConfigData> has no field httpconfig
+C:/Src/ge/SideWinder/.haxelib/hxwell/git/src/hx/well/http/ResponseBuilder.hx:58: characters 46-50 : Class<hx.well.template.TemplateData> has no field data
+C:/Src/ge/SideWinder/.haxelib/hxwell/git/src/hx/well/console/StartServerCommand.hx:8: characters 8-37 : Type not found : hx.well.config.InstanceConfig
+C:/Src/ge/SideWinder/.haxelib/hxwell/git/src/hx/well/HxWell.hx:19: characters 70-94 : Class<hx.well.config.ConfigData> has no field middlewareconfig
+C:/Src/ge/SideWinder/.haxelib/hxwell/git/src/hx/well/cache/FileSystemCacheStore.hx:20: characters 16-45 : Class<hx.well.config.ConfigData> has no field httpconfig
+C:/Src/ge/SideWinder/.haxelib/hxwell/git/src/hx/well/console/StartServerCommand.hx:43: characters 42-64 : Class<hx.well.config.ConfigData> has no field instanceconfig
+C:/Src/ge/SideWinder/.haxelib/hxwell/git/src/hx/well/HxWell.hx:40: characters 54-88 : Class<hx.well.config.ConfigData> has no field databaseconfig
+C:/Src/ge/SideWinder/.haxelib/hxwell/git/src/hx/well/HxWell.hx:56: characters 60-82 : Class<hx.well.config.ConfigData> has no field providerconfig
+C:/Src/ge/SideWinder/.haxelib/hxwell/git/src/hx/well/facades/Auth.hx:63: characters 16-44 : Class<hx.well.config.ConfigData> has no field sessionconfig
+C:/Src/ge/SideWinder/.haxelib/hxwell/git/src/hx/well/http/driver/socket/SocketRequestParser.hx:45: characters 39-68 : Class<hx.well.config.ConfigData> has no field httpconfig
+C:/Src/ge/SideWinder/.haxelib/hxwell/git/src/hx/well/http/driver/socket/SocketRequestParser.hx:28: characters 44-81 : Class<hx.well.config.ConfigData> has no field httpconfig
+Source/sidewinder/HxWellAdapter.hx:162: lines 162-177 : error: Optional parameters can't be forced
+Source/sidewinder/HxWellAdapter.hx:162: lines 162-177 : ... have: (..., ..., Dynamic) -> ...
+Source/sidewinder/HxWellAdapter.hx:162: lines 162-177 : ... want: (..., ..., Dynamic) -> ...

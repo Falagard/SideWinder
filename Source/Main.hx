@@ -21,7 +21,6 @@ import Date;
 import sidewinder.IDatabaseService;
 import sidewinder.SqliteDatabaseService;
 // import sidewinder.MySqlDatabaseService;
-import hx.injection.Service;
 import sidewinder.*;
 import sidewinder.IWebServer;
 import sidewinder.WebServerFactory;
@@ -111,8 +110,16 @@ class Main extends Application {
 		var cookieJar:ICookieJar = new CookieJar();
 
 		// Create web server using factory pattern
-		// Can switch between SnakeServer and CivetWeb implementations
-		webServer = WebServerFactory.create(WebServerFactory.WebServerType.CivetWeb, DEFAULT_ADDRESS, DEFAULT_PORT, SideWinderRequestHandler, directory);
+		// Can switch between SnakeServer, CivetWeb, and HxWell implementations
+		var serverTypeStr = Sys.getEnv("SIDEWINDER_SERVER");
+		var serverType = WebServerFactory.WebServerType.HxWell;
+		if (serverTypeStr == "civetweb") {
+			serverType = WebServerFactory.WebServerType.CivetWeb;
+		} else if (serverTypeStr == "snake") {
+			serverType = WebServerFactory.WebServerType.SnakeServer;
+		}
+		
+		webServer = WebServerFactory.create(serverType, DEFAULT_ADDRESS, DEFAULT_PORT, SideWinderRequestHandler, directory);
 
 		// Setup WebSocket support if using CivetWeb
 		// Using WebSocketRouter to support multiple handlers on a single endpoint

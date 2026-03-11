@@ -1,0 +1,30 @@
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0*   Trying 127.0.0.1:8000...
+* Established connection to 127.0.0.1 (127.0.0.1 port 8000) from 127.0.0.1 port 63932 
+* using HTTP/1.x
+> GET /hello HTTP/1.1
+
+> Host: 127.0.0.1:8000
+
+> User-Agent: curl/8.16.0
+
+> Accept: */*
+
+> 
+
+* Request completely sent off
+< HTTP/1.1 200 OK
+
+< Content-Type: text/plain
+
+< Content-Length: 29
+
+< 
+
+{ [29 bytes data]
+
+100    29  100    29    0     0    544      0 --:--:-- --:--:-- --:--:--   547
+* Connection #0 to host 127.0.0.1:8000 left intact
+Hello, world!1773191562.19612

@@ -8,6 +8,7 @@ import snake.socket.BaseRequestHandler;
 enum WebServerType {
 	SnakeServer;
 	CivetWeb;
+	HxWell;
 }
 
 /**
@@ -56,6 +57,9 @@ class WebServerFactory {
 					return buffered.toSimpleResponse();
 				};
 				new CivetWebAdapter(host, port, directory, handler);
+
+			case HxWell:
+				new HxWellAdapter(host, port, directory);
 		};
 	}
 

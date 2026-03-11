@@ -9,6 +9,8 @@
 	<haxelib name="lime" />
 	<haxelib name="snake-server" />
     <haxelib name="haxe-injection"/>
+    <haxelib name="hxwell" />
+    <haxedef name="disable_env" />
 	<assets path="static" />
     <assets path="migrations" />
 	

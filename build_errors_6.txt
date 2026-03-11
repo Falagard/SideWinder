@@ -1,0 +1,6 @@
+C:/Src/ge/SideWinder/.haxelib/haxe-concurrent/5,1,5/src/hx/concurrent/internal/Macros.hx:35: [INFO] Setting compiler define 'threads'.
+C:/Src/ge/SideWinder/.haxelib/haxe-concurrent/5,1,5/src/hx/concurrent/internal/Macros.hx:35: [INFO] Setting compiler define 'threads'.
+C:/Src/ge/SideWinder/.haxelib/hxwell/git/src/hx/well/macro/CommandMacro.hx:9: StartServerCommand
+Source/sidewinder/HxWellAdapter.hx:162: lines 162-177 : error: Optional parameters can't be forced
+Source/sidewinder/HxWellAdapter.hx:162: lines 162-177 : ... have: (..., ..., Dynamic) -> ...
+Source/sidewinder/HxWellAdapter.hx:162: lines 162-177 : ... want: (..., ..., Dynamic) -> ...
