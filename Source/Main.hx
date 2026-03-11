@@ -1,23 +1,13 @@
-// Legacy duplicate file. Implementation moved to sidewinder/Main.hx.
-import hx.injection.ServiceCollection;
 import haxe.Json;
-import haxe.Http;
 import haxe.Timer;
+import sys.thread.Thread;
 import sidewinder.Router.Response;
 import sidewinder.Router.Request;
 import sidewinder.MultipartParser;
-import sys.thread.Thread;
 import lime.app.Application;
 import lime.ui.WindowAttributes;
 import lime.ui.Window;
 import snake.http.*;
-import snake.socket.*;
-import sys.net.Host;
-import sys.net.Socket;
-import snake.server.*;
-import lime.ui.Gamepad;
-import lime.ui.GamepadButton;
-import Date;
 import sidewinder.IDatabaseService;
 import sidewinder.SqliteDatabaseService;
 // import sidewinder.MySqlDatabaseService;
@@ -215,36 +205,6 @@ class Main extends Application {
 			HybridLogger.warn("Stripe endpoints not registered - set STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET to enable Stripe routes");
 		}
 
-		// Synchronous AutoClient example (legacy port 8080 kept for reference; server actually runs on DEFAULT_PORT)
-		var userClient:IUserService = AutoClient.create(IUserService, "http://localhost:8080");
-
-		// AutoClientAsync example: create async client pointed at the active server port and perform calls.
-		// Each interface		// AutoClientAsync example: create async client pointed at the active server port and perform calls.
-		// var userClientAsync = AutoClientAsync.create(IUserService, 'http://' + DEFAULT_ADDRESS + ':' + DEFAULT_PORT, cookieJar);
-
-		// Delay invocation slightly to allow server startup.
-		Timer.delay(() -> {
-			// userClientAsync.getAllAsync(function(users:Array<IUserService.User>) {
-			// 	HybridLogger.debug('AutoClientAsync getAll returned ' + (users == null ? 0 : users.length) + ' users');
-			// }, function(err:Dynamic) {
-			// 	HybridLogger.error('AutoClientAsync getAll failed: ' + Std.string(err));
-			// });
-		}, 100);
-
-		// Demonstrate createAsync + deleteAsync to verify DELETE handling (raw socket implementation in AutoClientAsync for DELETE).
-		Timer.delay(() -> {
-			// userClientAsync.createAsync({id: 0, name: 'TempUser', email: 'tempuser@example.com'}, function(newUser:IUserService.User) {
-			// 	HybridLogger.debug('AutoClientAsync create returned id=' + newUser.id);
-			// 	userClientAsync.deleteAsync(newUser.id, function(result:Bool) {
-			// 		HybridLogger.debug('AutoClientAsync delete returned ' + result + ' for id=' + newUser.id);
-			// 	}, function(err:Dynamic) {
-			// 		HybridLogger.error('AutoClientAsync delete failed: ' + Std.string(err));
-			// 	});
-			// }, function(err:Dynamic) {
-			// 	HybridLogger.error('AutoClientAsync create failed: ' + Std.string(err));
-			// });
-		}, 300);
-
 		// Example middleware: logging
 		App.use((req, res, next) -> {
 			//
@@ -354,31 +314,6 @@ class Main extends Application {
 			res.write(sessionId != null ? "Cookie: " + sessionId : "No session_id cookie found");
 			res.end();
 		});
-
-		// App.get("/async", (req, res) -> {
-		// 	// Requests run in their own thread, so we can block here.
-		// 	// In fact, async operations must block the request thread to avoid issues, because otherwise the request may finish before the async operation completes.
-
-		// 	// Simulate an asynchronous operation using AsyncBlockerPool, create a new thread aysncOperationSimulation which takes some time to complete and then calls the cb
-		// 	// callback with the result
-		// 	var html = AsyncBlockerPool.run(cb -> {
-		// 		// do some async work, call cb when done
-		// 		Thread.create(() -> {
-		// 			asyncOperationSimulation(function(result:String) {
-		// 				cb(result);
-		// 			}, function() {
-		// 				// failure callback simulation
-		// 				cb("<html><body><p>Async operation failed.</p></body></html>");
-		// 			});
-		// 		});
-		// 	});
-
-		// 	res.sendResponse(snake.http.HTTPStatus.OK);
-		// 	res.setHeader("Content-Type", "text/html");
-		// 	res.endHeaders();
-		// 	res.write(html);
-		// 	res.end();
-		// });
 
 		// Email notification endpoint
 		App.post("/send-email", (req, res) -> {
@@ -520,39 +455,6 @@ class Main extends Application {
 				res.end();
 			} catch (e:Dynamic) {
 				HybridLogger.error('Poll error: ' + Std.string(e));
-				res.sendError(HTTPStatus.INTERNAL_SERVER_ERROR);
-				res.setHeader("Content-Type", "application/json");
-				res.endHeaders();
-				res.write('{"error": "' + Std.string(e) + '"}');
-				res.end();
-			}
-		});
-
-		// Send message to specific client (for testing)
-		App.post("/poll/send/:clientId", (req, res) -> {
-			try {
-				var clientId = req.params.get("clientId");
-				var data:Dynamic = req.jsonBody;
-				var message:String = data.message;
-
-				if (message == null) {
-					res.sendError(HTTPStatus.BAD_REQUEST);
-					res.setHeader("Content-Type", "application/json");
-					res.endHeaders();
-					res.write('{"error": "message required"}');
-					res.end();
-					return;
-				}
-
-				messageBroker.sendToClient(clientId, message);
-
-				res.sendResponse(HTTPStatus.OK);
-				res.setHeader("Content-Type", "application/json");
-				res.endHeaders();
-				res.write('{"status": "sent"}');
-				res.end();
-			} catch (e:Dynamic) {
-				HybridLogger.error('Send error: ' + Std.string(e));
 				res.sendError(HTTPStatus.INTERNAL_SERVER_ERROR);
 				res.setHeader("Content-Type", "application/json");
 				res.endHeaders();
@@ -755,44 +657,7 @@ class Main extends Application {
 			}
 		});
 
-		// Demo: Run StreamBrokerDemo examples in background
-		Timer.delay(() -> {
-			Thread.create(() -> {
-				HybridLogger.info('[Main] Running Stream Broker demos...');
-				var demo = new StreamBrokerDemo(streamBroker);
-				demo.runAll();
-				HybridLogger.info('[Main] Stream Broker demos completed');
-			});
-		}, 2000);
-
 		// Example: Broadcast a test message every 10 seconds
-		Timer.delay(() -> {
-			var counter = 0;
-			function broadcastLoop() {
-				counter++;
-				var testMessage = Json.stringify({
-					type: "test",
-					timestamp: Date.now().getTime(),
-					counter: counter,
-					message: "Hello from server! Message #" + counter
-				});
-				messageBroker.broadcast(testMessage);
-				HybridLogger.info('Broadcast test message #' + counter + ' to ' + messageBroker.getClientCount() + ' clients');
-				Timer.delay(broadcastLoop, 10000);
-			}
-			broadcastLoop();
-		}, 5000);
-	}
-
-	private function asyncOperationSimulation(onSuccess:(String) -> Void, onFailure:() -> Void):Void {
-		// Simulate a long-running operation
-		Sys.sleep(3);
-
-		// comment this out to simulate success
-		return onSuccess("<html><body><p>This response was generated after a simulated async operation.</p></body></html>");
-
-		// uncomment below to simulate failure
-		// onFailure();
 	}
 
 	// Entry point

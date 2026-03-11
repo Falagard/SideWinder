@@ -9,5 +9,14 @@ native/civetweb/hl/*.lib
 native/civetweb/hl/*.exp
 native/civetweb/hl/*.hdll
 
+# MSVC / HLC Build artifacts
+*.obj
+*.lib
+*.exp
+*.hdll
+*.exe
+*.pdb
+*.ilk
+
 # But allow pre-built platform-specific .hdll files
 !native/civetweb/prebuilt/**/*.hdll
