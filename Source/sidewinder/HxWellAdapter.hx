@@ -22,10 +22,12 @@ class HxWellAdapter implements IWebServer {
 	private var running:Bool = false;
 	private var requestQueue:Array<QueuedRequest> = [];
 	private var queueMutex:Mutex = new Mutex();
+	private var directory:String;
 
 	public function new(host:String, port:Int, ?directory:String) {
 		this.host = host;
 		this.port = port;
+		this.directory = directory;
 
 		var config = new SocketDriverConfig();
 		config.host = host;
@@ -69,15 +71,23 @@ class HxWellAdapter implements IWebServer {
 
 	private function processQueuedRequest(q:QueuedRequest):Void {
 		try {
-			var swReq = convertRequest(q.hxRequest, q.socket);
 			var swRes = createResponse(q.socket);
+			var swReq = convertRequest(q.hxRequest, q.socket);
+
+			// Handle OPTIONS preflight for CORS
+			if (swReq.method == "OPTIONS") {
+				swRes.sendResponse(HTTPStatus.OK);
+				swRes.end();
+				return;
+			}
 
 			var match = SideWinderRequestHandler.router.find(swReq.method, swReq.path);
 			if (match != null) {
 				swReq.params = match.params;
 				SideWinderRequestHandler.router.handle(swReq, swRes, match.route);
+			} else if (directory != null && serveStatic(swReq.path, swRes, q.socket)) {
+				// Static file served
 			} else {
-				// Static file handling fallback if router doesn't match
 				swRes.sendError(HTTPStatus.NOT_FOUND);
 				swRes.end();
 			}
@@ -98,6 +108,50 @@ class HxWellAdapter implements IWebServer {
 		}
 
 		var body = hxReq.bodyBytes != null ? hxReq.bodyBytes.toString() : "";
+		var contentType = headers.get("Content-Type");
+		if (contentType == null)
+			contentType = headers.get("content-type");
+
+		var jsonBody:Dynamic = null;
+		var formBody = new haxe.ds.StringMap<String>();
+		var files:Array<UploadedFile> = [];
+
+		// Parse body based on content-type
+		if (contentType != null) {
+			if (contentType.indexOf("application/json") != -1) {
+				try {
+					jsonBody = haxe.Json.parse(body);
+				} catch (e:Dynamic) {
+					HybridLogger.warn('[HxWellAdapter] Failed to parse JSON: $e');
+				}
+			} else if (contentType.indexOf("application/x-www-form-urlencoded") != -1) {
+				for (pair in body.split("&")) {
+					var kv = pair.split("=");
+					if (kv.length == 2) {
+						formBody.set(StringTools.urlDecode(kv[0]), StringTools.urlDecode(kv[1]));
+					}
+				}
+			} else if (contentType.indexOf("multipart/form-data") != -1) {
+				var multipartData = MultipartParser.parseMultipart(body, contentType);
+				files = multipartData.files;
+				formBody = multipartData.fields;
+			}
+		}
+
+		// Parse cookies
+		var cookies = new haxe.ds.StringMap<String>();
+		@:privateAccess {
+			for (k in hxReq.cookies.keys()) {
+				cookies.set(k, hxReq.cookies.get(k));
+			}
+		}
+
+		// Handle session
+		var sessionId = cookies.get("session_id");
+		if (sessionId == null) {
+			sessionId = Std.string(Math.floor(Math.random() * 1000000000)) + "_" + Std.string(Date.now().getTime());
+			cookies.set("session_id", sessionId);
+		}
 
 		// SideWinder Request structure
 		var req:Router.Request = {
@@ -107,19 +161,12 @@ class HxWellAdapter implements IWebServer {
 			query: hxReq.queries,
 			params: new Map<String, String>(),
 			body: body,
-			jsonBody: null, 
-			formBody: new haxe.ds.StringMap<String>(),
-			cookies: new haxe.ds.StringMap<String>(),
-			files: [],
+			jsonBody: jsonBody,
+			formBody: formBody,
+			cookies: cookies,
+			files: files,
 			ip: hxReq.ip
 		};
-
-		// Copy cookies
-		@:privateAccess {
-			for (k in hxReq.cookies.keys()) {
-				req.cookies.set(k, hxReq.cookies.get(k));
-			}
-		}
 
 		return req;
 	}
@@ -157,6 +204,21 @@ class HxWellAdapter implements IWebServer {
 					if (!headers.exists("Content-Type")) {
 						headers.set("Content-Type", "text/html; charset=utf-8");
 					}
+
+					// Always set CORS headers
+					if (!headers.exists("Access-Control-Allow-Origin")) {
+						headers.set("Access-Control-Allow-Origin", "*");
+					}
+					if (!headers.exists("Access-Control-Allow-Methods")) {
+						headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+					}
+					if (!headers.exists("Access-Control-Allow-Headers")) {
+						headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+					}
+					if (!headers.exists("Access-Control-Allow-Credentials")) {
+						headers.set("Access-Control-Allow-Credentials", "true");
+					}
+
 					for (k in headers.keys()) {
 						socket.output.writeString('$k: ${headers.get(k)}\r\n');
 					}
@@ -207,6 +269,60 @@ class HxWellAdapter implements IWebServer {
 			case 404: "Not Found";
 			case 500: "Internal Server Error";
 			default: "Unknown";
+		}
+	}
+
+	private function serveStatic(path:String, res:Router.Response, socket:Socket):Bool {
+		var pathOnly = path.split("?")[0];
+		if (pathOnly == "/" || pathOnly == "")
+			pathOnly = "/index.html";
+
+		var fileToServe = pathOnly;
+		if (StringTools.startsWith(pathOnly, "/static/")) {
+			fileToServe = pathOnly.substr("/static".length);
+		}
+
+		var fullPath = haxe.io.Path.join([Sys.getCwd(), directory, fileToServe]);
+
+		if (sys.FileSystem.exists(fullPath) && !sys.FileSystem.isDirectory(fullPath)) {
+			try {
+				var bytes = sys.io.File.getBytes(fullPath);
+				var extension = haxe.io.Path.extension(fullPath).toLowerCase();
+				var contentType = guessType(extension);
+
+				res.sendResponse(HTTPStatus.OK);
+				res.setHeader("Content-Type", contentType);
+				res.setHeader("Content-Length", Std.string(bytes.length));
+				res.endHeaders();
+				
+				try {
+					socket.output.writeString(bytes.toString());
+					socket.output.flush();
+					socket.close();
+				} catch (e:Dynamic) {
+					HybridLogger.error('[HxWellAdapter] Error writing static file bytes: ' + e);
+				}
+				return true;
+			} catch (e:Dynamic) {
+				HybridLogger.error('[HxWellAdapter] Error serving static file $fullPath: ' + e);
+			}
+		}
+		return false;
+	}
+
+	private function guessType(extension:String):String {
+		return switch (extension) {
+			case "html", "htm": "text/html";
+			case "css": "text/css";
+			case "js": "application/javascript";
+			case "json": "application/json";
+			case "png": "image/png";
+			case "jpg", "jpeg": "image/jpeg";
+			case "gif": "image/gif";
+			case "svg": "image/svg+xml";
+			case "txt": "text/plain";
+			case "xml": "text/xml";
+			default: "application/octet-stream";
 		}
 	}
 
