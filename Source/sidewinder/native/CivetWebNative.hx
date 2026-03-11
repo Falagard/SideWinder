@@ -1,4 +1,5 @@
 package sidewinder.native;
+import sidewinder.interfaces.IWebSocketHandler.WebSocketOpcode;
 
 /**
  * HashLink native bindings for CivetWeb
@@ -184,3 +185,5 @@ enum abstract WebSocketOpcode(Int) from Int to Int {
 	var PING = 0x9;
 	var PONG = 0xA;
 }
+
+

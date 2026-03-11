@@ -1,19 +1,26 @@
 import haxe.Json;
 import haxe.Timer;
 import sys.thread.Thread;
-import sidewinder.Router.Response;
-import sidewinder.Router.Request;
-import sidewinder.MultipartParser;
+import sidewinder.routing.Router.Response;
+import sidewinder.routing.Router.Request;
+import sidewinder.core.MultipartParser;
 import lime.app.Application;
 import lime.ui.WindowAttributes;
 import lime.ui.Window;
 import snake.http.*;
-import sidewinder.IDatabaseService;
-import sidewinder.SqliteDatabaseService;
-// import sidewinder.MySqlDatabaseService;
-import sidewinder.*;
-import sidewinder.IWebServer;
-import sidewinder.WebServerFactory;
+import sidewinder.interfaces.*;
+import sidewinder.services.*;
+import sidewinder.core.*;
+import sidewinder.adapters.*;
+import sidewinder.routing.*;
+import sidewinder.data.*;
+import sidewinder.messaging.*;
+import sidewinder.logging.*;
+import sidewinder.controllers.*;
+import sidewinder.client.*;
+import sidewinder.interfaces.IUserService;
+import sidewinder.interfaces.IUserServiceHandler;
+import sidewinder.interfaces.IAuthService;
 
 using hx.injection.ServiceExtensions;
 
@@ -158,9 +165,9 @@ class Main extends Application {
 			webServer.handleRequest();
 		};
 
-		AutoRouter.build(router, IUserService, function() {
-			return DI.get(IUserService);
-		});
+		AutoRouter.build(router, sidewinder.interfaces.IUserServiceHandler, function() {
+		return DI.get(IUserService);
+	});
 
 		// Add file upload test route
 		router.add("POST", "/upload", function(req:Router.Request, res:Router.Response) {
@@ -676,3 +683,4 @@ class Main extends Application {
 		return null;
 	}
 }
+

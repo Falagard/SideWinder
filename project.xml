@@ -18,8 +18,8 @@
 		<!-- HashLink native library 'civetweb.hdll' -->
 		<!-- Windows: built by native/civetweb/hl/build_hdll.bat -->
 		<!-- Linux: built by native/civetweb/hl/build_hdll.sh -->
-		<postbuild command="copy-hl-hdll.bat" if="windows" />
-		<postbuild command="bash copy-hl-hdll.sh" if="linux" />
+		<postbuild command="scripts/copy-hl-hdll.bat" if="windows" />
+		<postbuild command="bash scripts/copy-hl-hdll.sh" if="linux" />
 	</section>
 
 	<section if="hlc">
@@ -31,7 +31,7 @@
 		<!-- Also copy the runtime DLLs so the app can run -->
 		<template path="native/civetweb/hl/civetweb.hdll" rename="bin/civetweb.hdll" if="windows" />
 		
-		<postbuild command="copy-hl-hdll.bat" if="windows" />
+		<postbuild command="scripts/copy-hl-hdll.bat" if="windows" />
 	</section>
 
 
