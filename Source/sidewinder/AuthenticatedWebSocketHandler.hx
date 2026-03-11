@@ -8,12 +8,12 @@ import sidewinder.CivetWebAdapter;
  * Requires authentication token before allowing communication
  */
 class AuthenticatedWebSocketHandler implements IWebSocketHandler {
-	private var adapter:CivetWebAdapter;
+	private var adapter:IWebSocketServer;
 	private var connections:Map<Dynamic, AuthenticatedClient>;
 	private var validTokens:Map<String, TokenInfo>;
 	private var authTimeout:Float; // seconds
 
-	public function new(adapter:CivetWebAdapter, authTimeout:Float = 10.0) {
+	public function new(adapter:IWebSocketServer, authTimeout:Float = 10.0) {
 		this.adapter = adapter;
 		this.connections = new Map<Dynamic, AuthenticatedClient>();
 		this.validTokens = new Map();

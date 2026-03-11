@@ -29,7 +29,7 @@ typedef SimpleResponse = {
  * Requires: civetweb.hdll in Export/hl/bin/
  * To build: cd native/civetweb && make && make install
  */
-class CivetWebAdapter implements IWebServer {
+class CivetWebAdapter implements IWebServer implements IWebSocketServer {
 	private var host:String;
 	private var port:Int;
 	private var running:Bool;
@@ -482,9 +482,9 @@ class CivetWebAdapter implements IWebServer {
 	 * @param text Text data to send
 	 * @return Bytes sent or -1 on error
 	 */
-	public function websocketSendText(conn:hl.Bytes, text:String):Int {
+	public function websocketSendText(conn:Dynamic, text:String):Void {
 		var bytes = stringToUtf8(text);
-		return CivetWebNative.websocketSend(conn, WebSocketOpcode.TEXT, bytes, text.length);
+		CivetWebNative.websocketSend(cast conn, WebSocketOpcode.TEXT, bytes, text.length);
 	}
 
 	/**
@@ -493,9 +493,9 @@ class CivetWebAdapter implements IWebServer {
 	 * @param data Binary data to send
 	 * @return Bytes sent or -1 on error
 	 */
-	public function websocketSendBinary(conn:hl.Bytes, data:haxe.io.Bytes):Int {
+	public function websocketSendBinary(conn:Dynamic, data:haxe.io.Bytes):Void {
 		var hlBytes = @:privateAccess data.b;
-		return CivetWebNative.websocketSend(conn, WebSocketOpcode.BINARY, hlBytes, data.length);
+		CivetWebNative.websocketSend(cast conn, WebSocketOpcode.BINARY, hlBytes, data.length);
 	}
 
 	/**
@@ -504,8 +504,8 @@ class CivetWebAdapter implements IWebServer {
 	 * @param code Close status code (default: 1000 NORMAL)
 	 * @param reason Optional close reason
 	 */
-	public function websocketClose(conn:hl.Bytes, code:Int = 1000, ?reason:String):Void {
+	public function websocketClose(conn:Dynamic, code:Int = 1000, ?reason:String):Void {
 		var reasonBytes = reason != null ? stringToUtf8(reason) : null;
-		CivetWebNative.websocketClose(conn, code, reasonBytes);
+		CivetWebNative.websocketClose(cast conn, code, reasonBytes);
 	}
 }

@@ -8,13 +8,13 @@ import sidewinder.CivetWebAdapter;
  * Simple broadcast to all connected clients
  */
 class BroadcastWebSocketHandler implements IWebSocketHandler {
-	private var adapter:CivetWebAdapter;
+	private var adapter:IWebSocketServer;
 	private var connections:Array<BroadcastConnection>;
 	private var nextClientId:Int;
 	private var totalMessages:Int;
 	private var startTime:Float;
 
-	public function new(adapter:CivetWebAdapter) {
+	public function new(adapter:IWebSocketServer) {
 		this.adapter = adapter;
 		this.connections = [];
 		this.nextClientId = 1;
@@ -135,10 +135,8 @@ class BroadcastWebSocketHandler implements IWebSocketHandler {
 	}
 
 	private function findConnection(conn:Dynamic):Null<BroadcastConnection> {
-		var connBytes:hl.Bytes = conn;
 		for (client in connections) {
-			var clientBytes:hl.Bytes = client.conn;
-			if (connBytes == clientBytes) {
+			if (conn == client.conn) {
 				return client;
 			}
 		}

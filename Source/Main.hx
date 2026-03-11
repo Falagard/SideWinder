@@ -138,6 +138,12 @@ class Main extends Application {
 			HybridLogger.info('[Main]   Echo: http://$DEFAULT_ADDRESS:$DEFAULT_PORT/websocket_test.html');
 			HybridLogger.info('[Main]   Chat: http://$DEFAULT_ADDRESS:$DEFAULT_PORT/chatroom_demo.html');
 			HybridLogger.info('[Main]   Broadcast: http://$DEFAULT_ADDRESS:$DEFAULT_PORT/broadcast_demo.html');
+		} else if (Std.isOfType(webServer, HxWellAdapter)) {
+			var hxwellAdapter:HxWellAdapter = cast webServer;
+			var wsRouter = new WebSocketRouter(hxwellAdapter);
+			hxwellAdapter.setWebSocketHandler(wsRouter);
+
+			HybridLogger.info('[Main] HxWell WebSocket router enabled with handlers: echo, chat, broadcast, auth');
 		}
 
 		// Start the web server

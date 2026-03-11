@@ -8,11 +8,11 @@ import sidewinder.CivetWebAdapter;
  * Manages multiple clients in a chat room with broadcasting
  */
 class ChatRoomWebSocketHandler implements IWebSocketHandler {
-	private var adapter:CivetWebAdapter;
+	private var adapter:IWebSocketServer;
 	private var connections:Array<ConnectionInfo>;
 	private var nextUserId:Int;
 
-	public function new(adapter:CivetWebAdapter) {
+	public function new(adapter:IWebSocketServer) {
 		this.adapter = adapter;
 		this.connections = [];
 		this.nextUserId = 1;

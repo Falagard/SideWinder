@@ -8,9 +8,9 @@ import sidewinder.CivetWebAdapter;
  * Echoes back any received message
  */
 class EchoWebSocketHandler implements IWebSocketHandler {
-    private var adapter:CivetWebAdapter;
+    private var adapter:IWebSocketServer;
     
-    public function new(adapter:CivetWebAdapter) {
+    public function new(adapter:IWebSocketServer) {
         this.adapter = adapter;
     }
     

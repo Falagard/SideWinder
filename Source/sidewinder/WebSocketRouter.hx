@@ -14,7 +14,7 @@ import haxe.Json;
  * Supported handlers: "echo", "chat", "broadcast", "auth"
  */
 class WebSocketRouter implements IWebSocketHandler {
-	private var adapter:CivetWebAdapter;
+	private var adapter:IWebSocketServer;
 
 	// Available handlers by name
 	private var handlers:Map<String, IWebSocketHandler>;
@@ -22,7 +22,7 @@ class WebSocketRouter implements IWebSocketHandler {
 	// Store connections with their state - using class instances for proper reference semantics
 	private var connections:Array<RouterConnection>;
 
-	public function new(adapter:CivetWebAdapter) {
+	public function new(adapter:IWebSocketServer) {
 		this.adapter = adapter;
 		this.handlers = new Map();
 		this.connections = [];
@@ -47,10 +47,8 @@ class WebSocketRouter implements IWebSocketHandler {
 	 * Find connection entry by comparing connection pointers
 	 */
 	private function findConnection(conn:Dynamic):Null<RouterConnection> {
-		var connBytes:hl.Bytes = conn;
 		for (entry in connections) {
-			var entryBytes:hl.Bytes = entry.conn;
-			if (connBytes == entryBytes) {
+			if (conn == entry.conn) {
 				return entry;
 			}
 		}
@@ -61,10 +59,8 @@ class WebSocketRouter implements IWebSocketHandler {
 	 * Remove connection entry
 	 */
 	private function removeConnection(conn:Dynamic):Void {
-		var connBytes:hl.Bytes = conn;
 		connections = connections.filter(entry -> {
-			var entryBytes:hl.Bytes = entry.conn;
-			return connBytes != entryBytes;
+			return conn != entry.conn;
 		});
 	}
 

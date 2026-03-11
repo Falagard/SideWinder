@@ -8,15 +8,20 @@ import sys.net.Socket;
 import sys.thread.Thread;
 import sys.thread.Mutex;
 import hx.well.http.RequestStatic;
+import hx.well.http.driver.socket.SocketWebSocketHandler;
+import hx.well.websocket.WebSocketSession;
+import hx.well.websocket.AbstractWebSocketHandler as HxAbstractWebSocketHandler;
 import sidewinder.Router;
+import sidewinder.IWebSocketHandler;
 import snake.http.HTTPStatus;
 import haxe.io.Bytes;
+import haxe.Exception;
 
 /**
  * Adapter for hxwell web server framework drivers.
  * Bridges hxwell's multi-threaded SocketDriver with SideWinder's single-threaded router loop.
  */
-class HxWellAdapter implements IWebServer {
+class HxWellAdapter implements IWebServer implements IWebSocketServer {
 	private var driver:CustomSocketDriver;
 	private var host:String;
 	private var port:Int;
@@ -24,6 +29,9 @@ class HxWellAdapter implements IWebServer {
 	private var requestQueue:Array<QueuedRequest> = [];
 	private var queueMutex:Mutex = new Mutex();
 	private var directory:String;
+	private var websocketHandler:IWebSocketHandler;
+	private var wsEventQueue:Array<WebSocketEvent> = [];
+	private var wsMutex:Mutex = new Mutex();
 
 	public function new(host:String, port:Int, ?directory:String) {
 		this.host = host;
@@ -54,6 +62,7 @@ class HxWellAdapter implements IWebServer {
 	public function handleRequest():Void {
 		if (!running)
 			return;
+		
 
 		var requests:Array<QueuedRequest> = null;
 		queueMutex.acquire();
@@ -66,6 +75,35 @@ class HxWellAdapter implements IWebServer {
 		if (requests != null) {
 			for (q in requests) {
 				processQueuedRequest(q);
+			}
+		}
+
+		// Process WebSocket events
+		var wsEvents:Array<WebSocketEvent> = null;
+		wsMutex.acquire();
+		if (wsEventQueue.length > 0) {
+			wsEvents = wsEventQueue.copy();
+			wsEventQueue = [];
+		}
+		wsMutex.release();
+
+		if (wsEvents != null && websocketHandler != null) {
+			for (evt in wsEvents) {
+				try {
+					switch (evt.type) {
+						case Open:
+							websocketHandler.onConnect();
+							websocketHandler.onReady(evt.session);
+						case Message:
+							websocketHandler.onData(evt.session, IWebSocketHandler.WebSocketOpcode.TEXT, @:privateAccess evt.data.b, evt.data.length);
+						case Binary:
+							websocketHandler.onData(evt.session, IWebSocketHandler.WebSocketOpcode.BINARY, @:privateAccess evt.data.b, evt.data.length);
+						case Close:
+							websocketHandler.onClose(evt.session);
+					}
+				} catch (e:Dynamic) {
+					HybridLogger.error('[HxWellAdapter] WebSocket event error: ' + e);
+				}
 			}
 		}
 	}
@@ -346,6 +384,74 @@ class HxWellAdapter implements IWebServer {
 		requestQueue.push(q);
 		queueMutex.release();
 	}
+
+	public function setWebSocketHandler(handler:IWebSocketHandler):Void {
+		this.websocketHandler = handler;
+		HybridLogger.info('[HxWellAdapter] WebSocket handler registered');
+	}
+
+	public function websocketSendText(conn:Dynamic, text:String):Void {
+		var session:WebSocketSession = cast conn;
+		session.send(text);
+	}
+
+	public function websocketSendBinary(conn:Dynamic, data:haxe.io.Bytes):Void {
+		var session:WebSocketSession = cast conn;
+		session.sendBinary(data);
+	}
+
+	public function websocketClose(conn:Dynamic, code:Int = 1000, ?reason:String):Void {
+		var session:WebSocketSession = cast conn;
+		session.close(); // hxwell session close handles the handshake
+	}
+
+	private function enqueueWsEvent(evt:WebSocketEvent):Void {
+		wsMutex.acquire();
+		wsEventQueue.push(evt);
+		wsMutex.release();
+	}
+}
+
+private enum WebSocketEventType {
+	Open;
+	Message;
+	Binary;
+	Close;
+}
+
+private typedef WebSocketEvent = {
+	var type:WebSocketEventType;
+	var session:WebSocketSession;
+	@:optional var data:Bytes;
+}
+
+private class HxWellWebSocketBridge extends HxAbstractWebSocketHandler {
+	private var adapter:HxWellAdapter;
+
+	public function new(adapter:HxWellAdapter) {
+		super();
+		this.adapter = adapter;
+	}
+
+	public function onOpen(session:WebSocketSession):Void {
+		@:privateAccess adapter.enqueueWsEvent({type: Open, session: session});
+	}
+
+	public function onMessage(session:WebSocketSession, message:String):Void {
+		@:privateAccess adapter.enqueueWsEvent({type: Message, session: session, data: Bytes.ofString(message)});
+	}
+
+	public function onBinary(session:WebSocketSession, data:Bytes):Void {
+		@:privateAccess adapter.enqueueWsEvent({type: Binary, session: session, data: data});
+	}
+
+	public function onClose(session:WebSocketSession, code:Int, reason:String):Void {
+		@:privateAccess adapter.enqueueWsEvent({type: Close, session: session});
+	}
+
+	public function onError(session:WebSocketSession, error:Exception):Void {
+		HybridLogger.error('[HxWellAdapter] WebSocket error for session ${session.id}: ' + error);
+	}
 }
 
 private typedef QueuedRequest = {
@@ -368,6 +474,15 @@ private class CustomSocketDriver extends SocketDriver {
 			try {
 				socket.setTimeout(30);
 				var hxReq = hx.well.http.driver.socket.SocketRequestParser.parseFromSocket(socket);
+
+				// Check for WebSocket upgrade
+				var upgrade = hxReq.header("Upgrade");
+				if (upgrade != null && upgrade.toLowerCase() == "websocket") {
+					var bridge = new HxWellWebSocketBridge(adapter);
+					// This blocks the background thread and handles the message loop
+					hx.well.http.driver.socket.SocketWebSocketHandler.upgrade(socket, hxReq, bridge);
+					return;
+				}
 				
 				// Handle body parsing if Content-Length is present
 				var contentLen = hxReq.header("Content-Length");
