@@ -1,17 +1,8 @@
 package sidewinder.client;
 
-import sidewinder.adapters.*;
-import sidewinder.services.*;
 import sidewinder.interfaces.*;
-import sidewinder.routing.*;
-import sidewinder.middleware.*;
-import sidewinder.websocket.*;
 import sidewinder.data.*;
-import sidewinder.controllers.*;
 import sidewinder.client.*;
-import sidewinder.messaging.*;
-import sidewinder.logging.*;
-import sidewinder.core.*;
 
 
 import haxe.macro.Context;
@@ -402,7 +393,7 @@ class AutoClientAsync {
 												try {
 													trace('[AutoClientAsync] parsing JSON length=' + d.length);
 													var raw = haxe.Json.parse(d);
-													var converted = sidewinder.AutoClientAsync.normalizeDates(raw);
+													var converted = sidewinder.client.AutoClientAsync.normalizeDates(raw);
 													onSuccess(converted);
 												} catch (e:Dynamic) {
 													trace('[AutoClientAsync] JSON parse error ' + Std.string(e));
@@ -445,7 +436,7 @@ class AutoClientAsync {
 				Context.defineType(classDef);
 				var typePath:TypePath = {pack: ["sidewinder"], name: uniqueName};
 				// If cookieJar parameter was provided, use it; otherwise use globalCookieJar
-				var jarExpr = cookieJar != null ? cookieJar : macro sidewinder.AutoClientAsync.globalCookieJar;
+				var jarExpr = cookieJar != null ? cookieJar : macro sidewinder.client.AutoClientAsync.globalCookieJar;
 				return {expr: ENew(typePath, [baseUrl, jarExpr]), pos: Context.currentPos()};
 			case _:
 				Context.error("Expected interface type", iface.pos);

@@ -1,17 +1,8 @@
 package sidewinder.client;
 
-import sidewinder.adapters.*;
-import sidewinder.services.*;
 import sidewinder.interfaces.*;
-import sidewinder.routing.*;
-import sidewinder.middleware.*;
-import sidewinder.websocket.*;
 import sidewinder.data.*;
-import sidewinder.controllers.*;
 import sidewinder.client.*;
-import sidewinder.messaging.*;
-import sidewinder.logging.*;
-import sidewinder.core.*;
 
 
 import haxe.macro.Context;
