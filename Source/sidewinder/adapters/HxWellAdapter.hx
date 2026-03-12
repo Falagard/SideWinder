@@ -1,12 +1,10 @@
 package sidewinder.adapters;
+
 import sidewinder.interfaces.IWebSocketHandler.WebSocketOpcode;
 import sidewinder.interfaces.IWebSocketServer;
-
 import sidewinder.routing.Router.UploadedFile;
 import sidewinder.routing.Router.Request;
 import sidewinder.routing.Router.Response;
-
-
 import sidewinder.services.*;
 import sidewinder.interfaces.*;
 import sidewinder.routing.*;
@@ -18,8 +16,6 @@ import sidewinder.client.*;
 import sidewinder.messaging.*;
 import sidewinder.logging.*;
 import sidewinder.core.*;
-
-
 import hx.well.http.driver.socket.SocketDriver;
 import hx.well.http.driver.socket.SocketDriverConfig;
 import hx.well.http.driver.socket.SocketRequestParser;
@@ -31,8 +27,6 @@ import hx.well.http.RequestStatic;
 import hx.well.http.driver.socket.SocketWebSocketHandler;
 import hx.well.websocket.WebSocketSession;
 import hx.well.websocket.AbstractWebSocketHandler as HxAbstractWebSocketHandler;
-
-
 import snake.http.HTTPStatus;
 import haxe.io.Bytes;
 import haxe.Exception;
@@ -82,7 +76,6 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 	public function handleRequest():Void {
 		if (!running)
 			return;
-		
 
 		// Process WebSocket events
 		var wsEvents:Array<WebSocketEvent> = null;
@@ -327,7 +320,12 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			fileToServe = pathOnly.substr("/static".length);
 		}
 
-		var fullPath = haxe.io.Path.join([Sys.getCwd(), directory, fileToServe]);
+		// Fix path resolution: don't prepend CWD if directory is already absolute
+		var baseDir = directory;
+		if (!haxe.io.Path.isAbsolute(baseDir)) {
+			baseDir = haxe.io.Path.join([Sys.getCwd(), directory]);
+		}
+		var fullPath = haxe.io.Path.join([baseDir, fileToServe]);
 
 		if (sys.FileSystem.exists(fullPath) && !sys.FileSystem.isDirectory(fullPath)) {
 			try {
@@ -339,7 +337,7 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 				res.setHeader("Content-Type", contentType);
 				res.setHeader("Content-Length", Std.string(bytes.length));
 				res.endHeaders();
-				
+
 				try {
 					socket.output.writeString(bytes.toString());
 					socket.output.flush();
@@ -435,20 +433,19 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 }
 
 enum WebSocketEventType {
-Open;
-Message;
-Binary;
-Close;
+	Open;
+	Message;
+	Binary;
+	Close;
 }
 
 typedef WebSocketEvent = {
-var type:WebSocketEventType;
-var session:WebSocketSession;
-@:optional var data:Bytes;
+	var type:WebSocketEventType;
+	var session:WebSocketSession;
+	@:optional var data:Bytes;
 }
 
 typedef QueuedRequest = {
-var hxRequest:HxRequest;
-var socket:Socket;
+	var hxRequest:HxRequest;
+	var socket:Socket;
 }
-
