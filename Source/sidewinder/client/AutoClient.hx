@@ -43,7 +43,7 @@ class AutoClient {
                 fields.push({
                     name: "cookieJar",
                     access: [APublic, AStatic],
-                    kind: FVar(macro:sidewinder.CookieJar, macro new sidewinder.CookieJar()),
+                    kind: FVar(macro:sidewinder.data.CookieJar, macro new sidewinder.data.CookieJar()),
                     pos: Context.currentPos()
                 });
                 fields.push({

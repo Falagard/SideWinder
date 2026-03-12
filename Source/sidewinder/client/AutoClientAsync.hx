@@ -30,7 +30,7 @@ using haxe.macro.ExprTools;
  */
 class AutoClientAsync {
 	// Global cookie jar shared by all async client instances
-	public static var globalCookieJar:sidewinder.ICookieJar = new sidewinder.CookieJar();
+	public static var globalCookieJar:sidewinder.interfaces.ICookieJar = new sidewinder.data.CookieJar();
 
 	/**
 	 * Recursively walk dynamic JSON value and convert date-like strings to Date instances.
@@ -109,7 +109,7 @@ class AutoClientAsync {
 				fields.push({
 					name: "cookieJar",
 					access: [APublic],
-					kind: FVar(macro :sidewinder.ICookieJar, null),
+					kind: FVar(macro :sidewinder.interfaces.ICookieJar, null),
 					pos: Context.currentPos()
 				});
 				// constructor
@@ -119,7 +119,7 @@ class AutoClientAsync {
 					kind: FFun({
 						args: [
 							{name: "baseUrl", type: macro :String},
-							{name: "cookieJar", type: macro :sidewinder.ICookieJar}
+							{name: "cookieJar", type: macro :sidewinder.interfaces.ICookieJar}
 						],
 						expr: macro {
 							this.baseUrl = baseUrl;
