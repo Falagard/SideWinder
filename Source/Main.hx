@@ -69,13 +69,14 @@ import sidewinder.data.PersistentCookieJar;
 using hx.injection.ServiceExtensions;
 import sidewinder.data.CookieJar;
 import sidewinder.controllers.StripeSubscriptionController;
+import sidewinder.controllers.MagicLinkController;
 
 using hx.injection.ServiceExtensions;
 
 class Main extends Application {
 	private static final DEFAULT_PROTOCOL = "HTTP/1.0"; // snake-server needs more work for 1.1 connections
 	private static final DEFAULT_ADDRESS = "127.0.0.1";
-	private static final DEFAULT_PORT = 8000;
+	private static final DEFAULT_PORT = 8001;
 
 	private var webServer:IWebServer;
 
@@ -124,7 +125,8 @@ class Main extends Application {
 			// For MySQL, use:
 			// c.addSingleton(IDatabaseService, MySqlDatabaseService);
 
-			c.addScoped(IUserService, UserService);
+			c.addSingleton(IUserService, UserService);
+			c.addSingleton(IAuthService, AuthService);
 			c.addSingleton(ICacheService, InMemoryCacheService);
 			c.addSingleton(IMessageBroker, PollingMessageBroker);
 			c.addSingleton(IStreamBroker, LocalStreamBroker);
@@ -265,6 +267,23 @@ class Main extends Application {
 		} else {
 			HybridLogger.warn("Stripe endpoints not registered - set STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET to enable Stripe routes");
 		}
+
+		// Initialize Magic Link routes
+		var magicLinkController:MagicLinkController = null;
+		var getMagicLinkController = function() {
+			if (magicLinkController == null) {
+				var notifyService:INotificationService = null;
+				try {
+					notifyService = DI.get(INotificationService);
+				} catch (e:Dynamic) {}
+				
+				magicLinkController = new MagicLinkController(DI.get(IAuthService), notifyService);
+			}
+			return magicLinkController;
+		};
+
+		App.post("/auth/magic-link", (req, res) -> getMagicLinkController().requestLink(req, res));
+		App.get("/auth/magic-link/verify", (req, res) -> getMagicLinkController().verifyLink(req, res));
 
 		// Example middleware: logging
 		App.use((req, res, next) -> {

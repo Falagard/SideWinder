@@ -207,6 +207,20 @@ class InMemoryCacheService implements ICacheService {
         }
     }
 
+    public function remove(key:String):Void {
+        var shard = shardFor(key);
+        shard.mutex.acquire();
+        try {
+            var e = shard.map.get(key);
+            if (e != null) {
+                removeEntry(shard, e);
+            }
+            shard.mutex.release();
+        } catch(e) {
+            shard.mutex.release();
+        }
+    }
+
     private function removeEntry(shard:Shard, e:Entry):Void {
         shard.map.remove(e.key);
         if (e.prev != null) e.prev.next = e.next;

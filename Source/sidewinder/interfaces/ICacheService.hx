@@ -46,13 +46,14 @@ interface ICacheService extends Service {
     public function getOrCompute(key:String, computeFn:Void->Dynamic, ?ttlMs:Int):Dynamic;
     
     /**
+     * Remove a value from the cache.
+     * @param key Cache key
+     */
+    public function remove(key:String):Void;
+    
+    /**
      * Remove all expired entries from the cache.
      * This is called automatically by background sweeper threads in some implementations.
      */
     public function sweepExpired():Void;
 }
-
-
-
-
-

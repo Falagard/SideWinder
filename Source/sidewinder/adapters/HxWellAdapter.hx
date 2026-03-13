@@ -164,6 +164,18 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 		}
 
 		var body = hxReq.bodyBytes != null ? hxReq.bodyBytes.toString() : "";
+		
+		if (hxReq.requestBytes != null) {
+			var firstLine = hxReq.requestBytes.toString().split("\r\n")[0];
+			HybridLogger.debug('[HxWellAdapter] Raw Request Line: ' + firstLine);
+		}
+		
+		HybridLogger.debug('[HxWellAdapter] hxReq fields: ' + Reflect.fields(hxReq).join(", "));
+		@:privateAccess {
+			HybridLogger.debug('[HxWellAdapter] hxReq.path: ' + hxReq.path);
+			HybridLogger.debug('[HxWellAdapter] hxReq.uri: ' + (Reflect.hasField(hxReq, "uri") ? Reflect.field(hxReq, "uri") : "N/A"));
+		}
+		
 		var jsonBody:Dynamic = null;
 		if (headers.get("Content-Type") == "application/json") {
 			try {
@@ -186,19 +198,80 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 
 		var files:Array<UploadedFile> = [];
 		
-		var path = hxReq.path != null ? hxReq.path : "/";
-		// Strip query string if present
-		path = path.split("?")[0];
-		// Ensure leading slash
-		if (!StringTools.startsWith(path, "/")) {
-			path = "/" + path;
+		var rawPath = hxReq.path != null ? hxReq.path : "/";
+		if (hxReq.requestBytes != null) {
+			var requestLine = hxReq.requestBytes.toString().split("\r\n")[0];
+			var lineParts = requestLine.split(" ");
+			if (lineParts.length >= 2) {
+				rawPath = lineParts[1];
+			}
+		}
+
+		var path = rawPath.split("?")[0];
+		
+		var query = new Map<String, String>();
+		
+		// 1. Try to get from hxReq.queries if populated
+		if (hxReq.queries != null) {
+			for (k in hxReq.queries.keys()) {
+				query.set(k, hxReq.queries.get(k));
+			}
+		}
+		
+		// 2. Fallback to raw path if map is still empty
+		if (!query.keys().hasNext()) {
+			var rawFullPath = "";
+			if (hxReq.requestBytes != null) {
+				var requestLine = hxReq.requestBytes.toString().split("\r\n")[0];
+				var lineParts = requestLine.split(" ");
+				if (lineParts.length >= 2) {
+					rawFullPath = lineParts[1];
+				}
+			}
+			
+			// If we couldn't get it from raw bytes, use hxReq.path but acknowledge it's already decoded
+			if (rawFullPath == "" && hxReq.path != null) {
+				var parts = hxReq.path.split("?");
+				if (parts.length > 1) {
+					var qstr = parts[1];
+					for (part in qstr.split("&")) {
+						var eqIndex = part.indexOf("=");
+						if (eqIndex != -1) {
+							var key = part.substring(0, eqIndex);
+							var val = part.substring(eqIndex + 1);
+							// Do NOT urlDecode again if it came from hxReq.path (already decoded by hxwell)
+							query.set(key, val);
+						}
+					}
+				}
+			} else if (rawFullPath != "") {
+				var parts = rawFullPath.split("?");
+				if (parts.length > 1) {
+					var qstr = parts[1];
+					for (part in qstr.split("&")) {
+						var eqIndex = part.indexOf("=");
+						if (eqIndex != -1) {
+							var key = part.substring(0, eqIndex);
+							var val = part.substring(eqIndex + 1);
+							var decodedVal = StringTools.urlDecode(val);
+							query.set(StringTools.urlDecode(key), decodedVal);
+						}
+					}
+				}
+			}
+		}
+
+		var finalPath = hxReq.path != null ? hxReq.path : "/";
+		finalPath = finalPath.split("?")[0];
+		if (!StringTools.startsWith(finalPath, "/")) {
+			finalPath = "/" + finalPath;
 		}
 
 		var req:Request = {
 			method: hxReq.method,
-			path: path,
+			path: finalPath,
 			headers: headers,
-			query: hxReq.queries,
+			query: query,
 			params: new Map<String, String>(),
 			body: body,
 			jsonBody: jsonBody,
@@ -207,6 +280,10 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			files: files,
 			ip: hxReq.ip
 		};
+		
+		var queryKeyCount = 0;
+		for (k in query.keys()) queryKeyCount++;
+		HybridLogger.debug('[HxWellAdapter] Final Query key count: ' + queryKeyCount);
 
 		return req;
 	}

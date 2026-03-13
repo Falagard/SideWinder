@@ -67,4 +67,16 @@ interface IAuthService extends Service {
 	 * Refresh an auth session
 	 */
 	public function refreshSession(sessionId:String):Null<AuthSession>;
+
+	/**
+	 * Request a magic link for an email address
+	 * @return A unique token to be sent to the user's email
+	 */
+	public function requestMagicLink(email:String):String;
+
+	/**
+	 * Authenticate with a magic link token
+	 * @return The created authentication session
+	 */
+	public function authenticateWithMagicLink(token:String):AuthSession;
 }

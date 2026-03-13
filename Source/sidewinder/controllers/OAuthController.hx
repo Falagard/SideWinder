@@ -283,7 +283,7 @@ class OAuthController {
 	}
 
 	private function sendJsonError(res:Response, status:Int, message:String):Void {
-		res.sendResponse(cast(status, snake.http.HTTPStatus));
+		res.sendResponse((cast status : snake.http.HTTPStatus));
 		res.setHeader("Content-Type", "application/json");
 		res.endHeaders();
 		res.write(Json.stringify({
