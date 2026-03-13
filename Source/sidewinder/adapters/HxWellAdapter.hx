@@ -112,6 +112,14 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			var swRes = createResponse(q.socket);
 			var swReq = convertRequest(q.hxRequest, q.socket);
 
+			// Handle session
+			var sessionId = swReq.cookies.get("session_id");
+			if (sessionId == null) {
+				sessionId = Std.string(Math.floor(Math.random() * 1000000000)) + "_" + Std.string(Date.now().getTime());
+				swReq.cookies.set("session_id", sessionId);
+				swRes.setHeader("Set-Cookie", "session_id=" + sessionId + "; Path=/; HttpOnly");
+			}
+
 			// Handle OPTIONS preflight for CORS
 			if (swReq.method == "OPTIONS") {
 				swRes.sendResponse(HTTPStatus.OK);

@@ -44,6 +44,9 @@ class SqliteDatabaseService implements IDatabaseService {
 		var conn = Sqlite.open(DB_PATH);
 		conn.request("PRAGMA foreign_keys = ON;");
 		conn.request("PRAGMA journal_mode = WAL;");
+		conn.request("PRAGMA synchronous = normal;");
+		conn.request("PRAGMA temp_store = memory;");
+		conn.request("PRAGMA mmap_size = 30000000000;");
 		return conn;
 	}, (conn) -> {
 		if (conn != null) conn.close();
@@ -64,6 +67,9 @@ class SqliteDatabaseService implements IDatabaseService {
 					var conn = Sqlite.open(DB_PATH);
 					conn.request("PRAGMA foreign_keys = ON;");
 					conn.request("PRAGMA journal_mode = WAL;");
+					conn.request("PRAGMA synchronous = normal;");
+					conn.request("PRAGMA temp_store = memory;");
+					conn.request("PRAGMA mmap_size = 30000000000;");
 					
 					while (true) {
 						var request = writeQueue.pop(true);
