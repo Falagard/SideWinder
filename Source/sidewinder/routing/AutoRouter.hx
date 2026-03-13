@@ -238,9 +238,16 @@ class AutoRouter {
 												res.end();
 											} catch (e:Dynamic) {
 												HybridLogger.error('[AutoRouter] Error in ' + $v{methodName} + ': ' + e);
-												res.sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR);
-												res.endHeaders();
-												res.write(haxe.Json.stringify({error: "Internal Server Error"}));
+												var errStr = Std.string(e);
+												if (errStr.indexOf("UNIQUE constraint") != -1) {
+													res.sendError(snake.http.HTTPStatus.CONFLICT);
+													res.endHeaders();
+													res.write(haxe.Json.stringify({error: "Conflict", message: errStr}));
+												} else {
+													res.sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR);
+													res.endHeaders();
+													res.write(haxe.Json.stringify({error: "Internal Server Error"}));
+												}
 												res.end();
 											}
 										};
@@ -260,9 +267,16 @@ class AutoRouter {
 												res.end();
 											} catch (e:Dynamic) {
 												HybridLogger.error('[AutoRouter] Error in ' + $v{methodName} + ': ' + e);
-												res.sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR);
-												res.endHeaders();
-												res.write(haxe.Json.stringify({error: "Internal Server Error"}));
+												var errStr = Std.string(e);
+												if (errStr.indexOf("UNIQUE constraint") != -1) {
+													res.sendError(snake.http.HTTPStatus.CONFLICT);
+													res.endHeaders();
+													res.write(haxe.Json.stringify({error: "Conflict", message: errStr}));
+												} else {
+													res.sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR);
+													res.endHeaders();
+													res.write(haxe.Json.stringify({error: "Internal Server Error"}));
+												}
 												res.end();
 											}
 										};
@@ -285,9 +299,16 @@ class AutoRouter {
 												res.end();
 											} catch (e:Dynamic) {
 												HybridLogger.error('[AutoRouter] Error in ' + $v{methodName} + ': ' + e);
-												res.sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR);
-												res.endHeaders();
-												res.write(haxe.Json.stringify({error: "Internal Server Error"}));
+												var errStr = Std.string(e);
+												if (errStr.indexOf("UNIQUE constraint") != -1) {
+													res.sendError(snake.http.HTTPStatus.CONFLICT);
+													res.endHeaders();
+													res.write(haxe.Json.stringify({error: "Conflict", message: errStr}));
+												} else {
+													res.sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR);
+													res.endHeaders();
+													res.write(haxe.Json.stringify({error: "Internal Server Error"}));
+												}
 												res.end();
 											}
 										};
