@@ -224,7 +224,7 @@ class Main extends Application {
 
 		AutoRouter.build(router, sidewinder.interfaces.IUserServiceHandler, function() {
 			return DI.get(IUserService);
-		});
+		}, DI.get(ICacheService));
 
 		AutoRouter.build(router, sidewinder.controllers.IAdminService, function() {
 			return new AdminController(DI.get(IUserService));
