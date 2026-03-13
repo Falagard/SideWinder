@@ -101,6 +101,7 @@ class AutoRouter {
 							var httpMethod = "";
 							var path = "";
 							var requiresAuth = false;
+							var requiredPermission:String = null;
 							for (m in field.meta.get()) {
 								switch (m.name) {
 									case "get", "post", "put", "delete":
@@ -116,6 +117,17 @@ class AutoRouter {
 										}
 									case "requiresAuth":
 										requiresAuth = true;
+									case "requiresPermission":
+										requiresAuth = true; // Implies auth
+										if (m.params.length > 0) {
+											var p = m.params[0];
+											switch (p.expr) {
+												case EConst(CString(s)):
+													requiredPermission = s;
+												default:
+													Context.error('Expected string literal in @requiresPermission', p.pos);
+											}
+										}
 									default:
 								}
 							}
@@ -163,9 +175,9 @@ class AutoRouter {
 											var __userId:String = null;
 											var __sessionToken:String = null;
 
-											// Extract session_token from cookies
-											if (req.cookies != null && req.cookies.exists("session_token")) {
-												__sessionToken = req.cookies.get("session_token");
+											// Extract auth_token from cookies
+											if (req.cookies != null && req.cookies.exists("auth_token")) {
+												__sessionToken = req.cookies.get("auth_token");
 											}
 
 											// Fallback: Check Authorization header
@@ -176,22 +188,23 @@ class AutoRouter {
 												}
 											}
 
+											var __sessionData:Dynamic = null;
 											if (__sessionToken != null && $cacheExpr != null) {
-												// Look up user from cache
-												var cachedData = ($cacheExpr).get("session:" + __sessionToken);
+												// Look up session from cache by token
+												__sessionData = ($cacheExpr).get("auth:session_by_token:" + __sessionToken);
 
 												// Parse JSON if it's a string (since cache stores stringified JSON)
-												if (cachedData != null && Std.isOfType(cachedData, String)) {
+												if (__sessionData != null && Std.isOfType(__sessionData, String)) {
 													try {
-														cachedData = haxe.Json.parse(cachedData);
+														__sessionData = haxe.Json.parse(__sessionData);
 													} catch (e:Dynamic) {
-														cachedData = null;
+														__sessionData = null;
 													}
 												}
 
-												if (cachedData != null) {
-													if (Reflect.hasField(cachedData, "id")) {
-														__userId = Reflect.field(cachedData, "id");
+												if (__sessionData != null) {
+													if (Reflect.hasField(__sessionData, "userId")) {
+														__userId = Std.string(Reflect.field(__sessionData, "userId"));
 													}
 												} else {
 													// TRY param injection fallback
@@ -214,6 +227,25 @@ class AutoRouter {
 												res.write(haxe.Json.stringify({error: "Unauthorized - Authentication required"}));
 												res.end();
 												return;
+											}
+
+											// Permission check
+											if ($v{requiredPermission} != null) {
+												var __hasPerm = false;
+												if (__sessionData != null && Reflect.hasField(__sessionData, "permissions")) {
+													var __perms:Array<String> = Reflect.field(__sessionData, "permissions");
+													if (__perms != null && (__perms.indexOf($v{requiredPermission}) != -1 || __perms.indexOf("admin") != -1)) {
+														__hasPerm = true;
+													}
+												}
+												if (!__hasPerm) {
+													res.sendResponse(snake.http.HTTPStatus.FORBIDDEN);
+													res.setHeader("Content-Type", "application/json");
+													res.endHeaders();
+													res.write(haxe.Json.stringify({error: "Forbidden - Missing required permission: " + $v{requiredPermission}}));
+													res.end();
+													return;
+												}
 											}
 										};
 									} else {
@@ -324,7 +356,10 @@ class AutoRouter {
 										default: null;
 									};
 
-									if (addRoute != null) routeExprs.push(addRoute);
+									if (addRoute != null) {
+										trace('AutoRouter registering: ' + httpMethod.toUpperCase() + ' ' + path + ' -> ' + field.name);
+										routeExprs.push(addRoute);
+									}
 
 								default:
 									Context.error('Unexpected non-function type on method', field.pos);

@@ -29,12 +29,27 @@ class UserService implements IUserService implements Service {
         params.set("offset", actualOffset);
 
         var result:Array<User> = [];
-        var rs = db.read("SELECT id, display_name, email FROM users ORDER BY id ASC LIMIT @limit OFFSET @offset", params);
+        var rs = db.read("SELECT id, display_name, email, permissions FROM users ORDER BY id ASC LIMIT @limit OFFSET @offset", params);
         while (rs.hasNext()) {
-            var r = rs.next();
-            result.push({ id: r.id, name: r.display_name, email: r.email });
+            result.push(mapRecordToUser(rs.next()));
         }
         return result;
+    }
+
+    private function mapRecordToUser(r:Dynamic):User {
+        if (r == null) return null;
+        var perms:Array<String> = [];
+        if (r.permissions != null && r.permissions != "") {
+            try {
+                perms = haxe.Json.parse(r.permissions);
+            } catch (e:Dynamic) {}
+        }
+        return { 
+            id: r.id, 
+            name: r.display_name, 
+            email: r.email,
+            permissions: perms
+        };
     }
 
     public function getByIdCached(id:Int):Null<User> {
@@ -49,19 +64,15 @@ class UserService implements IUserService implements Service {
     public function getById(id:Int):Null<User> {
         var params = new Map<String, Dynamic>();
         params.set("id", id);
-        var rs = db.read("SELECT id, display_name, email FROM users WHERE id = @id", params);
-        var record = rs.next();
-        if (record == null) return null;
-        return { id: record.id, name: record.display_name, email: record.email };
+        var rs = db.read("SELECT id, display_name, email, permissions FROM users WHERE id = @id", params);
+        return mapRecordToUser(rs.next());
     }
 
     public function getByEmail(email:String):Null<User> {
         var params = new Map<String, Dynamic>();
         params.set("email", email);
-        var rs = db.read("SELECT id, display_name, email FROM users WHERE email = @email", params);
-        var record = rs.next();
-        if (record == null) return null;
-        return { id: record.id, name: record.display_name, email: record.email };
+        var rs = db.read("SELECT id, display_name, email, permissions FROM users WHERE email = @email", params);
+        return mapRecordToUser(rs.next());
     }
 
     public function create(user:User):User {
@@ -70,10 +81,12 @@ class UserService implements IUserService implements Service {
         params.set("username", user.email);
         params.set("display_name", user.name);
         params.set("password_hash", "!");
+        params.set("permissions", user.permissions != null ? haxe.Json.stringify(user.permissions) : "[]");
         
         sidewinder.logging.HybridLogger.debug('[UserService] Creating user: ' + user.email + ' (' + user.name + ')');
-        var newId = db.executeAndGetId("INSERT INTO users (email, username, display_name, password_hash) VALUES (@email, @username, @display_name, @password_hash)", params);
-        return { id: newId, name: user.name, email: user.email };
+        var newId = db.executeAndGetId("INSERT INTO users (email, username, display_name, password_hash, permissions) VALUES (@email, @username, @display_name, @password_hash, @permissions)", params);
+        user.id = newId;
+        return user;
     }
 
     public function update(id:Int, user:User):Bool {
@@ -81,8 +94,9 @@ class UserService implements IUserService implements Service {
         params.set("id", id);
         params.set("display_name", user.name);
         params.set("email", user.email);
+        params.set("permissions", user.permissions != null ? haxe.Json.stringify(user.permissions) : "[]");
         
-        db.write("UPDATE users SET display_name = @display_name, email = @email WHERE id = @id", params);
+        db.write("UPDATE users SET display_name = @display_name, email = @email, permissions = @permissions WHERE id = @id", params);
         var rs = db.read("SELECT changes() AS affected");
         var rec = rs.next();
         

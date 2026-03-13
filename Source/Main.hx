@@ -70,6 +70,7 @@ using hx.injection.ServiceExtensions;
 import sidewinder.data.CookieJar;
 import sidewinder.controllers.StripeSubscriptionController;
 import sidewinder.controllers.MagicLinkController;
+import sidewinder.controllers.AdminController;
 
 using hx.injection.ServiceExtensions;
 
@@ -222,8 +223,12 @@ class Main extends Application {
 		};
 
 		AutoRouter.build(router, sidewinder.interfaces.IUserServiceHandler, function() {
-		return DI.get(IUserService);
-	});
+			return DI.get(IUserService);
+		});
+
+		AutoRouter.build(router, sidewinder.controllers.IAdminService, function() {
+			return new AdminController(DI.get(IUserService));
+		}, DI.get(ICacheService));
 
 		// Add file upload test route
 		router.add("POST", "/upload", function(req:Request, res:Response) {

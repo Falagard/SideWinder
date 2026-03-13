@@ -20,6 +20,7 @@ typedef AuthSession = {
 	var token:AuthToken;
 	var provider:String;
 	var expiresAt:Date;
+	@:optional var permissions:Array<String>;
 }
 
 interface IAuthService extends Service {

@@ -5,6 +5,7 @@ import sidewinder.interfaces.IAuthService;
 import sidewinder.interfaces.IUserService;
 import sidewinder.interfaces.IOAuthService;
 import sidewinder.interfaces.IOAuthService.OAuthUserInfo;
+import sidewinder.interfaces.ICacheService;
 import sidewinder.logging.HybridLogger;
 
 import haxe.crypto.Sha256;
@@ -86,6 +87,9 @@ class AuthService implements IAuthService {
 		var token = generateToken();
 		var expiresAt = Date.fromTime(Date.now().getTime() + 24 * 60 * 60 * 1000); // 24 hours
 		
+		var user = userService.getById(userId);
+		var permissions = (user != null && user.permissions != null) ? user.permissions : [];
+
 		var authToken:AuthToken = {
 			token: token,
 			userId: userId,
@@ -98,7 +102,8 @@ class AuthService implements IAuthService {
 			userId: userId,
 			token: authToken,
 			provider: provider,
-			expiresAt: expiresAt
+			expiresAt: expiresAt,
+			permissions: permissions
 		};
 		
 		// Store session and token in cache
