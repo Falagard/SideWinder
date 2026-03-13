@@ -15,60 +15,171 @@ import sidewinder.messaging.*;
 import sidewinder.logging.*;
 import sidewinder.core.*;
 
-
 import sys.db.Connection;
+import sys.db.ResultSet;
 import sys.db.Sqlite;
 import sys.thread.Mutex;
+import sys.thread.Thread;
+import sys.thread.Deque;
+import haxe.ThreadLocal;
 import DateTools;
 
-
 /**
- * SQLite implementation of the database service
+ * SQLite implementation of the database service.
+ * Refactored for SQLite optimization:
+ * - Thread-local read connections using haxe.ThreadLocal (from hxwell).
+ * - Dedicated background writer thread to serialize all writes.
  */
 class SqliteDatabaseService implements IDatabaseService {
 
 	static inline var DB_PATH = "data.db";
 	static inline var MAX_POOL_SIZE = 32;
 
+	// Shared resources
 	var mutex = new Mutex();
 	var pool:Array<Connection> = [];
+	
+	// Thread-local storage for read connections
+	var threadConn = new ThreadLocal<Connection>(() -> {
+		var conn = Sqlite.open(DB_PATH);
+		conn.request("PRAGMA foreign_keys = ON;");
+		conn.request("PRAGMA journal_mode = WAL;");
+		return conn;
+	}, (conn) -> {
+		if (conn != null) conn.close();
+	});
 
-	public function new() {}
+	// Writer thread components
+	var writeQueue = new Deque<WriteRequest>();
+	var writerThread:Thread;
 
+	public function new() {
+		startWriterThread();
+	}
+
+	private function startWriterThread() {
+		writerThread = Thread.create(() -> {
+			try {
+				var conn = Sqlite.open(DB_PATH);
+				conn.request("PRAGMA foreign_keys = ON;");
+				conn.request("PRAGMA journal_mode = WAL;");
+				
+				while (true) {
+					var request = writeQueue.pop(true);
+					if (request == null) continue;
+
+					try {
+						var rs = conn.request(request.sql);
+						request.response.push({ rs: rs, error: null });
+					} catch (e:Dynamic) {
+						request.response.push({ rs: null, error: e });
+					}
+				}
+			} catch (e:Dynamic) {
+				HybridLogger.error("Fatal error in SQLite writer thread: " + e);
+			}
+		});
+	}
+
+	/**
+	 * Acquire a connection from the pool.
+	 * Now primarily returns the thread-local connection for reads.
+	 */
 	public function acquire():Connection {
-		mutex.acquire();
-		var conn = pool.pop();
-		mutex.release();
-
-		if (conn != null)
-			return conn;
-
-		var c = Sqlite.open(DB_PATH);
-		c.request("PRAGMA foreign_keys = ON;");
-		c.request("PRAGMA journal_mode = WAL;");
-
-		return c;
+		return threadConn.get();
 	}
 
-	function ensureMigrationsTable(conn:Connection):Void {
-		conn.request('CREATE TABLE IF NOT EXISTS migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TEXT DEFAULT CURRENT_TIMESTAMP);');
-	}
-
-	function getMigrationFiles():Array<String> {
-		var dir = "migrations/sqlite";
-		var files = sys.FileSystem.readDirectory(dir);
-		var sqlFiles = files.filter(function(f) return StringTools.endsWith(f, ".sql"));
-		sqlFiles.sort(function(a, b) return Reflect.compare(a, b));
-		return sqlFiles;
-	}
-
+	/**
+	 * Release a connection back to the pool.
+	 * Now a no-op as connections are managed by ThreadLocal.
+	 */
 	public function release(conn:Connection):Void {
-		mutex.acquire();
-		if (pool.length < MAX_POOL_SIZE)
-			pool.push(conn);
-		else
-			conn.close();
-		mutex.release();
+		// Handled by ThreadLocal
+	}
+
+	/**
+	 * Optimized read operation (thread-local connection)
+	 */
+	public function requestRead(sql:String, ?params:Map<String, Dynamic>):ResultSet {
+		var conn = acquire();
+		var finalSql = (params != null) ? buildSql(sql, params) : sql;
+		return conn.request(finalSql);
+	}
+
+	public inline function read(sql:String, ?params:Map<String, Dynamic>):ResultSet {
+		return requestRead(sql, params);
+	}
+
+	/**
+	 * Optimized write operation (queued to dedicated writer thread)
+	 */
+	public function requestWrite(sql:String, ?params:Map<String, Dynamic>):ResultSet {
+		var finalSql = (params != null) ? buildSql(sql, params) : sql;
+		var responseQueue = new Deque<WriteResponse>();
+		
+		writeQueue.push({
+			sql: finalSql,
+			response: responseQueue
+		});
+
+		var res = responseQueue.pop(true);
+		if (res.error != null) {
+			throw res.error;
+		}
+		return res.rs;
+	}
+
+	public inline function write(sql:String, ?params:Map<String, Dynamic>):ResultSet {
+		return requestWrite(sql, params);
+	}
+
+	/** Backward compatibility */
+	public function requestWithParams(sql:String, ?params:Map<String, Dynamic>):ResultSet {
+		var trimmed = StringTools.trim(sql).toUpperCase();
+		if (StringTools.startsWith(trimmed, "SELECT") || StringTools.startsWith(trimmed, "PRAGMA")) {
+			return requestRead(sql, params);
+		} else {
+			return requestWrite(sql, params);
+		}
+	}
+
+	/** Execute a non-query (INSERT/UPDATE/DELETE) */
+	public function execute(sql:String, ?params:Map<String, Dynamic>):Void {
+		requestWrite(sql, params);
+	}
+
+	public function runMigrations():Void {
+		var dir = "migrations/sqlite";
+		if (!sys.FileSystem.exists(dir)) return;
+
+		execute('CREATE TABLE IF NOT EXISTS migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TEXT DEFAULT CURRENT_TIMESTAMP);');
+		
+		var rs = requestRead("SELECT name FROM migrations;");
+		var applied = new Map<String, Bool>();
+		while (rs.hasNext()) {
+			applied.set(rs.next().name, true);
+		}
+
+		var files = sys.FileSystem.readDirectory(dir);
+		var sqlFiles = files.filter(f -> StringTools.endsWith(f, ".sql"));
+		sqlFiles.sort((a, b) -> Reflect.compare(a, b));
+
+		for (file in sqlFiles) {
+			if (!applied.exists(file)) {
+				var sql = sys.io.File.getContent(dir + "/" + file);
+				try {
+					var statements = sql.split(';');
+					for (stmt in statements) {
+						stmt = StringTools.trim(stmt);
+						if (stmt.length == 0) continue;
+						execute(stmt);
+					}
+					execute("INSERT INTO migrations (name) VALUES (" + quoteString(file) + ");");
+				} catch (e:Dynamic) {
+					HybridLogger.error('Migration failed for ' + file + ': ' + e);
+				}
+			}
+		}
 	}
 
 	/**
@@ -80,7 +191,6 @@ class SqliteDatabaseService implements IDatabaseService {
 		var i = 0;
 		while (i < sql.length) {
 			var ch = sql.charAt(i);
-			// Handle single quoted string literal to avoid replacing inside it
 			if (ch == "'") {
 				out.add(ch);
 				i++;
@@ -88,13 +198,11 @@ class SqliteDatabaseService implements IDatabaseService {
 					var c2 = sql.charAt(i);
 					out.add(c2);
 					if (c2 == "'") {
-						// Handle escaped '' inside literal
 						if (i + 1 < sql.length && sql.charAt(i + 1) == "'") {
 							out.add("'");
 							i += 2;
 							continue;
-						}
-						else {
+						} else {
 							i++;
 							break;
 						}
@@ -103,7 +211,6 @@ class SqliteDatabaseService implements IDatabaseService {
 				}
 				continue;
 			}
-			// Parameter start
 			if (ch == '@' || ch == ':') {
 				var start = i + 1;
 				while (start < sql.length && isIdentChar(sql.charCodeAt(start))) start++;
@@ -120,20 +227,15 @@ class SqliteDatabaseService implements IDatabaseService {
 		return out.toString();
 	}
 
-	/** Helper to determine identifier characters */
 	private static inline function isIdentChar(code:Int):Bool {
 		return (code >= 'A'.code && code <= 'Z'.code) || (code >= 'a'.code && code <= 'z'.code) || (code >= '0'.code && code <= '9'.code) || code == '_'.code;
 	}
 
-	/** Convenience to create RawSql */
 	public inline function raw(v:String):RawSql return new RawSql(v);
 
-	/** Formats a value for inclusion in SQL */
 	private function formatValue(v:Dynamic):String {
 		if (v == null) return "NULL";
-		// Raw SQL passthrough
 		if (Std.isOfType(v, RawSql)) return cast(v, RawSql).value;
-		// Arrays -> (item1,item2,...)
 		if (Std.isOfType(v, Array)) {
 			var arr:Array<Dynamic> = cast v;
 			var parts = [];
@@ -152,88 +254,29 @@ class SqliteDatabaseService implements IDatabaseService {
 			var formatted = DateTools.format(d, "%Y-%m-%d %H:%M:%S");
 			return quoteString(formatted);
 		}
-		// Int / Float
 		if (Std.isOfType(v, Int) || Std.isOfType(v, Float)) return Std.string(v);
-		// Fallback: toString then quote
 		return quoteString(Std.string(v));
 	}
 
-	/** Execute a request with optional named parameters, returns ResultSet */
-	public function requestWithParams(sql:String, ?params:Map<String, Dynamic>):sys.db.ResultSet {
-		var conn = acquire();
-		var finalSql = (params != null) ? buildSql(sql, params) : sql;
-		var rs = conn.request(finalSql);
-		release(conn);
-		return rs;
+	public function escapeString(str:String):String {
+		return str == null ? null : StringTools.replace(str, "'", "''");
 	}
 
-	/** Execute a non-query (INSERT/UPDATE/DELETE) returning nothing */
-	public function execute(sql:String, ?params:Map<String, Dynamic>):Void {
-		var conn = acquire();
-		var finalSql = (params != null) ? buildSql(sql, params) : sql;
-		conn.request(finalSql);
-		release(conn);
+	public function quoteString(str:String):String {
+		return str == null ? null : "'" + StringTools.replace(str, "'", "''") + "'";
 	}
 
-    public function runMigrations():Void {
-		var conn = acquire();
-		ensureMigrationsTable(conn);
-		var applied = new Map<String, Bool>();
-		var rs = conn.request("SELECT name FROM migrations;");
-		while (rs.hasNext()) {
-            var record = rs.next();
-			applied.set(record.name, true);
-		}
-		var dir = "migrations/sqlite";
-		var files = sys.FileSystem.readDirectory(dir);
-		var sqlFiles = files.filter(function(f) return StringTools.endsWith(f, ".sql"));
-		sqlFiles.sort(function(a, b) return Reflect.compare(a, b));
-		for (file in sqlFiles) {
-			if (!applied.exists(file)) {
-				var sql = sys.io.File.getContent(dir + "/" + file);
-				try {
-					// Split by semicolon, but keep in mind that semicolons inside strings/comments are not handled
-                    var statements = sql.split(';');
-
-                    for (stmt in statements) {
-                        stmt = StringTools.trim(stmt);
-                        if (stmt.length == 0) continue;
-                        conn.request(stmt);
-                    }
-
-                    conn.request("INSERT INTO migrations (name) VALUES (" + quoteString(file) + ");");
-                    
-				} catch (e:Dynamic) {
-					trace('Migration failed for ' + file + ': ' + e);
-				}
-			}
-		}
-		release(conn);
+	public function sanitize(str:String):String {
+		return str == null ? null : escapeString(StringTools.trim(str));
 	}
-
-    /**
-     * Escapes single quotes in a string for safe SQL usage.
-     */
-    public function escapeString(str:String):String {
-        return str == null ? null : StringTools.replace(str, "'", "''");
-    }
-
-    /**
-     * Quotes a string for safe SQL usage.
-     */
-    public function quoteString(str:String):String {
-        return str == null ? null : "'" + StringTools.replace(str, "'", "''") + "'";
-    }
-
-    /**
-     * Sanitizes input by trimming and escaping single quotes.
-     */
-    public function sanitize(str:String):String {
-        return str == null ? null : escapeString(StringTools.trim(str));
-    }
-
 }
 
+typedef WriteRequest = {
+	var sql:String;
+	var response:Deque<WriteResponse>;
+}
 
-
-
+typedef WriteResponse = {
+	var rs:ResultSet;
+	var error:Dynamic;
+}

@@ -19,12 +19,14 @@ import sidewinder.core.*;
 
 import sys.db.Connection;
 import sys.db.Mysql;
+import sys.db.ResultSet;
 import sys.thread.Mutex;
 import DateTools;
 
 
 /**
- * MySQL implementation of the database service
+ * MySQL implementation of the database service.
+ * Standardized for IDatabaseService.
  */
 class MySqlDatabaseService implements IDatabaseService {
 	static inline var MAX_POOL_SIZE = 8;
@@ -38,15 +40,6 @@ class MySqlDatabaseService implements IDatabaseService {
 	var user:String;
 	var password:String;
 
-	/**
-	 * Create a new MySQL database service.
-	 * Configuration is loaded from environment variables:
-	 * - MYSQL_HOST (default: localhost)
-	 * - MYSQL_PORT (default: 3306)
-	 * - MYSQL_DATABASE (default: sidewinder)
-	 * - MYSQL_USER (default: root)
-	 * - MYSQL_PASSWORD (default: "")
-	 */
 	public function new() {
 		this.host = Sys.getEnv("MYSQL_HOST") != null ? Sys.getEnv("MYSQL_HOST") : "localhost";
 		var portStr = Sys.getEnv("MYSQL_PORT");
@@ -75,18 +68,6 @@ class MySqlDatabaseService implements IDatabaseService {
 		return c;
 	}
 
-	function ensureMigrationsTable(conn:Connection):Void {
-		conn.request('CREATE TABLE IF NOT EXISTS migrations (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);');
-	}
-
-	function getMigrationFiles():Array<String> {
-		var dir = "migrations/mysql";
-		var files = sys.FileSystem.readDirectory(dir);
-		var sqlFiles = files.filter(function(f) return StringTools.endsWith(f, ".sql"));
-		sqlFiles.sort(function(a, b) return Reflect.compare(a, b));
-		return sqlFiles;
-	}
-
 	public function release(conn:Connection):Void {
 		mutex.acquire();
 		if (pool.length < MAX_POOL_SIZE)
@@ -96,9 +77,34 @@ class MySqlDatabaseService implements IDatabaseService {
 		mutex.release();
 	}
 
-	/**
-	 * Build an SQL string by substituting named parameters with their formatted values.
-	 */
+	public function requestRead(sql:String, ?params:Map<String, Dynamic>):ResultSet {
+		return requestWithParams(sql, params);
+	}
+
+	public inline function read(sql:String, ?params:Map<String, Dynamic>):ResultSet {
+		return requestRead(sql, params);
+	}
+
+	public function requestWrite(sql:String, ?params:Map<String, Dynamic>):ResultSet {
+		return requestWithParams(sql, params);
+	}
+
+	public inline function write(sql:String, ?params:Map<String, Dynamic>):ResultSet {
+		return requestWrite(sql, params);
+	}
+
+	public function requestWithParams(sql:String, ?params:Map<String, Dynamic>):ResultSet {
+		var conn = acquire();
+		var finalSql = (params != null) ? buildSql(sql, params) : sql;
+		var rs = conn.request(finalSql);
+		release(conn);
+		return rs;
+	}
+
+	public function execute(sql:String, ?params:Map<String, Dynamic>):Void {
+		requestWrite(sql, params);
+	}
+
 	public function buildSql(sql:String, params:Map<String, Dynamic>):String {
 		if (params == null || params.keys().hasNext() == false)
 			return sql;
@@ -106,7 +112,6 @@ class MySqlDatabaseService implements IDatabaseService {
 		var i = 0;
 		while (i < sql.length) {
 			var ch = sql.charAt(i);
-			// Handle single quoted string literal to avoid replacing inside it
 			if (ch == "'") {
 				out.add(ch);
 				i++;
@@ -114,7 +119,6 @@ class MySqlDatabaseService implements IDatabaseService {
 					var c2 = sql.charAt(i);
 					out.add(c2);
 					if (c2 == "'") {
-						// Handle escaped '' inside literal
 						if (i + 1 < sql.length && sql.charAt(i + 1) == "'") {
 							out.add("'");
 							i += 2;
@@ -128,7 +132,6 @@ class MySqlDatabaseService implements IDatabaseService {
 				}
 				continue;
 			}
-			// Parameter start
 			if (ch == '@' || ch == ':') {
 				var start = i + 1;
 				while (start < sql.length && isIdentChar(sql.charCodeAt(start)))
@@ -146,7 +149,6 @@ class MySqlDatabaseService implements IDatabaseService {
 		return out.toString();
 	}
 
-	/** Helper to determine identifier characters */
 	private static inline function isIdentChar(code:Int):Bool {
 		return (code >= 'A'.code && code <= 'Z'.code)
 			|| (code >= 'a'.code && code <= 'z'.code)
@@ -154,18 +156,14 @@ class MySqlDatabaseService implements IDatabaseService {
 			|| code == '_'.code;
 	}
 
-	/** Convenience to create RawSql */
 	public inline function raw(v:String):RawSql
 		return new RawSql(v);
 
-	/** Formats a value for inclusion in SQL */
 	private function formatValue(v:Dynamic):String {
 		if (v == null)
 			return "NULL";
-		// Raw SQL passthrough
 		if (Std.isOfType(v, RawSql))
 			return cast(v, RawSql).value;
-		// Arrays -> (item1,item2,...)
 		if (Std.isOfType(v, Array)) {
 			var arr:Array<Dynamic> = cast v;
 			var parts = [];
@@ -188,57 +186,34 @@ class MySqlDatabaseService implements IDatabaseService {
 			var formatted = DateTools.format(d, "%Y-%m-%d %H:%M:%S");
 			return quoteString(formatted);
 		}
-		// Int / Float
 		if (Std.isOfType(v, Int) || Std.isOfType(v, Float))
 			return Std.string(v);
-		// Fallback: toString then quote
 		return quoteString(Std.string(v));
-	}
-
-	/** Execute a request with optional named parameters, returns ResultSet */
-	public function requestWithParams(sql:String, ?params:Map<String, Dynamic>):sys.db.ResultSet {
-		var conn = acquire();
-		var finalSql = (params != null) ? buildSql(sql, params) : sql;
-		var rs = conn.request(finalSql);
-		release(conn);
-		return rs;
-	}
-
-	/** Execute a non-query (INSERT/UPDATE/DELETE) returning nothing */
-	public function execute(sql:String, ?params:Map<String, Dynamic>):Void {
-		var conn = acquire();
-		var finalSql = (params != null) ? buildSql(sql, params) : sql;
-		conn.request(finalSql);
-		release(conn);
 	}
 
 	public function runMigrations():Void {
 		var conn = acquire();
-		ensureMigrationsTable(conn);
-		var applied = new Map<String, Bool>();
 		var rs = conn.request("SELECT name FROM migrations;");
+		var applied = new Map<String, Bool>();
 		while (rs.hasNext()) {
 			var record = rs.next();
 			applied.set(record.name, true);
 		}
 		var dir = "migrations/mysql";
 		var files = sys.FileSystem.readDirectory(dir);
-		var sqlFiles = files.filter(function(f) return StringTools.endsWith(f, ".sql"));
-		sqlFiles.sort(function(a, b) return Reflect.compare(a, b));
+		var sqlFiles = files.filter(f -> StringTools.endsWith(f, ".sql"));
+		sqlFiles.sort((a, b) -> Reflect.compare(a, b));
 		for (file in sqlFiles) {
 			if (!applied.exists(file)) {
 				var sql = sys.io.File.getContent(dir + "/" + file);
 				try {
-					// Split by semicolon, but keep in mind that semicolons inside strings/comments are not handled
 					var statements = sql.split(';');
-
 					for (stmt in statements) {
 						stmt = StringTools.trim(stmt);
 						if (stmt.length == 0)
 							continue;
 						conn.request(stmt);
 					}
-
 					conn.request("INSERT INTO migrations (name) VALUES (" + quoteString(file) + ");");
 				} catch (e:Dynamic) {
 					trace('Migration failed for ' + file + ': ' + e);
@@ -248,30 +223,15 @@ class MySqlDatabaseService implements IDatabaseService {
 		release(conn);
 	}
 
-	/**
-	 * Escapes single quotes in a string for safe SQL usage.
-	 */
 	public function escapeString(str:String):String {
 		return str == null ? null : StringTools.replace(str, "'", "''");
 	}
 
-	/**
-	 * Quotes a string for safe SQL usage.
-	 */
 	public function quoteString(str:String):String {
 		return str == null ? null : "'" + StringTools.replace(str, "'", "''") + "'";
 	}
 
-	/**
-	 * Sanitizes input by trimming and escaping single quotes.
-	 */
 	public function sanitize(str:String):String {
 		return str == null ? null : escapeString(StringTools.trim(str));
 	}
 }
-
-
-
-
-
-

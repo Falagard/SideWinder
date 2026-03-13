@@ -1,5 +1,4 @@
 package sidewinder.interfaces;
-import sidewinder.interfaces.IDatabaseService.RawSql;
 
 import sidewinder.adapters.*;
 import sidewinder.services.*;
@@ -26,11 +25,13 @@ import hx.injection.Service;
 interface IDatabaseService extends Service {
 	/**
 	 * Acquire a connection from the pool
+	 * Deprecated: Use read/write instead.
 	 */
 	public function acquire():Connection;
 	
 	/**
 	 * Release a connection back to the pool
+	 * Deprecated: Use read/write instead.
 	 */
 	public function release(conn:Connection):Void;
 	
@@ -38,6 +39,26 @@ interface IDatabaseService extends Service {
 	 * Execute a query with optional named parameters, returns ResultSet
 	 */
 	public function requestWithParams(sql:String, ?params:Map<String, Dynamic>):ResultSet;
+
+	/**
+	 * Optimized read operation
+	 */
+	public function requestRead(sql:String, ?params:Map<String, Dynamic>):ResultSet;
+
+	/**
+	 * Convenience alias for requestRead
+	 */
+	public function read(sql:String, ?params:Map<String, Dynamic>):ResultSet;
+
+	/**
+	 * Optimized write operation
+	 */
+	public function requestWrite(sql:String, ?params:Map<String, Dynamic>):ResultSet;
+
+	/**
+	 * Convenience alias for requestWrite
+	 */
+	public function write(sql:String, ?params:Map<String, Dynamic>):ResultSet;
 	
 	/**
 	 * Execute a non-query (INSERT/UPDATE/DELETE)
@@ -80,7 +101,3 @@ class RawSql {
 	public var value:String;
 	public function new(v:String) this.value = v;
 }
-
-
-
-
