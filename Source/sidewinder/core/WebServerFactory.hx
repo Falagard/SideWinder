@@ -3,18 +3,16 @@ package sidewinder.core;
 import sidewinder.routing.Router.UploadedFile;
 import sidewinder.routing.Router.Request;
 import sidewinder.routing.Router.Response;
-import sidewinder.adapters.*;
-import sidewinder.services.*;
-import sidewinder.interfaces.*;
-import sidewinder.routing.*;
-import sidewinder.middleware.*;
-import sidewinder.websocket.*;
-import sidewinder.data.*;
-import sidewinder.controllers.*;
-import sidewinder.client.*;
-import sidewinder.messaging.*;
-import sidewinder.logging.*;
-import sidewinder.core.*;
+import sidewinder.adapters.HxWellAdapter;
+import sidewinder.adapters.CivetWebAdapter;
+import sidewinder.adapters.CivetWebAdapter.SimpleResponse;
+import sidewinder.adapters.SnakeServerAdapter;
+import sidewinder.interfaces.IWebServer;
+import sidewinder.interfaces.IslandManager;
+import sidewinder.routing.Router;
+import sidewinder.routing.SideWinderRequestHandler;
+import sidewinder.data.BufferedResponse;
+import sidewinder.logging.HybridLogger;
 import snake.socket.BaseRequestHandler;
 
 /**
@@ -42,18 +40,18 @@ class WebServerFactory {
 	 * @return IWebServer instance
 	 */
 	public static function create(type:WebServerType, host:String, port:Int, ?requestHandlerClass:Class<BaseRequestHandler>, ?directory:String,
-			numIslands:Int = 4):IWebServer {
+			islandManager:IslandManager):IWebServer {
 		return switch (type) {
 			case SnakeServer:
 				if (requestHandlerClass == null) {
 					throw "SnakeServer requires a requestHandlerClass";
 				}
-				new SnakeServerAdapter(host, port, requestHandlerClass, directory, numIslands);
+				new SnakeServerAdapter(host, port, requestHandlerClass, directory, islandManager);
 
 			case CivetWeb:
 				// CivetWeb uses direct callback with SimpleResponse
 				// We bridge the async Router to sync CivetWeb response
-				var handler = function(req:Router.Request):CivetWebAdapter.SimpleResponse {
+				var handler = function(req:Request):SimpleResponse {
 					var buffered = new BufferedResponse();
 					// Use SideWinderRequestHandler logic if possible, or direct router find/handle
 					var match = SideWinderRequestHandler.router.find(req.method, req.path);
@@ -63,7 +61,7 @@ class WebServerFactory {
 						// Note: This loses static file handling from SideWinderRequestHandler base class
 						// TODO: Replicate static file handling if needed for CivetWeb
 						try {
-							SideWinderRequestHandler.router.handle(req, buffered, match.route);
+							SideWinderRequestHandler.router.handle(req, buffered, cast match.route);
 						} catch (e:Dynamic) {
 							buffered.sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR);
 						}
@@ -72,10 +70,10 @@ class WebServerFactory {
 					}
 					return buffered.toSimpleResponse();
 				};
-				return new CivetWebAdapter(host, port, directory, handler, numIslands);
+				return new CivetWebAdapter(host, port, directory, handler, islandManager);
 
 			case HxWell:
-				return new HxWellAdapter(host, port, directory, numIslands);
+				return new HxWellAdapter(host, port, directory, islandManager);
 		};
 	}
 
@@ -89,14 +87,14 @@ class WebServerFactory {
 	 * @return IWebServer instance
 	 */
 	public static function createDefault(host:String, port:Int, ?requestHandlerClass:Class<BaseRequestHandler>, ?directory:String,
-			numIslands:Int = 4):IWebServer {
+			islandManager:IslandManager):IWebServer {
 		// Default to SnakeServer for hl target, could be extended for other targets
 		#if cpp
 		trace("[WebServerFactory] Using CivetWeb for cpp target");
-		return create(CivetWeb, host, port, requestHandlerClass, directory, numIslands);
+		return create(CivetWeb, host, port, requestHandlerClass, directory, islandManager);
 		#else
 		trace("[WebServerFactory] Using SnakeServer (default)");
-		return create(SnakeServer, host, port, requestHandlerClass, directory, numIslands);
+		return create(SnakeServer, host, port, requestHandlerClass, directory, islandManager);
 		#end
 	}
 }

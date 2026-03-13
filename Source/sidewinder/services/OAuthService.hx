@@ -4,6 +4,8 @@ import sidewinder.interfaces.User;
 import sidewinder.adapters.*;
 import sidewinder.services.*;
 import sidewinder.interfaces.*;
+import sidewinder.interfaces.IOAuthService.OAuthToken;
+import sidewinder.interfaces.IOAuthService.OAuthUserInfo;
 import sidewinder.routing.*;
 import sidewinder.middleware.*;
 import sidewinder.websocket.*;
@@ -19,9 +21,9 @@ import haxe.Http;
 import haxe.Json;
 
 class OAuthService implements IOAuthService {
-	private var config:OAuthConfig;
+	private var config:sidewinder.interfaces.IOAuthService.OAuthConfig;
 
-	public function new(config:OAuthConfig) {
+	public function new(config:sidewinder.interfaces.IOAuthService.OAuthConfig) {
 		this.config = config;
 	}
 
@@ -204,12 +206,7 @@ class OAuthService implements IOAuthService {
 		return config.provider;
 	}
 
-	public function getConfig():OAuthConfig {
+	public function getConfig():sidewinder.interfaces.IOAuthService.OAuthConfig {
 		return config;
 	}
 }
-
-
-
-
-

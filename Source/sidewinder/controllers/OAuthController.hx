@@ -263,8 +263,9 @@ class OAuthController {
 		var verifier = generateCodeVerifier();
 		
 		// Create challenge from verifier
-		var challenge = Base64.encode(Sha256.encode(verifier).toBytes())
-			.toString()
+		var verifierBytes = haxe.io.Bytes.ofString(verifier);
+		var hashedBytes = haxe.crypto.Sha256.make(verifierBytes);
+		var challenge = Base64.encode(hashedBytes)
 			.split("=").join("")
 			.split("+").join("-")
 			.split("/").join("_");
@@ -291,9 +292,3 @@ class OAuthController {
 		res.end();
 	}
 }
-
-
-
-
-
-

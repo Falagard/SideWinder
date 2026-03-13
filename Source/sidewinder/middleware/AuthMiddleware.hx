@@ -1,18 +1,10 @@
 package sidewinder.middleware;
 import sidewinder.interfaces.User;
 
-import sidewinder.adapters.*;
-import sidewinder.services.*;
-import sidewinder.interfaces.*;
-import sidewinder.routing.*;
-import sidewinder.middleware.*;
-import sidewinder.websocket.*;
-import sidewinder.data.*;
-import sidewinder.controllers.*;
-import sidewinder.client.*;
-import sidewinder.messaging.*;
-import sidewinder.logging.*;
-import sidewinder.core.*;
+import sidewinder.interfaces.IAuthService;
+import sidewinder.interfaces.IAuthService.AuthSession;
+import sidewinder.routing.Router.Request;
+import sidewinder.routing.Router.Response;
 
 
 import sidewinder.routing.Router.Request;

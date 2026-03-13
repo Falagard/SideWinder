@@ -1,5 +1,5 @@
 package sidewinder.messaging;
-import sidewinder.interfaces.IStreamBroker.GroupInfo;
+import sidewinder.interfaces.IStreamBroker.ConsumerGroupInfo;
 import sidewinder.interfaces.User;
 
 import sidewinder.adapters.*;
@@ -213,8 +213,3 @@ class StreamBrokerDemo {
 		HybridLogger.info('[StreamDemo] === All examples completed ===');
 	}
 }
-
-
-
-
-

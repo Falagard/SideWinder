@@ -1,25 +1,14 @@
 package sidewinder.services;
 import sidewinder.interfaces.User;
 
-import sidewinder.adapters.*;
-import sidewinder.services.*;
-import sidewinder.interfaces.*;
-import sidewinder.routing.*;
-import sidewinder.middleware.*;
-import sidewinder.websocket.*;
-import sidewinder.data.*;
-import sidewinder.controllers.*;
-import sidewinder.client.*;
-import sidewinder.messaging.*;
-import sidewinder.logging.*;
-import sidewinder.core.*;
-
-
-MultipartParserpackage sidewinder;
+import sidewinder.interfaces.IAuthService;
+import sidewinder.interfaces.IUserService;
+import sidewinder.interfaces.IOAuthService;
+import sidewinder.interfaces.IOAuthService.OAuthUserInfo;
+import sidewinder.logging.HybridLogger;
 
 import haxe.crypto.Sha256;
 import haxe.crypto.Base64;
-
 
 
 class AuthService implements IAuthService {
@@ -197,7 +186,9 @@ class AuthService implements IAuthService {
 		var random = Std.string(Math.floor(Math.random() * 1000000000));
 		var timestamp = Std.string(Sys.time());
 		var combined = random + timestamp + UUID.create().toString();
-		return Base64.encode(Sha256.encode(combined).toBytes()).toString();
+		var combinedBytes = haxe.io.Bytes.ofString(combined);
+		var hashedBytes = haxe.crypto.Sha256.make(combinedBytes);
+		return Base64.encode(hashedBytes);
 	}
 }
 
@@ -209,8 +200,3 @@ private class UUID {
 		return Std.string(time) + "-" + Std.string(random);
 	}
 }
-
-
-
-
-

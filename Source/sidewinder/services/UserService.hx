@@ -55,12 +55,9 @@ class UserService implements IUserService implements Service {
         params.set("display_name", user.name);
         params.set("password_hash", "!");
         
-        db.write("INSERT INTO users (email, username, display_name, password_hash) VALUES (@email, @username, @display_name, @password_hash)", params);
-        var rs = db.read("SELECT last_insert_rowid() AS id");
-        var rec = rs.next();
-        
-        if (rec == null) return user;
-        return { id: rec.id, name: user.name, email: user.email };
+        sidewinder.logging.HybridLogger.debug('[UserService] Creating user: ' + user.email + ' (' + user.name + ')');
+        var newId = db.executeAndGetId("INSERT INTO users (email, username, display_name, password_hash) VALUES (@email, @username, @display_name, @password_hash)", params);
+        return { id: newId, name: user.name, email: user.email };
     }
 
     public function update(id:Int, user:User):Bool {

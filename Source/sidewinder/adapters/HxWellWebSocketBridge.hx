@@ -1,17 +1,6 @@
 package sidewinder.adapters;
 
-import sidewinder.adapters.*;
-import sidewinder.services.*;
-import sidewinder.interfaces.*;
-import sidewinder.routing.*;
-import sidewinder.middleware.*;
-import sidewinder.websocket.*;
-import sidewinder.data.*;
-import sidewinder.controllers.*;
-import sidewinder.client.*;
-import sidewinder.messaging.*;
-import sidewinder.logging.*;
-import sidewinder.core.*;
+import sidewinder.logging.HybridLogger;
 
 import hx.well.websocket.WebSocketSession;
 import hx.well.websocket.AbstractWebSocketHandler as HxAbstractWebSocketHandler;
@@ -27,19 +16,19 @@ class HxWellWebSocketBridge extends HxAbstractWebSocketHandler {
 	}
 
 	public function onOpen(session:WebSocketSession):Void {
-		adapter.pushWebSocketEvent({type: Open, session: session});
+		adapter.pushWebSocketEvent({type: Open(session), session: session});
 	}
 
 	public function onMessage(session:WebSocketSession, message:String):Void {
-		adapter.pushWebSocketEvent({type: Message, session: session, data: Bytes.ofString(message)});
+		adapter.pushWebSocketEvent({type: Message(session, message), session: session, data: Bytes.ofString(message)});
 	}
 
 	public function onBinary(session:WebSocketSession, data:Bytes):Void {
-		adapter.pushWebSocketEvent({type: Binary, session: session, data: data});
+		adapter.pushWebSocketEvent({type: Binary(session, data), session: session, data: data});
 	}
 
 	public function onClose(session:WebSocketSession, code:Int, reason:String):Void {
-		adapter.pushWebSocketEvent({type: Close, session: session});
+		adapter.pushWebSocketEvent({type: Close(session), session: session});
 	}
 
 	public function onError(session:WebSocketSession, error:Exception):Void {

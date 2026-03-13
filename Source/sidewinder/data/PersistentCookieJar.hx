@@ -13,6 +13,7 @@ import sidewinder.client.*;
 import sidewinder.messaging.*;
 import sidewinder.logging.*;
 import sidewinder.core.*;
+import sidewinder.data.CookieJar.Cookie;
 
 
 import haxe.Json;

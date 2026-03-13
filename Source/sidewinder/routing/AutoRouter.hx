@@ -1,18 +1,9 @@
 package sidewinder.routing;
 import sidewinder.interfaces.User;
 
-import sidewinder.adapters.*;
-import sidewinder.services.*;
-import sidewinder.interfaces.*;
-import sidewinder.routing.*;
-import sidewinder.middleware.*;
-import sidewinder.websocket.*;
-import sidewinder.data.*;
-import sidewinder.controllers.*;
-import sidewinder.client.*;
-import sidewinder.messaging.*;
-import sidewinder.logging.*;
-import sidewinder.core.*;
+import sidewinder.logging.HybridLogger;
+import sidewinder.routing.Router;
+import snake.http.HTTPStatus;
 
 
 import haxe.macro.Expr;
@@ -239,45 +230,69 @@ class AutoRouter {
 										macro function(req, res) {
 											var __userId:String = null;
 											$authCheck;
-											var inst = ($implExpr)();
-											// TODO: try/catch
-											inst.$methodName($a{callArgs});
-											res.sendResponse(snake.http.HTTPStatus.OK);
-											// Consider adding CORS headers centrally before endHeaders.
-											res.endHeaders();
-											res.end();
+											try {
+												var inst = ($implExpr)();
+												inst.$methodName($a{callArgs});
+												res.sendResponse(snake.http.HTTPStatus.OK);
+												res.endHeaders();
+												res.end();
+											} catch (e:Dynamic) {
+												HybridLogger.error('[AutoRouter] Error in ' + $v{methodName} + ': ' + e);
+												res.sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR);
+												res.endHeaders();
+												res.write(haxe.Json.stringify({error: "Internal Server Error"}));
+												res.end();
+											}
 										};
 									} else if (isPrimitive()) {
 										macro function(req, res) {
 											var __userId:String = null;
 											$authCheck;
-											var inst = ($implExpr)();
-											var result = inst.$methodName($a{callArgs});
-											res.sendResponse(snake.http.HTTPStatus.OK);
-											res.setHeader("Content-Type", "application/json"); // changed to application/json
-											var json = haxe.Json.stringify(result);
-											res.setHeader('Content-Length', Std.string(json.length));
-											res.endHeaders();
-											res.write(json);
-											res.end();
+											try {
+												var inst = ($implExpr)();
+												var result = inst.$methodName($a{callArgs});
+												res.sendResponse(snake.http.HTTPStatus.OK);
+												res.setHeader("Content-Type", "application/json"); // changed to application/json
+												var json = haxe.Json.stringify(result);
+												res.setHeader('Content-Length', Std.string(haxe.io.Bytes.ofString(json).length));
+												res.endHeaders();
+												res.write(json);
+												res.end();
+											} catch (e:Dynamic) {
+												HybridLogger.error('[AutoRouter] Error in ' + $v{methodName} + ': ' + e);
+												res.sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR);
+												res.endHeaders();
+												res.write(haxe.Json.stringify({error: "Internal Server Error"}));
+												res.end();
+											}
 										};
 									} else {
+										// JSON Response (default)
 										macro function(req, res) {
 											var __userId:String = null;
 											$authCheck;
-											var inst = ($implExpr)();
-											var result = inst.$methodName($a{callArgs});
-											res.sendResponse(snake.http.HTTPStatus.OK);
-											res.setHeader("Content-Type", "application/json"); // changed to application/json
-											var json = "";
-											if ((cast result : Dynamic) != null)
-												json = haxe.Json.stringify(result);
-											res.setHeader('Content-Length', Std.string(json.length));
-											res.endHeaders();
-											res.write(json);
-											res.end();
+											try {
+												var inst = ($implExpr)();
+												var result = inst.$methodName($a{callArgs});
+												res.sendResponse(snake.http.HTTPStatus.OK);
+												res.setHeader("Content-Type", "application/json"); // changed to application/json
+												var json = "";
+												if ((cast result : Dynamic) != null)
+													json = haxe.Json.stringify(result);
+												res.setHeader('Content-Length', Std.string(haxe.io.Bytes.ofString(json).length));
+												res.endHeaders();
+												res.write(json);
+												res.end();
+											} catch (e:Dynamic) {
+												HybridLogger.error('[AutoRouter] Error in ' + $v{methodName} + ': ' + e);
+												res.sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR);
+												res.endHeaders();
+												res.write(haxe.Json.stringify({error: "Internal Server Error"}));
+												res.end();
+											}
 										};
-									};
+									}
+;
 
 									// Register route; assumes upper-case method matching router expectations.
 									var addRoute:Expr = switch httpMethod {
@@ -308,8 +323,3 @@ class AutoRouter {
 		};
 	}
 }
-
-
-
-
-

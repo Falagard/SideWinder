@@ -1,20 +1,11 @@
 package sidewinder.demo;
 import sidewinder.interfaces.User;
 
-import sidewinder.adapters.*;
-import sidewinder.services.*;
-import sidewinder.interfaces.*;
-import sidewinder.routing.*;
-import sidewinder.middleware.*;
-import sidewinder.websocket.*;
-import sidewinder.data.*;
-import sidewinder.controllers.*;
-import sidewinder.client.*;
-import sidewinder.messaging.*;
-import sidewinder.logging.*;
-import sidewinder.core.*;
-
-
+import sidewinder.logging.HybridLogger.LogLevel;
+import sidewinder.logging.HybridLogger;
+import sidewinder.data.PersistentCookieJar;
+import sidewinder.client.AutoClientAsync;
+import sidewinder.data.CookieJar.Cookie;
 
 import haxe.Json;
 
@@ -154,7 +145,7 @@ class DesktopAppExample {
 		http.onData = function(response:String) {
 			try {
 				var result = Json.parse(response);
-				isAuthenticated = result.authenticated ?? false;
+				isAuthenticated = result.authenticated != null ? result.authenticated : false;
 				HybridLogger.info('Session verification: authenticated=${isAuthenticated}');
 				onSuccess(isAuthenticated);
 			} catch (e:Dynamic) {
@@ -304,12 +295,13 @@ class DesktopAppExample {
 	}
 }
 
+
 /**
  * Example of using desktop app with proper error handling.
  */
 class DesktopAppExampleUsage {
 	public static function main() {
-		HybridLogger.init(HybridLogger.LogLevel.DEBUG);
+		HybridLogger.init(LogLevel.DEBUG);
 		
 		var app = new DesktopAppExample();
 		
@@ -368,8 +360,3 @@ class DesktopAppExampleUsage {
 		);
 	}
 }
-
-
-
-
-

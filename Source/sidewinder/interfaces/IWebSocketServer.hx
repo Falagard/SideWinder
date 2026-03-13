@@ -1,5 +1,4 @@
 package sidewinder.interfaces;
-import sidewinder.interfaces.IWebSocketServer;
 
 import haxe.io.Bytes;
 

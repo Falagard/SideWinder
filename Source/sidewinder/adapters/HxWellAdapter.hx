@@ -1,104 +1,104 @@
 package sidewinder.adapters;
 
-import sidewinder.interfaces.IWebSocketHandler.WebSocketOpcode;
-import sidewinder.interfaces.IWebSocketServer;
-import sidewinder.routing.Router.UploadedFile;
+import sidewinder.routing.Router;
 import sidewinder.routing.Router.Request;
 import sidewinder.routing.Router.Response;
-import sidewinder.services.*;
-import sidewinder.interfaces.*;
-import sidewinder.routing.*;
-import sidewinder.middleware.*;
-import sidewinder.websocket.*;
-import sidewinder.data.*;
-import sidewinder.controllers.*;
-import sidewinder.client.*;
-import sidewinder.messaging.*;
-import sidewinder.logging.*;
-import sidewinder.core.*;
-import hx.well.http.driver.socket.SocketDriver;
-import hx.well.http.driver.socket.SocketDriverConfig;
-import hx.well.http.driver.socket.SocketRequestParser;
-import hx.well.http.Request as HxRequest;
+import sidewinder.routing.Router.UploadedFile;
 import sys.net.Socket;
-import sys.thread.Thread;
-import sys.thread.Mutex;
-import hx.well.http.RequestStatic;
-import hx.well.http.driver.socket.SocketWebSocketHandler;
-import hx.well.websocket.WebSocketSession;
-import hx.well.websocket.AbstractWebSocketHandler as HxAbstractWebSocketHandler;
-import snake.http.HTTPStatus;
+import sys.net.Host;
 import haxe.io.Bytes;
-import haxe.Exception;
+import haxe.Http;
+import haxe.ds.StringMap;
+import snake.http.HTTPStatus;
+import sidewinder.logging.HybridLogger;
+import sidewinder.core.WorkerIsland;
+import sidewinder.interfaces.IslandManager;
+import sidewinder.core.DI;
+import sidewinder.interfaces.IWebSocketHandler;
+import sidewinder.interfaces.IWebSocketHandler.WebSocketOpcode;
+import sidewinder.logging.HybridLogger.LogLevel;
+import sidewinder.interfaces.IWebServer;
+import sidewinder.interfaces.IWebSocketServer;
+import hx.well.websocket.WebSocketSession;
+import sidewinder.adapters.HxWellAdapterTypes;
 
 /**
- * Adapter for hxwell web server framework drivers.
- * Bridges hxwell's multi-threaded SocketDriver with SideWinder's single-threaded router loop.
+ * Adapter for hxwell server.
+ * Connects hxwell's socket handling to SideWinder's auto-router.
+ * Refactored to use WorkerIslands via IslandManager for thread-safe processing.
  */
 class HxWellAdapter implements IWebServer implements IWebSocketServer {
-	private var driver:CustomSocketDriver;
-	private var host:String;
-	private var port:Int;
-	private var running:Bool = false;
-	private var islandManager:IslandManager;
-	private var directory:String;
-	private var websocketHandler:IWebSocketHandler;
-	private var wsEventQueue:Array<WebSocketEvent> = [];
-	private var wsMutex:Mutex = new Mutex();
+	var host:String;
+	var port:Int;
+	var directory:String;
+	var numIslands:Int;
+	var running:Bool = false;
+	var driver:sidewinder.adapters.CustomSocketDriver;
+	var islandManager:IslandManager;
+	
+	// Inject router to avoid circular dependency with SideWinderRequestHandler
+	public var router:Router;
 
-	public function new(host:String, port:Int, ?directory:String, numIslands:Int = 4) {
+	// WebSocket support
+	var websocketHandler:IWebSocketHandler;
+	var wsEventQueue:Array<WebSocketEvent> = [];
+	var wsMutex = new sys.thread.Mutex();
+
+	public function new(host:String, port:Int, directory:String, islandManager:IslandManager) {
+		this.islandManager = islandManager;
 		this.host = host;
 		this.port = port;
 		this.directory = directory;
-		this.islandManager = new IslandManager(numIslands);
-
-		var config = new SocketDriverConfig();
-		config.host = host;
-		config.port = port;
-
-		this.driver = new CustomSocketDriver(config, this);
+		this.numIslands = islandManager.getIslandCount();
+		
+		// Start a background thread to process WebSocket events if a handler is registered
+		haxe.MainLoop.addThread(processWebSocketEvents);
 	}
 
 	public function start():Void {
-		if (!running) {
-			running = true;
-			Thread.create(() -> {
-				try {
-					driver.start();
-				} catch (e:Dynamic) {
-					HybridLogger.error('[HxWellAdapter] Driver error: ' + e);
-				}
-			});
-			HybridLogger.info('[HxWellAdapter] Started on $host:$port (background thread)');
-		}
+		this.running = true;
+
+		var config = new hx.well.http.driver.socket.SocketDriverConfig();
+		config.host = host;
+		config.port = port;
+		config.maxConnections = 512; 
+
+		driver = new sidewinder.adapters.CustomSocketDriver(config, this);
+		
+		HybridLogger.info('[HxWellAdapter] Starting on $host:$port (Static: $directory)');
+		driver.start();
 	}
 
 	public function handleRequest():Void {
-		if (!running)
-			return;
+		// hxwell handles its own requests via driver
+	}
 
-		// Process WebSocket events
-		var wsEvents:Array<WebSocketEvent> = null;
-		wsMutex.acquire();
-		if (wsEventQueue.length > 0) {
-			wsEvents = wsEventQueue.copy();
-			wsEventQueue = [];
-		}
-		wsMutex.release();
+	private function processWebSocketEvents():Void {
+		while (true) {
+			Sys.sleep(0.001); // Don't peg CPU
+			
+			if (websocketHandler == null) continue;
 
-		if (wsEvents != null && websocketHandler != null) {
-			for (evt in wsEvents) {
+			var events:Array<WebSocketEvent> = [];
+			wsMutex.acquire();
+			if (wsEventQueue.length > 0) {
+				events = wsEventQueue.copy();
+				wsEventQueue = [];
+			}
+			wsMutex.release();
+
+			for (evt in events) {
 				try {
 					switch (evt.type) {
-						case Open:
-							websocketHandler.onConnect();
-							websocketHandler.onReady(evt.session);
-						case Message:
-							websocketHandler.onData(evt.session, IWebSocketHandler.WebSocketOpcode.TEXT, @:privateAccess evt.data.b, evt.data.length);
-						case Binary:
-							websocketHandler.onData(evt.session, IWebSocketHandler.WebSocketOpcode.BINARY, @:privateAccess evt.data.b, evt.data.length);
-						case Close:
-							websocketHandler.onClose(evt.session);
+						case Open(session):
+							websocketHandler.onReady(session);
+						case Message(session, text):
+							var haxeBytes = haxe.io.Bytes.ofString(text);
+							websocketHandler.onData(session, WebSocketOpcode.TEXT, haxeBytes.getData(), haxeBytes.length);
+						case Binary(session, data):
+							websocketHandler.onData(session, WebSocketOpcode.BINARY, data.getData(), data.length);
+						case Close(session):
+							websocketHandler.onClose(session);
 					}
 				} catch (e:Dynamic) {
 					HybridLogger.error('[HxWellAdapter] WebSocket event error: ' + e);
@@ -119,25 +119,35 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 				return;
 			}
 
-			var match = SideWinderRequestHandler.router.find(swReq.method, swReq.path);
-			if (match != null) {
-				swReq.params = match.params;
-				SideWinderRequestHandler.router.handle(swReq, swRes, match.route);
-			} else if (directory != null && serveStatic(swReq.path, swRes, q.socket)) {
-				// Static file served
+			HybridLogger.info('[HxWellAdapter] ${swReq.method} ${swReq.path}');
+
+			if (router != null) {
+				var match = router.find(swReq.method, swReq.path);
+				if (match != null) {
+					HybridLogger.debug('[HxWellAdapter] Route match found for ${swReq.path}');
+					swReq.params = match.params;
+					router.handle(swReq, swRes, match.route);
+					return;
+				}
+			}
+
+			if (directory != null && serveStatic(swReq.path, swRes, q.socket)) {
+				HybridLogger.debug('[HxWellAdapter] Static file served for ${swReq.path}');
 			} else {
+				HybridLogger.warn('[HxWellAdapter] 404 Not Found: ${swReq.path}');
 				swRes.sendError(HTTPStatus.NOT_FOUND);
 				swRes.end();
 			}
 		} catch (e:Dynamic) {
 			HybridLogger.error('[HxWellAdapter] Error processing request: ' + e);
 			try {
+				q.socket.shutdown(false, true);
 				q.socket.close();
 			} catch (_) {}
 		}
 	}
 
-	private function convertRequest(hxReq:HxRequest, socket:Socket):Router.Request {
+	private function convertRequest(hxReq:hx.well.http.Request, socket:Socket):Request {
 		var headers = new Map<String, String>();
 		@:privateAccess {
 			for (k in hxReq.headers.keys()) {
@@ -146,55 +156,39 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 		}
 
 		var body = hxReq.bodyBytes != null ? hxReq.bodyBytes.toString() : "";
-		var contentType = headers.get("Content-Type");
-		if (contentType == null)
-			contentType = headers.get("content-type");
-
 		var jsonBody:Dynamic = null;
-		var formBody = new haxe.ds.StringMap<String>();
+		if (headers.get("Content-Type") == "application/json") {
+			try {
+				jsonBody = haxe.Json.parse(body);
+			} catch (e:Dynamic) {}
+		}
+
+		var formBody = new Map<String, String>();
+		var cookies = new Map<String, String>();
+		var cookieHeader = headers.get("Cookie");
+		if (cookieHeader != null) {
+			var pairs = cookieHeader.split(";");
+			for (pair in pairs) {
+				var kv = pair.split("=");
+				if (kv.length == 2) {
+					cookies.set(StringTools.trim(kv[0]), StringTools.trim(kv[1]));
+				}
+			}
+		}
+
 		var files:Array<UploadedFile> = [];
-
-		// Parse body based on content-type
-		if (contentType != null) {
-			if (contentType.indexOf("application/json") != -1) {
-				try {
-					jsonBody = haxe.Json.parse(body);
-				} catch (e:Dynamic) {
-					HybridLogger.warn('[HxWellAdapter] Failed to parse JSON: $e');
-				}
-			} else if (contentType.indexOf("application/x-www-form-urlencoded") != -1) {
-				for (pair in body.split("&")) {
-					var kv = pair.split("=");
-					if (kv.length == 2) {
-						formBody.set(StringTools.urlDecode(kv[0]), StringTools.urlDecode(kv[1]));
-					}
-				}
-			} else if (contentType.indexOf("multipart/form-data") != -1) {
-				var multipartData = MultipartParser.parseMultipart(body, contentType);
-				files = multipartData.files;
-				formBody = multipartData.fields;
-			}
+		
+		var path = hxReq.path != null ? hxReq.path : "/";
+		// Strip query string if present
+		path = path.split("?")[0];
+		// Ensure leading slash
+		if (!StringTools.startsWith(path, "/")) {
+			path = "/" + path;
 		}
 
-		// Parse cookies
-		var cookies = new haxe.ds.StringMap<String>();
-		@:privateAccess {
-			for (k in hxReq.cookies.keys()) {
-				cookies.set(k, hxReq.cookies.get(k));
-			}
-		}
-
-		// Handle session
-		var sessionId = cookies.get("session_id");
-		if (sessionId == null) {
-			sessionId = Std.string(Math.floor(Math.random() * 1000000000)) + "_" + Std.string(Date.now().getTime());
-			cookies.set("session_id", sessionId);
-		}
-
-		// SideWinder Request structure
-		var req:Router.Request = {
+		var req:Request = {
 			method: hxReq.method,
-			path: hxReq.path,
+			path: path,
 			headers: headers,
 			query: hxReq.queries,
 			params: new Map<String, String>(),
@@ -209,16 +203,16 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 		return req;
 	}
 
-	private function createResponse(socket:Socket):Router.Response {
+	private function createResponse(socket:Socket):Response {
 		var statusCode:Int = 200;
 		var headers = new Map<String, String>();
 		var headersSent = false;
-		var res:Router.Response = null;
+		var response:Response = null;
 
-		res = {
+		response = {
 			write: function(s:String) {
 				if (!headersSent)
-					res.endHeaders();
+					response.endHeaders();
 				try {
 					socket.output.writeString(s);
 				} catch (e:Dynamic) {
@@ -243,7 +237,8 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 						headers.set("Content-Type", "text/html; charset=utf-8");
 					}
 
-					// Always set CORS headers
+					headers.set("Connection", "close");
+
 					if (!headers.exists("Access-Control-Allow-Origin")) {
 						headers.set("Access-Control-Allow-Origin", "*");
 					}
@@ -268,13 +263,15 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			},
 			end: function() {
 				if (!headersSent) {
-					res.endHeaders();
+					response.endHeaders();
 				}
 				try {
 					socket.output.flush();
+					socket.shutdown(false, true);
 					socket.close();
 				} catch (e:Dynamic) {
 					HybridLogger.error('[HxWellAdapter] Error closing socket: ' + e);
+					try { socket.close(); } catch (_) {}
 				}
 			},
 			setCookie: function(name, value, ?options) {
@@ -294,7 +291,7 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 				headers.set("Set-Cookie", cookie);
 			}
 		};
-		return res;
+		return response;
 	}
 
 	private function getStatusMessage(code:Int):String {
@@ -310,7 +307,7 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 		}
 	}
 
-	private function serveStatic(path:String, res:Router.Response, socket:Socket):Bool {
+	private function serveStatic(path:String, res:Response, socket:Socket):Bool {
 		var pathOnly = path.split("?")[0];
 		if (pathOnly == "/" || pathOnly == "")
 			pathOnly = "/index.html";
@@ -320,7 +317,6 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			fileToServe = pathOnly.substr("/static".length);
 		}
 
-		// Fix path resolution: don't prepend CWD if directory is already absolute
 		var baseDir = directory;
 		if (!haxe.io.Path.isAbsolute(baseDir)) {
 			baseDir = haxe.io.Path.join([Sys.getCwd(), directory]);
@@ -339,11 +335,13 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 				res.endHeaders();
 
 				try {
-					socket.output.writeString(bytes.toString());
+					socket.output.writeBytes(bytes, 0, bytes.length);
 					socket.output.flush();
+					socket.shutdown(false, true);
 					socket.close();
 				} catch (e:Dynamic) {
 					HybridLogger.error('[HxWellAdapter] Error writing static file bytes: ' + e);
+					try { socket.close(); } catch (_) {}
 				}
 				return true;
 			} catch (e:Dynamic) {
@@ -371,7 +369,7 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 
 	public function stop():Void {
 		running = false;
-		driver.stop();
+		if (driver != null) driver.stop();
 	}
 
 	public function getHost():String
@@ -384,7 +382,6 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 		return running;
 
 	public function pushRequest(q:QueuedRequest):Void {
-		// Extract session ID for sticky routing
 		var sessionId:Null<String> = null;
 		@:privateAccess {
 			var cookieHeader = q.hxRequest.header("Cookie");
@@ -392,9 +389,12 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 				var pairs = cookieHeader.split(";");
 				for (pair in pairs) {
 					var kv = pair.split("=");
-					if (kv.length == 2 && StringTools.trim(kv[0]) == "session_id") {
-						sessionId = StringTools.trim(kv[1]);
-						break;
+					if (kv.length == 2) {
+						var key = StringTools.trim(kv[0]);
+						if (key == "session_id") {
+							sessionId = StringTools.trim(kv[1]);
+							break;
+						}
 					}
 				}
 			}
@@ -422,7 +422,7 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 
 	public function websocketClose(conn:Dynamic, code:Int = 1000, ?reason:String):Void {
 		var session:WebSocketSession = cast conn;
-		session.close(); // hxwell session close handles the handshake
+		session.close();
 	}
 
 	public function pushWebSocketEvent(evt:WebSocketEvent):Void {
@@ -430,22 +430,4 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 		wsEventQueue.push(evt);
 		wsMutex.release();
 	}
-}
-
-enum WebSocketEventType {
-	Open;
-	Message;
-	Binary;
-	Close;
-}
-
-typedef WebSocketEvent = {
-	var type:WebSocketEventType;
-	var session:WebSocketSession;
-	@:optional var data:Bytes;
-}
-
-typedef QueuedRequest = {
-	var hxRequest:HxRequest;
-	var socket:Socket;
 }

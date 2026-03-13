@@ -1,17 +1,6 @@
 package sidewinder.routing;
 
-import sidewinder.adapters.*;
-import sidewinder.services.*;
-import sidewinder.interfaces.*;
-import sidewinder.routing.*;
-import sidewinder.middleware.*;
-import sidewinder.websocket.*;
-import sidewinder.data.*;
-import sidewinder.controllers.*;
-import sidewinder.client.*;
-import sidewinder.messaging.*;
-import sidewinder.logging.*;
-import sidewinder.core.*;
+// No implementation imports allowed in core routing
 
 
 import haxe.ds.StringMap;
@@ -29,6 +18,7 @@ typedef Request = {
 	var cookies:StringMap<String>;
 	var files:Array<UploadedFile>;
 	var ?ip:String;
+	var ?authContext:Dynamic;
 };
 
 typedef UploadedFile = {
@@ -37,7 +27,7 @@ typedef UploadedFile = {
 	var filePath:String; // Saved path on server
 	var contentType:String; // MIME type
 	var size:Int; // File size in bytes
-	@:optional var authContext:AuthContext;
+	@:optional var authContext:Dynamic;
 };
 
 typedef AuthContext = {
@@ -55,11 +45,11 @@ typedef Response = {
 	var endHeaders:() -> Void;
 	var end:() -> Void;
 	var setCookie:(name:String, value:String, ?options:{
-		path:String,
-		domain:String,
-		maxAge:String,
-		httpOnly:Bool,
-		secure:Bool
+		?path:String,
+		?domain:String,
+		?maxAge:String,
+		?httpOnly:Bool,
+		?secure:Bool
 	}) -> Void;
 };
 
@@ -115,6 +105,8 @@ typedef RouteResult = {
 }
 
 class Router {
+	public static var instance:Router = new Router();
+
 	public var routes:Array<Route> = [];
 	public var middleware:Array<Middleware> = [];
 
@@ -129,6 +121,10 @@ class Router {
 	}
 
 	public function find(method:String, path:String):Null<RouteResult> {
+		if (sidewinder.logging.HybridLogger.getProviderCount() > 0) {
+			sidewinder.logging.HybridLogger.debug('[Router] Finding $method $path (Routes: ${routes.length})');
+		}
+
 		for (route in routes) {
 			if (route.method == method) {
 				var params = route.matches(path);
@@ -153,6 +149,3 @@ class Router {
 		}
 	}
 }
-
-
-

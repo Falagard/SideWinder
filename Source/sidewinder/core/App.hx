@@ -3,7 +3,6 @@ package sidewinder.core;
 import sidewinder.routing.Router.UploadedFile;
 import sidewinder.routing.Router.Request;
 import sidewinder.routing.Router.Response;
-
 import sidewinder.adapters.*;
 import sidewinder.services.*;
 import sidewinder.interfaces.*;
@@ -17,12 +16,11 @@ import sidewinder.messaging.*;
 import sidewinder.logging.*;
 import sidewinder.core.*;
 
-
 import sidewinder.routing.Router.Middleware;
 import sidewinder.routing.Router.Handler;
 
 class App {
-  public static var router = SideWinderRequestHandler.router;
+  public static var router = sidewinder.routing.Router.instance;
 
   public static function get(path:String, handler:Handler):Void
     router.add("GET", path, handler);
@@ -39,8 +37,3 @@ class App {
   public static function use(mw:Middleware):Void
     router.use(mw);
 }
-
-
-
-
-

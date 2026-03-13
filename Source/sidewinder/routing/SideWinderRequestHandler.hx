@@ -114,7 +114,7 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 	private var currentSessionId:String = null;
 	private var isServingStatic:Bool = false;
 
-	public static var router:Router = new Router();
+	public static var router:Router = Router.instance;
 
 	static function parseQuery(url:String):Map<String, String> {
 		var result = new Map<String, String>();

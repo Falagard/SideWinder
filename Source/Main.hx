@@ -1,26 +1,74 @@
+package;
+
 import haxe.Json;
 import haxe.Timer;
 import sys.thread.Thread;
-import sidewinder.routing.Router.Response;
-import sidewinder.routing.Router.Request;
-import sidewinder.core.MultipartParser;
 import lime.app.Application;
 import lime.ui.WindowAttributes;
 import lime.ui.Window;
-import snake.http.*;
-import sidewinder.interfaces.*;
-import sidewinder.services.*;
-import sidewinder.core.*;
-import sidewinder.adapters.*;
-import sidewinder.routing.*;
-import sidewinder.data.*;
-import sidewinder.messaging.*;
-import sidewinder.logging.*;
-import sidewinder.controllers.*;
-import sidewinder.client.*;
+import snake.http.HTTPStatus;
+import snake.http.BaseHTTPRequestHandler;
+import sidewinder.interfaces.IWebServer;
 import sidewinder.interfaces.IUserService;
 import sidewinder.interfaces.IUserServiceHandler;
 import sidewinder.interfaces.IAuthService;
+import sidewinder.interfaces.ICacheService;
+import sidewinder.interfaces.IMessageBroker;
+import sidewinder.interfaces.IStreamBroker;
+import sidewinder.interfaces.INotificationService;
+import sidewinder.interfaces.IStripeService;
+import sidewinder.interfaces.IStripeWebhookService;
+import sidewinder.interfaces.IStripeBillingStore;
+import sidewinder.interfaces.IJobStore;
+import sidewinder.interfaces.IDatabaseService;
+import sidewinder.interfaces.IslandManager;
+import sidewinder.interfaces.InMemoryJobStore;
+import sidewinder.interfaces.ICookieJar;
+import sidewinder.services.UserService;
+import sidewinder.services.AuthService;
+import sidewinder.services.SqliteDatabaseService;
+import sidewinder.interfaces.InMemoryCacheService;
+import sidewinder.services.StripeService;
+import sidewinder.data.StripeBillingStore;
+import hx.injection.ServiceType;
+import sidewinder.core.WebServerFactory.WebServerType;
+import sidewinder.services.StripeWebhookService;
+import sidewinder.services.SendGridNotificationService;
+import sidewinder.services.EmailTemplateEngine;
+import sidewinder.messaging.PollingMessageBroker;
+import sidewinder.messaging.LocalStreamBroker;
+import sidewinder.core.DI;
+import sidewinder.core.App;
+import sidewinder.core.MultipartParser;
+import sidewinder.core.WebServerFactory;
+import sidewinder.core.GenericJobWorker;
+import sidewinder.adapters.HxWellAdapter;
+import sidewinder.adapters.CivetWebAdapter;
+import sidewinder.routing.Router;
+import sidewinder.routing.Router.Request;
+import sidewinder.routing.Router.Response;
+import sidewinder.routing.SideWinderRequestHandler;
+import sidewinder.routing.WebSocketRouter;
+import sidewinder.routing.AutoRouter;
+import sidewinder.logging.HybridLogger;
+import sidewinder.logging.FileLogProvider;
+import sidewinder.logging.ConsoleLogProvider;
+import sidewinder.logging.SqliteLogProvider;
+import sidewinder.messaging.StreamBrokerDemo;
+import sidewinder.messaging.EmailTemplateStreamConsumer;
+import sidewinder.demo.ExampleAuthApp;
+import sidewinder.demo.DesktopAppExample;
+import sidewinder.demo.PollingClientDemo;
+import sidewinder.demo.StreamTest;
+import sidewinder.data.JobStatus;
+import sidewinder.logging.HybridLogger.LogLevel;
+import sidewinder.data.OAuthConfigSetup;
+import sidewinder.data.SecureTokenStorage;
+import sidewinder.data.PersistentCookieJar;
+
+using hx.injection.ServiceExtensions;
+import sidewinder.data.CookieJar;
+import sidewinder.controllers.StripeSubscriptionController;
 
 using hx.injection.ServiceExtensions;
 
@@ -31,7 +79,7 @@ class Main extends Application {
 
 	private var webServer:IWebServer;
 
-	public static var router = SideWinderRequestHandler.router;
+	public static var router = sidewinder.routing.Router.instance;
 
 	public var cache:ICacheService;
 
@@ -39,9 +87,12 @@ class Main extends Application {
 		super();
 
 		// Initialize logger with minimum level
-		HybridLogger.init(HybridLogger.LogLevel.DEBUG);
+		HybridLogger.init(LogLevel.DEBUG);
 
 		// Add logging providers
+		// Console logging for terminal output
+		HybridLogger.addProvider(new ConsoleLogProvider());
+		
 		// File logging (daily rotation)
 		HybridLogger.addProvider(new FileLogProvider("logs"));
 
@@ -117,18 +168,20 @@ class Main extends Application {
 		// Create web server using factory pattern
 		// Can switch between SnakeServer, CivetWeb, and HxWell implementations
 		var serverTypeStr = Sys.getEnv("SIDEWINDER_SERVER");
-		var serverType = WebServerFactory.WebServerType.HxWell;
+		var serverType = WebServerType.HxWell;
 		if (serverTypeStr == "civetweb") {
-			serverType = WebServerFactory.WebServerType.CivetWeb;
+			serverType = WebServerType.CivetWeb;
 		} else if (serverTypeStr == "snake") {
-			serverType = WebServerFactory.WebServerType.SnakeServer;
+			serverType = WebServerType.SnakeServer;
 		}
 
 		var numIslandsStr = Sys.getEnv("SIDEWINDER_ISLANDS");
 		var numIslands = numIslandsStr != null ? Std.parseInt(numIslandsStr) : 4;
 		if (numIslands == null || numIslands < 1) numIslands = 4;
 
-		webServer = WebServerFactory.create(serverType, DEFAULT_ADDRESS, DEFAULT_PORT, SideWinderRequestHandler, directory, numIslands);
+		var islandManager = new IslandManager(numIslands);
+
+		webServer = WebServerFactory.create(serverType, DEFAULT_ADDRESS, DEFAULT_PORT, SideWinderRequestHandler, directory, islandManager);
 		HybridLogger.info('[Main] Server initialized with $numIslands logic islands (shared-state workers)');
 
 		// Setup WebSocket support if using CivetWeb
@@ -150,15 +203,16 @@ class Main extends Application {
 			HybridLogger.info('[Main]   Broadcast: http://$DEFAULT_ADDRESS:$DEFAULT_PORT/broadcast_demo.html');
 		} else if (Std.isOfType(webServer, HxWellAdapter)) {
 			var hxwellAdapter:HxWellAdapter = cast webServer;
+			hxwellAdapter.router = SideWinderRequestHandler.router;
 			var wsRouter = new WebSocketRouter(hxwellAdapter);
 			hxwellAdapter.setWebSocketHandler(wsRouter);
 
 			HybridLogger.info('[Main] HxWell WebSocket router enabled with handlers: echo, chat, broadcast, auth');
 		}
 
-		// Start the web server
-		webServer.start();
-
+		// Web server will be started at the end of constructor to avoid blocking route registration
+		// webServer.start();
+		
 		// Ensure request handling happens even if main loop update isn't consistent (headless mode)
 		var requestTimer = new haxe.Timer(16); // ~60fps
 		requestTimer.run = function() {
@@ -170,7 +224,7 @@ class Main extends Application {
 	});
 
 		// Add file upload test route
-		router.add("POST", "/upload", function(req:Router.Request, res:Router.Response) {
+		router.add("POST", "/upload", function(req:Request, res:Response) {
 			res.sendResponse(snake.http.HTTPStatus.OK);
 			res.setHeader("Content-Type", "application/json");
 			res.endHeaders();
@@ -664,7 +718,10 @@ class Main extends Application {
 			}
 		});
 
+
 		// Example: Broadcast a test message every 10 seconds
+		HybridLogger.info("[Main] Initialization complete, starting web server...");
+		webServer.start();
 	}
 
 	// Entry point

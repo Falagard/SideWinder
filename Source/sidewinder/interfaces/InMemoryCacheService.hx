@@ -124,35 +124,37 @@ class InMemoryCacheService implements ICacheService {
         var shard = shardFor(key);
         shard.mutex.acquire();
         try {
-            var e = shard.map.get(key);
-            var expires = (ttlMs == null ? null : Date.now().getTime() + ttlMs);
-
-            if (e != null) {
-                e.value = value;
-                e.expiresAt = expires;
-                moveToHead(shard, e);
-                shard.mutex.release();
-                return;
-            }
-
-            e = { key: key, value: value, expiresAt: expires, prev: null, next: null };
-
-            shard.map.set(key, e);
-            insertAtHead(shard, e);
-
-            var count = 0;
-            var it = shard.map.keys();
-            while (it.hasNext()) {
-                it.next();
-                count++;
-            }
-            if (count > shard.maxEntries)
-                removeTail(shard);
-
+            setInternal(shard, key, value, ttlMs);
             shard.mutex.release();
         } catch(e) {
             shard.mutex.release();
         }
+    }
+
+    private function setInternal(shard:Shard, key:String, value:Dynamic, ttlMs:Null<Int> = null):Void {
+        var e = shard.map.get(key);
+        var expires = (ttlMs == null ? null : Date.now().getTime() + ttlMs);
+
+        if (e != null) {
+            e.value = value;
+            e.expiresAt = expires;
+            moveToHead(shard, e);
+            return;
+        }
+
+        e = { key: key, value: value, expiresAt: expires, prev: null, next: null };
+
+        shard.map.set(key, e);
+        insertAtHead(shard, e);
+
+        var count = 0;
+        var it = shard.map.keys();
+        while (it.hasNext()) {
+            it.next();
+            count++;
+        }
+        if (count > shard.maxEntries)
+            removeTail(shard);
     }
 
     public function get(key:String):Null<Dynamic> {
@@ -196,7 +198,7 @@ class InMemoryCacheService implements ICacheService {
             }
 
             var val = computeFn();
-            set(key, val, ttlMs);
+            setInternal(shard, key, val, ttlMs);
             shard.mutex.release();
             return val;
         } catch(e) {
@@ -227,6 +229,3 @@ class InMemoryCacheService implements ICacheService {
         }
     }
 }
-
-
-

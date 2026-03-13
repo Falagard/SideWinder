@@ -59,67 +59,98 @@ class SqliteDatabaseService implements IDatabaseService {
 
 	private function startWriterThread() {
 		writerThread = Thread.create(() -> {
-			try {
-				var conn = Sqlite.open(DB_PATH);
-				conn.request("PRAGMA foreign_keys = ON;");
-				conn.request("PRAGMA journal_mode = WAL;");
-				
-				while (true) {
-					var request = writeQueue.pop(true);
-					if (request == null) continue;
+			while (true) {
+				try {
+					var conn = Sqlite.open(DB_PATH);
+					conn.request("PRAGMA foreign_keys = ON;");
+					conn.request("PRAGMA journal_mode = WAL;");
+					
+					while (true) {
+						var request = writeQueue.pop(true);
+						if (request == null) continue;
 
-					try {
-						var rs = conn.request(request.sql);
-						request.response.push({ rs: rs, error: null });
-					} catch (e:Dynamic) {
-						request.response.push({ rs: null, error: e });
+						try {
+							var rs = null;
+							var lastId = -1;
+							var retries = 10; // More retries for high concurrency
+							
+							while (true) {
+								try {
+									rs = conn.request(request.sql);
+									if (request.returnId) {
+										var changes = conn.request("SELECT changes();").getIntResult(0);
+										if (changes == 0) {
+											throw "No rows affected (possible UNIQUE constraint violation)";
+										}
+										lastId = conn.lastInsertId();
+										HybridLogger.debug('[SqliteDatabaseService] Inserted ID: ' + lastId + ' for SQL: ' + request.sql);
+									}
+									break;
+								} catch (e:Dynamic) {
+									var err = Std.string(e).toLowerCase();
+									if (retries > 0 && (err.indexOf("locked") != -1 || err.indexOf("busy") != -1)) {
+										retries--;
+										Sys.sleep(0.01 + (10 - retries) * 0.01); // Incremental backoff
+										continue;
+									}
+									throw e;
+								}
+							}
+							request.response.push({ rs: rs, error: null, lastId: lastId });
+						} catch (e:Dynamic) {
+							// Single-query error doesn't kill the thread loop
+							HybridLogger.warn('[SqliteDatabaseService] Write error (query continued): ' + e);
+							request.response.push({ rs: null, error: e, lastId: -1 });
+						}
 					}
+				} catch (e:Dynamic) {
+					// Critical error (e.g. file locked)
+					HybridLogger.error("Fatal error in SQLite writer thread (restarting in 1s): " + e);
+					Sys.sleep(1.0);
 				}
-			} catch (e:Dynamic) {
-				HybridLogger.error("Fatal error in SQLite writer thread: " + e);
 			}
 		});
 	}
 
-	/**
-	 * Acquire a connection from the pool.
-	 * Now primarily returns the thread-local connection for reads.
-	 */
 	public function acquire():Connection {
 		return threadConn.get();
 	}
 
-	/**
-	 * Release a connection back to the pool.
-	 * Now a no-op as connections are managed by ThreadLocal.
-	 */
 	public function release(conn:Connection):Void {
 		// Handled by ThreadLocal
 	}
 
-	/**
-	 * Optimized read operation (thread-local connection)
-	 */
 	public function requestRead(sql:String, ?params:Map<String, Dynamic>):ResultSet {
 		var conn = acquire();
 		var finalSql = (params != null) ? buildSql(sql, params) : sql;
-		return conn.request(finalSql);
+		var retries = 5;
+		while (true) {
+			try {
+				return conn.request(finalSql);
+			} catch (e:Dynamic) {
+				var err = Std.string(e).toLowerCase();
+				if (retries > 0 && (err.indexOf("locked") != -1 || err.indexOf("busy") != -1)) {
+					retries--;
+					Sys.sleep(0.01);
+					continue;
+				}
+				throw e;
+			}
+		}
 	}
 
 	public inline function read(sql:String, ?params:Map<String, Dynamic>):ResultSet {
 		return requestRead(sql, params);
 	}
 
-	/**
-	 * Optimized write operation (queued to dedicated writer thread)
-	 */
 	public function requestWrite(sql:String, ?params:Map<String, Dynamic>):ResultSet {
 		var finalSql = (params != null) ? buildSql(sql, params) : sql;
 		var responseQueue = new Deque<WriteResponse>();
 		
 		writeQueue.push({
 			sql: finalSql,
-			response: responseQueue
+			response: responseQueue,
+			returnId: false
 		});
 
 		var res = responseQueue.pop(true);
@@ -133,7 +164,24 @@ class SqliteDatabaseService implements IDatabaseService {
 		return requestWrite(sql, params);
 	}
 
-	/** Backward compatibility */
+	public function executeAndGetId(sql:String, ?params:Map<String, Dynamic>):Int {
+		var finalSql = (params != null) ? buildSql(sql, params) : sql;
+		var responseQueue = new Deque<WriteResponse>();
+		
+		writeQueue.push({
+			sql: finalSql,
+			response: responseQueue,
+			returnId: true
+		});
+
+		var res = responseQueue.pop(true);
+		if (res.error != null) {
+			throw res.error;
+		}
+		HybridLogger.debug('[SqliteDatabaseService] Returning ID: ' + res.lastId);
+		return res.lastId;
+	}
+
 	public function requestWithParams(sql:String, ?params:Map<String, Dynamic>):ResultSet {
 		var trimmed = StringTools.trim(sql).toUpperCase();
 		if (StringTools.startsWith(trimmed, "SELECT") || StringTools.startsWith(trimmed, "PRAGMA")) {
@@ -143,7 +191,6 @@ class SqliteDatabaseService implements IDatabaseService {
 		}
 	}
 
-	/** Execute a non-query (INSERT/UPDATE/DELETE) */
 	public function execute(sql:String, ?params:Map<String, Dynamic>):Void {
 		requestWrite(sql, params);
 	}
@@ -182,9 +229,6 @@ class SqliteDatabaseService implements IDatabaseService {
 		}
 	}
 
-	/**
-	 * Build an SQL string by substituting named parameters with their formatted values.
-	 */
 	public function buildSql(sql:String, params:Map<String, Dynamic>):String {
 		if (params == null || params.keys().hasNext() == false) return sql;
 		var out = new StringBuf();
@@ -274,9 +318,11 @@ class SqliteDatabaseService implements IDatabaseService {
 typedef WriteRequest = {
 	var sql:String;
 	var response:Deque<WriteResponse>;
+	var returnId:Bool;
 }
 
 typedef WriteResponse = {
 	var rs:ResultSet;
 	var error:Dynamic;
+	var lastId:Int;
 }

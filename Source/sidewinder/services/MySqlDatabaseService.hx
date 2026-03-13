@@ -105,6 +105,15 @@ class MySqlDatabaseService implements IDatabaseService {
 		requestWrite(sql, params);
 	}
 
+	public function executeAndGetId(sql:String, ?params:Map<String, Dynamic>):Int {
+		var conn = acquire();
+		var finalSql = (params != null) ? buildSql(sql, params) : sql;
+		conn.request(finalSql);
+		var id = conn.lastInsertId();
+		release(conn);
+		return id;
+	}
+
 	public function buildSql(sql:String, params:Map<String, Dynamic>):String {
 		if (params == null || params.keys().hasNext() == false)
 			return sql;

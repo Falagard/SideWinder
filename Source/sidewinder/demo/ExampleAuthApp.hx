@@ -1,23 +1,18 @@
 package sidewinder.demo;
 import sidewinder.interfaces.User;
 
-import sidewinder.adapters.*;
-import sidewinder.services.*;
-import sidewinder.interfaces.*;
-import sidewinder.routing.*;
-import sidewinder.middleware.*;
-import sidewinder.websocket.*;
-import sidewinder.data.*;
-import sidewinder.controllers.*;
-import sidewinder.client.*;
-import sidewinder.messaging.*;
-import sidewinder.logging.*;
-import sidewinder.core.*;
-
-
-import haxe.Json;
+import sidewinder.core.DI;
+import sidewinder.core.App;
+import sidewinder.interfaces.IAuthService;
+import sidewinder.interfaces.IUserService;
+import sidewinder.middleware.AuthMiddleware;
+import sidewinder.controllers.OAuthController;
 import sidewinder.routing.Router.Request;
 import sidewinder.routing.Router.Response;
+import sidewinder.logging.HybridLogger;
+import snake.http.HTTPStatus;
+
+import haxe.Json;
 
 /**
  * Example Authentication Application Routes
@@ -36,7 +31,7 @@ class ExampleAuthApp {
 
 		// Welcome page
 		App.get("/", function(req:Request, res:Response) {
-			res.sendResponse(snake.http.HTTPStatus.OK);
+			res.sendResponse(HTTPStatus.OK);
 			res.setHeader("Content-Type", "application/json");
 			res.endHeaders();
 			res.write(Json.stringify({
@@ -48,7 +43,7 @@ class ExampleAuthApp {
 
 		// Login page with provider options
 		App.get("/login", function(req:Request, res:Response) {
-			res.sendResponse(snake.http.HTTPStatus.OK);
+			res.sendResponse(HTTPStatus.OK);
 			res.setHeader("Content-Type", "application/json");
 			res.endHeaders();
 			res.write(Json.stringify({
@@ -101,7 +96,7 @@ class ExampleAuthApp {
 				return;
 			}
 
-			res.sendResponse(snake.http.HTTPStatus.OK);
+			res.sendResponse(HTTPStatus.OK);
 			res.setHeader("Content-Type", "application/json");
 			res.endHeaders();
 			res.write(Json.stringify({
@@ -137,7 +132,7 @@ class ExampleAuthApp {
 				return;
 			}
 
-			res.sendResponse(snake.http.HTTPStatus.OK);
+			res.sendResponse(HTTPStatus.OK);
 			res.setHeader("Content-Type", "application/json");
 			res.endHeaders();
 			res.write(Json.stringify({
@@ -153,7 +148,7 @@ class ExampleAuthApp {
 		App.get("/api/protected-resource", function(req:Request, res:Response) {
 			var authContext = AuthMiddleware.getAuthContext(req);
 
-			res.sendResponse(snake.http.HTTPStatus.OK);
+			res.sendResponse(HTTPStatus.OK);
 			res.setHeader("Content-Type", "application/json");
 			res.endHeaders();
 			res.write(Json.stringify({
@@ -171,7 +166,7 @@ class ExampleAuthApp {
 		App.get("/api/admin", function(req:Request, res:Response) {
 			var authContext = AuthMiddleware.getAuthContext(req);
 
-			res.sendResponse(snake.http.HTTPStatus.OK);
+			res.sendResponse(HTTPStatus.OK);
 			res.setHeader("Content-Type", "application/json");
 			res.endHeaders();
 			res.write(Json.stringify({
@@ -198,13 +193,13 @@ class ExampleAuthApp {
 					id: 1,
 					title: "Hello World",
 					author: "Alice",
-					public: true
+					"public": true
 				},
 				{
 					id: 2,
 					title: "Private Post",
 					author: "Bob",
-					public: false
+					"public": false
 				}
 			];
 
@@ -220,7 +215,7 @@ class ExampleAuthApp {
 				response.message = "You are viewing as guest";
 			}
 
-			res.sendResponse(snake.http.HTTPStatus.OK);
+			res.sendResponse(HTTPStatus.OK);
 			res.setHeader("Content-Type", "application/json");
 			res.endHeaders();
 			res.write(Json.stringify(response));
@@ -229,7 +224,7 @@ class ExampleAuthApp {
 	}
 
 	private static function sendJsonError(res:Response, status:Int, message:String):Void {
-		res.sendResponse(cast(status, snake.http.HTTPStatus));
+		res.sendResponse(cast(status, HTTPStatus));
 		res.setHeader("Content-Type", "application/json");
 		res.endHeaders();
 		res.write(Json.stringify({
@@ -238,9 +233,3 @@ class ExampleAuthApp {
 		res.end();
 	}
 }
-
-
-
-
-
-

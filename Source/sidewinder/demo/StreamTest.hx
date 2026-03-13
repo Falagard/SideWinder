@@ -1,22 +1,8 @@
 package sidewinder.demo;
 
-import sidewinder.adapters.*;
-import sidewinder.services.*;
-import sidewinder.interfaces.*;
-import sidewinder.routing.*;
-import sidewinder.middleware.*;
-import sidewinder.websocket.*;
-import sidewinder.data.*;
-import sidewinder.controllers.*;
-import sidewinder.client.*;
-import sidewinder.messaging.*;
-import sidewinder.logging.*;
-import sidewinder.core.*;
-
-
-package;
-
-import sidewinder.*;
+import sidewinder.logging.HybridLogger;
+import sidewinder.messaging.LocalStreamBroker;
+import sidewinder.interfaces.IStreamBroker;
 
 /**
  * Simple test program for the Stream Broker system.
@@ -173,6 +159,3 @@ class StreamTest {
 		}
 	}
 }
-
-
-

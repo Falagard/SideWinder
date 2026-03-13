@@ -2,18 +2,7 @@ package sidewinder.interfaces;
 import sidewinder.interfaces.IOAuthService.OAuthUserInfo;
 import sidewinder.interfaces.User;
 
-import sidewinder.adapters.*;
-import sidewinder.services.*;
-import sidewinder.interfaces.*;
-import sidewinder.routing.*;
-import sidewinder.middleware.*;
-import sidewinder.websocket.*;
-import sidewinder.data.*;
-import sidewinder.controllers.*;
-import sidewinder.client.*;
-import sidewinder.messaging.*;
-import sidewinder.logging.*;
-import sidewinder.core.*;
+// No implementation imports allowed in interfaces
 
 
 import hx.injection.Service;
@@ -34,6 +23,16 @@ typedef AuthSession = {
 }
 
 interface IAuthService extends Service {
+	/**
+	 * Register an OAuth service provider
+	 */
+	public function registerOAuthProvider(provider:String, service:IOAuthService):Void;
+
+	/**
+	 * Get an OAuth service by provider name
+	 */
+	public function getOAuthProvider(provider:String):IOAuthService;
+
 	/**
 	 * Authenticate with OAuth
 	 */
@@ -69,8 +68,3 @@ interface IAuthService extends Service {
 	 */
 	public function refreshSession(sessionId:String):Null<AuthSession>;
 }
-
-
-
-
-

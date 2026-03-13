@@ -4,18 +4,12 @@ import sidewinder.interfaces.IWebSocketServer;
 
 import hx.well.websocket.WebSocketSession;
 
-import sidewinder.adapters.*;
-import sidewinder.services.*;
-import sidewinder.interfaces.*;
-import sidewinder.routing.*;
-import sidewinder.middleware.*;
-import sidewinder.websocket.*;
-import sidewinder.data.*;
-import sidewinder.controllers.*;
-import sidewinder.client.*;
-import sidewinder.messaging.*;
-import sidewinder.logging.*;
-import sidewinder.core.*;
+import sidewinder.logging.HybridLogger;
+import sidewinder.interfaces.IWebSocketHandler;
+import sidewinder.websocket.EchoWebSocketHandler;
+import sidewinder.websocket.ChatRoomWebSocketHandler;
+import sidewinder.websocket.BroadcastWebSocketHandler;
+import sidewinder.websocket.AuthenticatedWebSocketHandler;
 
 
 

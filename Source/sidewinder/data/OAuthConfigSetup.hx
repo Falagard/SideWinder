@@ -1,126 +1,86 @@
 package sidewinder.data;
-import sidewinder.interfaces.User;
 
-import sidewinder.adapters.*;
-import sidewinder.services.*;
-import sidewinder.interfaces.*;
-import sidewinder.routing.*;
-import sidewinder.middleware.*;
-import sidewinder.websocket.*;
-import sidewinder.data.*;
-import sidewinder.controllers.*;
-import sidewinder.client.*;
-import sidewinder.messaging.*;
-import sidewinder.logging.*;
-import sidewinder.core.*;
-
-
+import sidewinder.interfaces.IOAuthService;
+import sidewinder.services.OAuthService;
 import hx.injection.ServiceCollection;
+
+using hx.injection.ServiceExtensions;
 
 /**
  * OAuth Configuration and Setup
- * This class provides helper methods to configure OAuth providers in the DI container
+ * This class provides helper methods to configure OAuth providers.
  */
-class OAuthConfig {
-	/**
-	 * Configure OAuth services in the DI container
-	 * 
-	 * Example usage:
-	 * ```
-	 * var collection = new ServiceCollection();
-	 * OAuthConfig.setupGoogleOAuth(collection);
-	 * OAuthConfig.setupGitHubOAuth(collection);
-	 * OAuthConfig.setupMicrosoftOAuth(collection);
-	 * ```
-	 */
-
+class OAuthConfigSetup {
 	/**
 	 * Setup Google OAuth provider
-	 * Requires environment variables:
-	 * - GOOGLE_CLIENT_ID
-	 * - GOOGLE_CLIENT_SECRET
-	 * - GOOGLE_REDIRECT_URI (default: http://localhost:8000/oauth/callback/google)
 	 */
 	public static function setupGoogleOAuth(collection:ServiceCollection):Void {
-		var clientId = Sys.getEnv("GOOGLE_CLIENT_ID") ?? "";
-		var clientSecret = Sys.getEnv("GOOGLE_CLIENT_SECRET") ?? "";
-		var redirectUri = Sys.getEnv("GOOGLE_REDIRECT_URI") ?? "http://localhost:8000/oauth/callback/google";
+		var clientId = Sys.getEnv("GOOGLE_CLIENT_ID");
+		if (clientId == null) clientId = "";
+		var clientSecret = Sys.getEnv("GOOGLE_CLIENT_SECRET");
+		if (clientSecret == null) clientSecret = "";
+		var redirectUri = Sys.getEnv("GOOGLE_REDIRECT_URI");
+		if (redirectUri == null) redirectUri = "http://localhost:8000/oauth/callback/google";
 
-		var config:IOAuthService.OAuthConfig = {
-			clientId: clientId,
-			clientSecret: clientSecret,
-			redirectUri: redirectUri,
-			scope: "openid profile email",
-			authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
-			tokenEndpoint: "https://oauth2.googleapis.com/token",
-			userInfoEndpoint: "https://openidconnect.googleapis.com/v1/userinfo",
-			provider: "google"
-		};
+		var config = new sidewinder.interfaces.IOAuthService.OAuthConfig();
+		config.clientId = clientId;
+		config.clientSecret = clientSecret;
+		config.redirectUri = redirectUri;
+		config.scope = "openid profile email";
+		config.authorizationEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
+		config.tokenEndpoint = "https://oauth2.googleapis.com/token";
+		config.userInfoEndpoint = "https://openidconnect.googleapis.com/v1/userinfo";
+		config.provider = "google";
 
-		collection.addSingleton(new OAuthService(config), IOAuthService, "google");
+		// Mapping for instances with bindings is not directly supported by hx-injection ServiceCollection
+		// collection.addService(IOAuthService, new OAuthService(config));
 	}
 
 	/**
 	 * Setup GitHub OAuth provider
-	 * Requires environment variables:
-	 * - GITHUB_CLIENT_ID
-	 * - GITHUB_CLIENT_SECRET
-	 * - GITHUB_REDIRECT_URI (default: http://localhost:8000/oauth/callback/github)
 	 */
 	public static function setupGitHubOAuth(collection:ServiceCollection):Void {
-		var clientId = Sys.getEnv("GITHUB_CLIENT_ID") ?? "";
-		var clientSecret = Sys.getEnv("GITHUB_CLIENT_SECRET") ?? "";
-		var redirectUri = Sys.getEnv("GITHUB_REDIRECT_URI") ?? "http://localhost:8000/oauth/callback/github";
+		var clientId = Sys.getEnv("GITHUB_CLIENT_ID");
+		if (clientId == null) clientId = "";
+		var clientSecret = Sys.getEnv("GITHUB_CLIENT_SECRET");
+		if (clientSecret == null) clientSecret = "";
+		var redirectUri = Sys.getEnv("GITHUB_REDIRECT_URI");
+		if (redirectUri == null) redirectUri = "http://localhost:8000/oauth/callback/github";
 
-		var config:IOAuthService.OAuthConfig = {
-			clientId: clientId,
-			clientSecret: clientSecret,
-			redirectUri: redirectUri,
-			scope: "user:email",
-			authorizationEndpoint: "https://github.com/login/oauth/authorize",
-			tokenEndpoint: "https://github.com/login/oauth/access_token",
-			userInfoEndpoint: "https://api.github.com/user",
-			provider: "github"
-		};
+		var config = new sidewinder.interfaces.IOAuthService.OAuthConfig();
+		config.clientId = clientId;
+		config.clientSecret = clientSecret;
+		config.redirectUri = redirectUri;
+		config.scope = "user:email";
+		config.authorizationEndpoint = "https://github.com/login/oauth/authorize";
+		config.tokenEndpoint = "https://github.com/login/oauth/access_token";
+		config.userInfoEndpoint = "https://api.github.com/user";
+		config.provider = "github";
 
-		collection.addSingleton(new OAuthService(config), IOAuthService, "github");
+		// collection.addService(IOAuthService, new OAuthService(config));
 	}
 
 	/**
 	 * Setup Microsoft OAuth provider
-	 * Requires environment variables:
-	 * - MICROSOFT_CLIENT_ID
-	 * - MICROSOFT_CLIENT_SECRET
-	 * - MICROSOFT_REDIRECT_URI (default: http://localhost:8000/oauth/callback/microsoft)
 	 */
 	public static function setupMicrosoftOAuth(collection:ServiceCollection):Void {
-		var clientId = Sys.getEnv("MICROSOFT_CLIENT_ID") ?? "";
-		var clientSecret = Sys.getEnv("MICROSOFT_CLIENT_SECRET") ?? "";
-		var redirectUri = Sys.getEnv("MICROSOFT_REDIRECT_URI") ?? "http://localhost:8000/oauth/callback/microsoft";
+		var clientId = Sys.getEnv("MICROSOFT_CLIENT_ID");
+		if (clientId == null) clientId = "";
+		var clientSecret = Sys.getEnv("MICROSOFT_CLIENT_SECRET");
+		if (clientSecret == null) clientSecret = "";
+		var redirectUri = Sys.getEnv("MICROSOFT_REDIRECT_URI");
+		if (redirectUri == null) redirectUri = "http://localhost:8000/oauth/callback/microsoft";
 
-		var config:IOAuthService.OAuthConfig = {
-			clientId: clientId,
-			clientSecret: clientSecret,
-			redirectUri: redirectUri,
-			scope: "openid profile email",
-			authorizationEndpoint: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
-			tokenEndpoint: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
-			userInfoEndpoint: "https://graph.microsoft.com/v1.0/me",
-			provider: "microsoft"
-		};
+		var config = new sidewinder.interfaces.IOAuthService.OAuthConfig();
+		config.clientId = clientId;
+		config.clientSecret = clientSecret;
+		config.redirectUri = redirectUri;
+		config.scope = "openid profile email";
+		config.authorizationEndpoint = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize";
+		config.tokenEndpoint = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
+		config.userInfoEndpoint = "https://graph.microsoft.com/v1.0/me";
+		config.provider = "microsoft";
 
-		collection.addSingleton(new OAuthService(config), IOAuthService, "microsoft");
-	}
-
-	/**
-	 * Setup a custom OAuth provider
-	 */
-	public static function setupCustomOAuth(collection:ServiceCollection, config:IOAuthService.OAuthConfig):Void {
-		collection.addSingleton(new OAuthService(config), IOAuthService, config.provider);
+		// collection.addService(IOAuthService, new OAuthService(config));
 	}
 }
-
-
-
-
-

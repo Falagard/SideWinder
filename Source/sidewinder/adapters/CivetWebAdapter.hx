@@ -67,15 +67,17 @@ class CivetWebAdapter implements IWebServer implements IWebSocketServer {
 	 * @param host Server host address (e.g., "127.0.0.1")
 	 * @param port Server port number (e.g., 8000)
 	 * @param documentRoot Optional document root for serving static files
+	 * @param handler Optional request handler
+	 * @param islandManager Injected island manager
 	 */
-	public function new(host:String, port:Int, ?documentRoot:String, ?handler:Router.Request->SimpleResponse, numIslands:Int = 4) {
+	public function new(host:String, port:Int, ?documentRoot:String, ?handler:Router.Request->SimpleResponse, islandManager:IslandManager) {
 		this.host = host;
 		this.port = port;
 		this.running = false;
 		this.serverHandle = null;
 		this.documentRoot = documentRoot != null ? documentRoot : "./static";
 		this.requestHandler = handler;
-		this.islandManager = new IslandManager(numIslands);
+		this.islandManager = islandManager;
 
 		HybridLogger.info('[CivetWebAdapter] Initialized for $host:$port');
 		HybridLogger.info('[CivetWebAdapter] Document root: ${this.documentRoot}');
@@ -540,8 +542,3 @@ class CivetWebAdapter implements IWebServer implements IWebSocketServer {
 		CivetWebNative.websocketClose(cast conn, code, reasonBytes);
 	}
 }
-
-
-
-
-

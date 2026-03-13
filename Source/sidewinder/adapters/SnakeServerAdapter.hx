@@ -51,14 +51,15 @@ class SnakeServerAdapter implements IWebServer {
 	 * @param port Server port number (e.g., 8000)
 	 * @param requestHandlerClass Request handler class (typically SideWinderRequestHandler)
 	 * @param directory Optional directory for serving static files
+	 * @param islandManager Injected island manager
 	 */
-	public function new(host:String, port:Int, requestHandlerClass:Class<BaseRequestHandler>, ?directory:String, numIslands:Int = 4) {
+	public function new(host:String, port:Int, requestHandlerClass:Class<BaseRequestHandler>, ?directory:String, islandManager:IslandManager) {
 		this.host = host;
 		this.port = port;
 		this.running = false;
 
 		// Initialize island manager
-		this.islandManager = new IslandManager(numIslands);
+		this.islandManager = islandManager;
 
 		// Store singleton instance so request handler can access it
 		SnakeServerAdapter.instance = this;
@@ -119,7 +120,3 @@ class SnakeServerAdapter implements IWebServer {
 		return running;
 	}
 }
-
-
-
-

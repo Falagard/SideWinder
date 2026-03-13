@@ -1,17 +1,7 @@
 package sidewinder.adapters;
 
-import sidewinder.adapters.*;
-import sidewinder.services.*;
-import sidewinder.interfaces.*;
-import sidewinder.routing.*;
-import sidewinder.middleware.*;
-import sidewinder.websocket.*;
-import sidewinder.data.*;
-import sidewinder.controllers.*;
-import sidewinder.client.*;
-import sidewinder.messaging.*;
-import sidewinder.logging.*;
-import sidewinder.core.*;
+import sidewinder.logging.HybridLogger;
+import sidewinder.adapters.HxWellAdapterTypes;
 
 import hx.well.http.driver.socket.SocketDriver;
 import hx.well.http.driver.socket.SocketRequestParser;
@@ -34,7 +24,22 @@ class CustomSocketDriver extends SocketDriver {
 		// Run in background threadpool provided by SocketDriver
 		@:privateAccess executor.submit(() -> {
 			try {
-				socket.setTimeout(30);
+				// Set TCP_NODELAY (FastSend) on client socket
+				socket.setFastSend(true);
+				
+				// Lower timeout for faster recycling of connections under load
+				socket.setTimeout(10);
+
+				var peer = null;
+				try {
+					peer = socket.peer();
+				} catch (e:Dynamic) {
+					// Connection already reset or closed by peer
+					HybridLogger.debug('[HxWellAdapter] Connection reset by peer before parsing');
+					try { socket.close(); } catch (_) {}
+					return;
+				}
+
 				var hxReq = hx.well.http.driver.socket.SocketRequestParser.parseFromSocket(socket);
 
 				// Check for WebSocket upgrade
@@ -71,6 +76,8 @@ class CustomSocketDriver extends SocketDriver {
 			} catch (e:Dynamic) {
 				HybridLogger.error('[HxWellAdapter] Background parse error: ' + e);
 				try {
+					// Attempt to drain and close gracefully
+					socket.shutdown(false, true);
 					socket.close();
 				} catch (_) {}
 			}

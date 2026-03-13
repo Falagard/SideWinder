@@ -1,31 +1,23 @@
 package sidewinder.interfaces;
+import sidewinder.interfaces.IOAuthService.OAuthUserInfo;
 import sidewinder.interfaces.User;
 
-import sidewinder.adapters.*;
-import sidewinder.services.*;
-import sidewinder.interfaces.*;
-import sidewinder.routing.*;
-import sidewinder.middleware.*;
-import sidewinder.websocket.*;
-import sidewinder.data.*;
-import sidewinder.controllers.*;
-import sidewinder.client.*;
-import sidewinder.messaging.*;
-import sidewinder.logging.*;
-import sidewinder.core.*;
+// No implementation imports allowed in interfaces
 
 
 import hx.injection.Service;
 
-typedef OAuthConfig = {
-	var clientId:String;
-	var clientSecret:String;
-	var redirectUri:String;
-	var scope:String;
-	var authorizationEndpoint:String;
-	var tokenEndpoint:String;
-	var userInfoEndpoint:String;
-	var provider:String; // e.g., "google", "github", "microsoft"
+class OAuthConfig {
+	public var clientId:String;
+	public var clientSecret:String;
+	public var redirectUri:String;
+	public var scope:String;
+	public var authorizationEndpoint:String;
+	public var tokenEndpoint:String;
+	public var userInfoEndpoint:String;
+	public var provider:String; // e.g., "google", "github", "microsoft"
+
+	public function new() {}
 }
 
 typedef OAuthToken = {
@@ -79,8 +71,3 @@ interface IOAuthService extends Service {
 	 */
 	public function getConfig():OAuthConfig;
 }
-
-
-
-
-
