@@ -20,9 +20,16 @@ class UserService implements IUserService implements Service {
         db = DI.get(IDatabaseService);
     }
 
-    public function getAll():Array<User> {
+    public function listUsers(?limit:Int, ?offset:Int):Array<User> {
+        var actualLimit = limit != null ? limit : 100;
+        var actualOffset = offset != null ? offset : 0;
+        
+        var params = new Map<String, Dynamic>();
+        params.set("limit", actualLimit);
+        params.set("offset", actualOffset);
+
         var result:Array<User> = [];
-        var rs = db.read("SELECT id, display_name, email FROM users ORDER BY id ASC", null);
+        var rs = db.read("SELECT id, display_name, email FROM users ORDER BY id ASC LIMIT @limit OFFSET @offset", params);
         while (rs.hasNext()) {
             var r = rs.next();
             result.push({ id: r.id, name: r.display_name, email: r.email });
@@ -43,6 +50,15 @@ class UserService implements IUserService implements Service {
         var params = new Map<String, Dynamic>();
         params.set("id", id);
         var rs = db.read("SELECT id, display_name, email FROM users WHERE id = @id", params);
+        var record = rs.next();
+        if (record == null) return null;
+        return { id: record.id, name: record.display_name, email: record.email };
+    }
+
+    public function getByEmail(email:String):Null<User> {
+        var params = new Map<String, Dynamic>();
+        params.set("email", email);
+        var rs = db.read("SELECT id, display_name, email FROM users WHERE email = @email", params);
         var record = rs.next();
         if (record == null) return null;
         return { id: record.id, name: record.display_name, email: record.email };

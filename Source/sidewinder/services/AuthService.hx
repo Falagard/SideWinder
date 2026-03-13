@@ -56,25 +56,16 @@ class AuthService implements IAuthService {
 	}
 
 	public function createOrUpdateUserFromOAuth(oauthUser:OAuthUserInfo):Int {
-		// Check if user exists by email
-		var existingUsers = userService.getAll();
-		var existing:Null<Int> = null;
+		var existingUser = userService.getByEmail(oauthUser.email);
 		
-		for (user in existingUsers) {
-			if (user.email == oauthUser.email) {
-				existing = user.id;
-				break;
-			}
-		}
-		
-		if (existing != null) {
+		if (existingUser != null) {
 			// Update existing user
-			userService.update(existing, {
-				id: existing,
+			userService.update(existingUser.id, {
+				id: existingUser.id,
 				name: oauthUser.name,
 				email: oauthUser.email
 			});
-			return existing;
+			return existingUser.id;
 		} else {
 			// Create new user
 			var newUser = userService.create({
