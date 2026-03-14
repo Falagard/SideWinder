@@ -1,10 +1,5 @@
 package sidewinder.client;
 
-import sidewinder.interfaces.*;
-import sidewinder.data.*;
-import sidewinder.client.*;
-
-
 import haxe.macro.Context;
 import haxe.macro.Expr;
 import haxe.macro.Type;
@@ -444,6 +439,3 @@ class AutoClientAsync {
 		}
 	}
 }
-
-
-
