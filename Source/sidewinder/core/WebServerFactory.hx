@@ -73,7 +73,9 @@ class WebServerFactory {
 				return new CivetWebAdapter(host, port, directory, handler, islandManager);
 
 			case HxWell:
-				return new HxWellAdapter(host, port, directory, islandManager);
+				var adapter = new HxWellAdapter(host, port, directory, islandManager);
+				adapter.router = Router.instance;
+				return adapter;
 		};
 	}
 

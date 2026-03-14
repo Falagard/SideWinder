@@ -35,9 +35,9 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 	var running:Bool = false;
 	var driver:sidewinder.adapters.CustomSocketDriver;
 	var islandManager:IslandManager;
-	
+
 	// Inject router to avoid circular dependency with SideWinderRequestHandler
-	public var router:Router;
+	public var router:Router = Router.instance;
 
 	// WebSocket support
 	var websocketHandler:IWebSocketHandler;
@@ -50,7 +50,7 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 		this.port = port;
 		this.directory = directory;
 		this.numIslands = islandManager.getIslandCount();
-		
+
 		// Start a background thread to process WebSocket events if a handler is registered
 		haxe.MainLoop.addThread(processWebSocketEvents);
 	}
@@ -61,10 +61,10 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 		var config = new hx.well.http.driver.socket.SocketDriverConfig();
 		config.host = host;
 		config.port = port;
-		config.maxConnections = 512; 
+		config.maxConnections = 512;
 
 		driver = new sidewinder.adapters.CustomSocketDriver(config, this);
-		
+
 		HybridLogger.info('[HxWellAdapter] Starting on $host:$port (Static: $directory)');
 		driver.start();
 	}
@@ -76,8 +76,9 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 	private function processWebSocketEvents():Void {
 		while (true) {
 			Sys.sleep(0.001); // Don't peg CPU
-			
-			if (websocketHandler == null) continue;
+
+			if (websocketHandler == null)
+				continue;
 
 			var events:Array<WebSocketEvent> = [];
 			wsMutex.acquire();
@@ -164,18 +165,18 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 		}
 
 		var body = hxReq.bodyBytes != null ? hxReq.bodyBytes.toString() : "";
-		
+
 		if (hxReq.requestBytes != null) {
 			var firstLine = hxReq.requestBytes.toString().split("\r\n")[0];
 			HybridLogger.debug('[HxWellAdapter] Raw Request Line: ' + firstLine);
 		}
-		
+
 		HybridLogger.debug('[HxWellAdapter] hxReq fields: ' + Reflect.fields(hxReq).join(", "));
 		@:privateAccess {
 			HybridLogger.debug('[HxWellAdapter] hxReq.path: ' + hxReq.path);
 			HybridLogger.debug('[HxWellAdapter] hxReq.uri: ' + (Reflect.hasField(hxReq, "uri") ? Reflect.field(hxReq, "uri") : "N/A"));
 		}
-		
+
 		var jsonBody:Dynamic = null;
 		if (headers.get("Content-Type") == "application/json") {
 			try {
@@ -197,7 +198,7 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 		}
 
 		var files:Array<UploadedFile> = [];
-		
+
 		var rawPath = hxReq.path != null ? hxReq.path : "/";
 		if (hxReq.requestBytes != null) {
 			var requestLine = hxReq.requestBytes.toString().split("\r\n")[0];
@@ -208,16 +209,16 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 		}
 
 		var path = rawPath.split("?")[0];
-		
+
 		var query = new Map<String, String>();
-		
+
 		// 1. Try to get from hxReq.queries if populated
 		if (hxReq.queries != null) {
 			for (k in hxReq.queries.keys()) {
 				query.set(k, hxReq.queries.get(k));
 			}
 		}
-		
+
 		// 2. Fallback to raw path if map is still empty
 		if (!query.keys().hasNext()) {
 			var rawFullPath = "";
@@ -228,7 +229,7 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 					rawFullPath = lineParts[1];
 				}
 			}
-			
+
 			// If we couldn't get it from raw bytes, use hxReq.path but acknowledge it's already decoded
 			if (rawFullPath == "" && hxReq.path != null) {
 				var parts = hxReq.path.split("?");
@@ -280,9 +281,10 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			files: files,
 			ip: hxReq.ip
 		};
-		
+
 		var queryKeyCount = 0;
-		for (k in query.keys()) queryKeyCount++;
+		for (k in query.keys())
+			queryKeyCount++;
 		HybridLogger.debug('[HxWellAdapter] Final Query key count: ' + queryKeyCount);
 
 		return req;
@@ -356,7 +358,9 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 					socket.close();
 				} catch (e:Dynamic) {
 					HybridLogger.error('[HxWellAdapter] Error closing socket: ' + e);
-					try { socket.close(); } catch (_) {}
+					try {
+						socket.close();
+					} catch (_) {}
 				}
 			},
 			setCookie: function(name, value, ?options) {
@@ -426,7 +430,9 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 					socket.close();
 				} catch (e:Dynamic) {
 					HybridLogger.error('[HxWellAdapter] Error writing static file bytes: ' + e);
-					try { socket.close(); } catch (_) {}
+					try {
+						socket.close();
+					} catch (_) {}
 				}
 				return true;
 			} catch (e:Dynamic) {
@@ -454,7 +460,8 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 
 	public function stop():Void {
 		running = false;
-		if (driver != null) driver.stop();
+		if (driver != null)
+			driver.stop();
 	}
 
 	public function getHost():String
