@@ -1,11 +1,9 @@
 package sidewinder.routing;
-import sidewinder.interfaces.User;
 
+import sidewinder.interfaces.User;
 import sidewinder.logging.HybridLogger;
 import sidewinder.routing.Router;
 import snake.http.HTTPStatus;
-
-
 import haxe.macro.Expr;
 import haxe.macro.Context;
 import haxe.macro.Type;
@@ -234,7 +232,9 @@ class AutoRouter {
 												var __hasPerm = false;
 												if (__sessionData != null && Reflect.hasField(__sessionData, "permissions")) {
 													var __perms:Array<String> = Reflect.field(__sessionData, "permissions");
-													if (__perms != null && (__perms.indexOf($v{requiredPermission}) != -1 || __perms.indexOf("admin") != -1)) {
+													if (__perms != null
+														&& (__perms.indexOf($v{requiredPermission}) != -1
+															|| __perms.indexOf("admin") != -1)) {
 														__hasPerm = true;
 													}
 												}
@@ -269,7 +269,7 @@ class AutoRouter {
 												res.endHeaders();
 												res.end();
 											} catch (e:Dynamic) {
-												HybridLogger.error('[AutoRouter] Error in ' + $v{methodName} + ': ' + e);
+												sidewinder.logging.HybridLogger.error('[AutoRouter] Error in ' + $v{methodName} + ': ' + e);
 												var errStr = Std.string(e);
 												if (errStr.indexOf("UNIQUE constraint") != -1) {
 													res.sendError(snake.http.HTTPStatus.CONFLICT);
@@ -298,7 +298,7 @@ class AutoRouter {
 												res.write(json);
 												res.end();
 											} catch (e:Dynamic) {
-												HybridLogger.error('[AutoRouter] Error in ' + $v{methodName} + ': ' + e);
+												sidewinder.logging.HybridLogger.error('[AutoRouter] Error in ' + $v{methodName} + ': ' + e);
 												var errStr = Std.string(e);
 												if (errStr.indexOf("UNIQUE constraint") != -1) {
 													res.sendError(snake.http.HTTPStatus.CONFLICT);
@@ -330,7 +330,7 @@ class AutoRouter {
 												res.write(json);
 												res.end();
 											} catch (e:Dynamic) {
-												HybridLogger.error('[AutoRouter] Error in ' + $v{methodName} + ': ' + e);
+												sidewinder.logging.HybridLogger.error('[AutoRouter] Error in ' + $v{methodName} + ': ' + e);
 												var errStr = Std.string(e);
 												if (errStr.indexOf("UNIQUE constraint") != -1) {
 													res.sendError(snake.http.HTTPStatus.CONFLICT);
@@ -344,8 +344,7 @@ class AutoRouter {
 												res.end();
 											}
 										};
-									}
-;
+									};
 
 									// Register route; assumes upper-case method matching router expectations.
 									var addRoute:Expr = switch httpMethod {
