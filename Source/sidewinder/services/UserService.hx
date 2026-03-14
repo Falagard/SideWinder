@@ -113,4 +113,14 @@ class UserService implements IUserService implements Service {
         
         return rec != null && rec.affected > 0;
     }
+
+    public function getUserIdByApiKey(apiKey:String):Null<Int> {
+        var params = new Map<String, Dynamic>();
+        params.set("api_key", sidewinder.data.AuthUtils.hashApiKey(apiKey));
+        var rs = db.read("SELECT user_id FROM user_api_keys WHERE key_hash = @api_key AND is_active = 1", params);
+        if (rs.hasNext()) {
+            return rs.next().user_id;
+        }
+        return null;
+    }
 }

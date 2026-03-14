@@ -80,4 +80,10 @@ interface IAuthService extends Service {
 	 * @return The created authentication session
 	 */
 	public function authenticateWithMagicLink(token:String):AuthSession;
+
+	/**
+	 * Authenticate with an API key
+	 * @return The created authentication session
+	 */
+	public function authenticateWithApiKey(apiKey:String):AuthSession;
 }

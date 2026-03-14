@@ -17,6 +17,8 @@ import sidewinder.core.*;
 
 import sidewinder.routing.Router.Request;
 import sidewinder.routing.Router.Response;
+import sidewinder.interfaces.IAuthService.AuthToken;
+import sidewinder.interfaces.IAuthService.AuthSession;
 import haxe.Json;
 import haxe.crypto.Sha256;
 
@@ -99,7 +101,7 @@ class AuthUtils {
 	 */
 	public static function generatePkceChallenge(verifier:String):String {
 		var hash = Sha256.encode(verifier);
-		var challenge = haxe.crypto.Base64.encode(hash.toBytes())
+		var challenge = haxe.crypto.Base64.encode(haxe.io.Bytes.ofString(hash))
 			.toString()
 			.split("=").join("")
 			.split("+").join("-")
@@ -298,12 +300,37 @@ class AuthUtils {
 		var timestamp = Std.string(Sys.time());
 		var random = Std.string(Math.floor(Math.random() * 1000000000));
 		var combined = Std.string(userId) + timestamp + random + expirySeconds;
-		return haxe.crypto.Base64.encode(Sha256.encode(combined).toBytes()).toString();
+		var hash = Sha256.encode(combined);
+		return haxe.crypto.Base64.encode(haxe.io.Bytes.ofString(hash)).toString();
+	}
+
+	/**
+	 * Hash an API key for secure storage or comparison
+	 */
+	public static function hashApiKey(apiKey:String):String {
+		return Sha256.encode(apiKey);
+	}
+
+	/**
+	 * Extract metadata from an API key for identification (prefix and last 4)
+	 * Expected format: prefix_randompart_last4
+	 * If format doesn't match, returns generic metadata
+	 */
+	public static function getApiKeyMetadata(apiKey:String):{prefix:String, lastFour:String} {
+		var prefix = "sk";
+		var lastFour = "";
+		
+		if (apiKey == null) return {prefix: prefix, lastFour: lastFour};
+		
+		var parts = apiKey.split("_");
+		if (parts.length >= 2) {
+			prefix = parts[0];
+		}
+		
+		if (apiKey.length >= 4) {
+			lastFour = apiKey.substr(-4);
+		}
+		
+		return {prefix: prefix, lastFour: lastFour};
 	}
 }
-
-
-
-
-
-

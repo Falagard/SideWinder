@@ -161,7 +161,7 @@ class ExampleAuthApp {
 		});
 
 		// Admin-only endpoint - requires specific provider
-		App.use(authMiddleware.protect(["github", "microsoft"]));
+		App.use(authMiddleware.protect(["github", "microsoft", "api_key"]));
 
 		App.get("/api/admin", function(req:Request, res:Response) {
 			var authContext = AuthMiddleware.getAuthContext(req);

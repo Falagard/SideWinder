@@ -28,4 +28,6 @@ interface IUserServiceHandler {
 	@requiresPermission("manage_users")
 	@delete("/users/:id")
 	public function delete(id:Int):Bool;
+
+	public function getUserIdByApiKey(apiKey:String):Null<Int>;
 }

@@ -222,6 +222,8 @@ class Main extends Application {
 			webServer.handleRequest();
 		};
 
+		sidewinder.demo.ExampleAuthApp.setupAuthRoutes();
+
 		AutoRouter.build(router, sidewinder.interfaces.IUserServiceHandler, function() {
 			return DI.get(IUserService);
 		}, DI.get(ICacheService));

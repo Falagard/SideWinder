@@ -62,6 +62,23 @@ class AuthMiddleware {
 			token: null
 		};
 
+		// Try to get token from X-API-KEY header
+		var apiKey = req.headers.get("X-API-KEY");
+		if (apiKey != null) {
+			try {
+				var session = authService.authenticateWithApiKey(apiKey);
+				if (session != null) {
+					context.authenticated = true;
+					context.userId = session.userId;
+					context.session = session;
+					context.token = apiKey;
+					return context;
+				}
+			} catch (e:Dynamic) {
+				// Invalid API key, fall through to other methods
+			}
+		}
+
 		// Try to get token from Authorization header (Bearer token)
 		var authHeader = req.headers.get("Authorization");
 		if (authHeader != null && StringTools.startsWith(authHeader, "Bearer ")) {
@@ -164,9 +181,3 @@ class AuthMiddleware {
 		res.end();
 	}
 }
-
-
-
-
-
-

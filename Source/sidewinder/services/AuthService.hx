@@ -227,6 +227,14 @@ class AuthService implements IAuthService {
 		return createSession(userId, "magic_link");
 	}
 
+	public function authenticateWithApiKey(apiKey:String):AuthSession {
+		var userId = userService.getUserIdByApiKey(apiKey);
+		if (userId == null) {
+			throw "Invalid or inactive API Key";
+		}
+		return createSession(userId, "api_key");
+	}
+
 	private function generateSessionId():String {
 		var timestamp = Std.string(Sys.time());
 		var random = Std.string(Math.floor(Math.random() * 1000000000));
