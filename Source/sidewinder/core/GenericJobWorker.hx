@@ -4,18 +4,11 @@ import sidewinder.routing.Router.UploadedFile;
 import sidewinder.routing.Router.Request;
 import sidewinder.routing.Router.Response;
 
-import sidewinder.adapters.*;
-import sidewinder.services.*;
-import sidewinder.interfaces.*;
-import sidewinder.routing.*;
-import sidewinder.middleware.*;
-import sidewinder.websocket.*;
-import sidewinder.data.*;
-import sidewinder.controllers.*;
-import sidewinder.client.*;
-import sidewinder.messaging.*;
-import sidewinder.logging.*;
-import sidewinder.core.*;
+import sidewinder.logging.HybridLogger;
+import sidewinder.interfaces.IStreamBroker;
+import sidewinder.interfaces.IJobStore;
+import sidewinder.interfaces.IMessageBroker;
+import sidewinder.data.JobStatus;
 
 
 import haxe.Json;
@@ -95,7 +88,9 @@ class GenericJobWorker {
 					}
 				} catch (e:Dynamic) {
 					HybridLogger.error('[GenericJobWorker] Loop error: $e');
+					#if !html5
 					Sys.sleep(1);
+					#end
 				}
 			}
 		});
@@ -109,7 +104,9 @@ class GenericJobWorker {
 			case "delay":
 				var seconds = payload.data != null && payload.data.seconds != null ? payload.data.seconds : 2;
 				HybridLogger.info('[GenericJobWorker] Simulating work for $seconds seconds...');
+				#if !html5
 				Sys.sleep(seconds);
+				#end
 				return { message: "Work completed after " + seconds + "s delay", time: Date.now().toString() };
 			
 			case "echo":

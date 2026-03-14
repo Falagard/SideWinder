@@ -2,18 +2,7 @@ package sidewinder.logging;
 
 import sidewinder.interfaces.ILogProvider.LogEntry;
 
-import sidewinder.adapters.*;
-import sidewinder.services.*;
-import sidewinder.interfaces.*;
-import sidewinder.routing.*;
-import sidewinder.middleware.*;
-import sidewinder.websocket.*;
-import sidewinder.data.*;
-import sidewinder.controllers.*;
-import sidewinder.client.*;
-import sidewinder.messaging.*;
-import sidewinder.logging.*;
-import sidewinder.core.*;
+import sidewinder.interfaces.ILogProvider;
 
 
 import sys.thread.Thread;
@@ -160,7 +149,9 @@ class HybridLogger {
 	public static function shutdown() {
 		stopRequested = true;
 		queue.add(null);
+		#if !html5
 		Sys.sleep(0.5);
+		#end
 	}
 }
 
