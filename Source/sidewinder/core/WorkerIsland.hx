@@ -4,18 +4,7 @@ import sidewinder.routing.Router.UploadedFile;
 import sidewinder.routing.Router.Request;
 import sidewinder.routing.Router.Response;
 
-import sidewinder.adapters.*;
-import sidewinder.services.*;
-import sidewinder.interfaces.*;
-import sidewinder.routing.*;
-import sidewinder.middleware.*;
-import sidewinder.websocket.*;
-import sidewinder.data.*;
-import sidewinder.controllers.*;
-import sidewinder.client.*;
-import sidewinder.messaging.*;
-import sidewinder.logging.*;
-import sidewinder.core.*;
+import sidewinder.logging.HybridLogger;
 
 
 import sys.thread.Thread;
@@ -57,7 +46,9 @@ class WorkerIsland {
 					}
 				} else {
 					// Sleep briefly to prevent tight loop when idle
+					#if !html5
 					Sys.sleep(0.001); 
+					#end
 				}
 			}
 		});
