@@ -28,8 +28,7 @@ class WorkerIsland {
 	 * Start the background thread for this island.
 	 */
 	public function start(?onThreadStart:() -> Void):Void {
-		if (running)
-			return;
+		if (running) return;
 		running = true;
 
 		Thread.create(() -> {
