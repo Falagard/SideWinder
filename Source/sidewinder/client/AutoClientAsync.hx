@@ -69,7 +69,7 @@ class AutoClientAsync {
 		return v;
 	}
 
-	public static macro function create(iface:Expr, baseUrl:Expr, ?cookieJar:Expr):Expr {
+	public static macro function create(iface:Expr, baseUrl:Expr, ?cookieJar:Expr, ?apiKey:Expr):Expr {
 		var ifaceName = switch (iface.expr) {
 			case EConst(CIdent(s)): s;
 			default:
@@ -98,6 +98,13 @@ class AutoClientAsync {
 					kind: FVar(macro :sidewinder.interfaces.ICookieJar, null),
 					pos: Context.currentPos()
 				});
+				// apiKey field
+				fields.push({
+					name: "apiKey",
+					access: [APublic],
+					kind: FVar(macro :String, null),
+					pos: Context.currentPos()
+				});
 				// constructor
 				fields.push({
 					name: "new",
@@ -105,11 +112,13 @@ class AutoClientAsync {
 					kind: FFun({
 						args: [
 							{name: "baseUrl", type: macro :String},
-							{name: "cookieJar", type: macro :sidewinder.interfaces.ICookieJar}
+							{name: "cookieJar", type: macro :sidewinder.interfaces.ICookieJar},
+							{name: "apiKey", type: macro :String}
 						],
 						expr: macro {
 							this.baseUrl = baseUrl;
 							this.cookieJar = cookieJar;
+							this.apiKey = apiKey;
 						},
 						params: [],
 						ret: null
@@ -142,6 +151,11 @@ class AutoClientAsync {
 							if (jsonBody != null) {
 								h.setHeader("Content-Type", "application/json");
 								h.setPostData(jsonBody);
+							}
+							
+							if (apiKey != null && apiKey != "") {
+								h.setHeader("X-Project-Key", apiKey);
+								trace('[AutoClientAsync] Added X-Project-Key header');
 							}
 
 							// Add cookies for sys targets
@@ -238,6 +252,10 @@ class AutoClientAsync {
 											xhr.setRequestHeader("Authorization", "Bearer " + c.value);
 										}
 									}
+								}
+								// Inject X-Project-Key header
+								if (apiKey != null && apiKey != "") {
+									xhr.setRequestHeader("X-Project-Key", apiKey);
 								}
 								xhr.onreadystatechange = function() {
 									if (xhr.readyState == 4) {
@@ -432,7 +450,8 @@ class AutoClientAsync {
 				var typePath:TypePath = {pack: ["sidewinder"], name: uniqueName};
 				// If cookieJar parameter was provided, use it; otherwise use globalCookieJar
 				var jarExpr = cookieJar != null ? cookieJar : macro sidewinder.client.AutoClientAsync.globalCookieJar;
-				return {expr: ENew(typePath, [baseUrl, jarExpr]), pos: Context.currentPos()};
+				var apiKeyExpr = apiKey != null ? apiKey : macro null;
+				return {expr: ENew(typePath, [baseUrl, jarExpr, apiKeyExpr]), pos: Context.currentPos()};
 			case _:
 				Context.error("Expected interface type", iface.pos);
 				return macro null;
