@@ -3,13 +3,9 @@ package sidewinder.core;
 import sidewinder.routing.Router.UploadedFile;
 import sidewinder.routing.Router.Request;
 import sidewinder.routing.Router.Response;
-
 import sidewinder.logging.HybridLogger;
-
-
 import sys.thread.Thread;
 import sys.thread.Mutex;
-
 
 /**
  * A dedicated request processing thread (Logic Island).
@@ -17,6 +13,7 @@ import sys.thread.Mutex;
  */
 class WorkerIsland {
 	public var id(default, null):Int;
+
 	private var requestQueue:Array<IslandRequest> = [];
 	private var queueMutex:Mutex = new Mutex();
 	private var running:Bool = false;
@@ -30,11 +27,15 @@ class WorkerIsland {
 	/**
 	 * Start the background thread for this island.
 	 */
-	public function start():Void {
-		if (running) return;
+	public function start(?onThreadStart:() -> Void):Void {
+		if (running)
+			return;
 		running = true;
 
 		Thread.create(() -> {
+			if (onThreadStart != null) {
+				onThreadStart();
+			}
 			HybridLogger.info('[WorkerIsland $id] Logic thread started');
 			while (running) {
 				var req = nextRequest();
@@ -47,7 +48,7 @@ class WorkerIsland {
 				} else {
 					// Sleep briefly to prevent tight loop when idle
 					#if !html5
-					Sys.sleep(0.001); 
+					Sys.sleep(0.001);
 					#end
 				}
 			}
@@ -93,13 +94,9 @@ typedef IslandRequest = {
 	 * The session ID used for stickiness.
 	 */
 	var sessionId:Null<String>;
-	
+
 	/**
 	 * The actual work to perform.
 	 */
 	var work:Void->Void;
 }
-
-
-
-

@@ -1,7 +1,6 @@
 package sidewinder.services;
 
 import sidewinder.interfaces.IDatabaseService.RawSql;
-
 import sidewinder.adapters.*;
 import sidewinder.services.*;
 import sidewinder.interfaces.*;
@@ -14,7 +13,6 @@ import sidewinder.client.*;
 import sidewinder.messaging.*;
 import sidewinder.logging.*;
 import sidewinder.core.*;
-
 import sys.db.Connection;
 import sys.db.ResultSet;
 import sys.db.Sqlite;
@@ -31,14 +29,13 @@ import DateTools;
  * - Dedicated background writer thread to serialize all writes.
  */
 class SqliteDatabaseService implements IDatabaseService {
-
 	static inline var DB_PATH = "data.db";
 	static inline var MAX_POOL_SIZE = 32;
 
 	// Shared resources
 	var mutex = new Mutex();
 	var pool:Array<Connection> = [];
-	
+
 	// Thread-local storage for read connections
 	var threadConn = new ThreadLocal<Connection>(() -> {
 		var conn = Sqlite.open(DB_PATH);
@@ -49,7 +46,8 @@ class SqliteDatabaseService implements IDatabaseService {
 		conn.request("PRAGMA mmap_size = 30000000000;");
 		return conn;
 	}, (conn) -> {
-		if (conn != null) conn.close();
+		if (conn != null)
+			conn.close();
 	});
 
 	// Writer thread components
@@ -70,16 +68,17 @@ class SqliteDatabaseService implements IDatabaseService {
 					conn.request("PRAGMA synchronous = normal;");
 					conn.request("PRAGMA temp_store = memory;");
 					conn.request("PRAGMA mmap_size = 30000000000;");
-					
+
 					while (true) {
 						var request = writeQueue.pop(true);
-						if (request == null) continue;
+						if (request == null)
+							continue;
 
 						try {
 							var rs = null;
 							var lastId = -1;
 							var retries = 10; // More retries for high concurrency
-							
+
 							while (true) {
 								try {
 									rs = conn.request(request.sql);
@@ -102,11 +101,11 @@ class SqliteDatabaseService implements IDatabaseService {
 									throw e;
 								}
 							}
-							request.response.push({ rs: rs, error: null, lastId: lastId });
+							request.response.push({rs: rs, error: null, lastId: lastId});
 						} catch (e:Dynamic) {
 							// Single-query error doesn't kill the thread loop
 							HybridLogger.warn('[SqliteDatabaseService] Write error (query continued): ' + e);
-							request.response.push({ rs: null, error: e, lastId: -1 });
+							request.response.push({rs: null, error: e, lastId: -1});
 						}
 					}
 				} catch (e:Dynamic) {
@@ -152,7 +151,7 @@ class SqliteDatabaseService implements IDatabaseService {
 	public function requestWrite(sql:String, ?params:Map<String, Dynamic>):ResultSet {
 		var finalSql = (params != null) ? buildSql(sql, params) : sql;
 		var responseQueue = new Deque<WriteResponse>();
-		
+
 		writeQueue.push({
 			sql: finalSql,
 			response: responseQueue,
@@ -173,7 +172,7 @@ class SqliteDatabaseService implements IDatabaseService {
 	public function executeAndGetId(sql:String, ?params:Map<String, Dynamic>):Int {
 		var finalSql = (params != null) ? buildSql(sql, params) : sql;
 		var responseQueue = new Deque<WriteResponse>();
-		
+
 		writeQueue.push({
 			sql: finalSql,
 			response: responseQueue,
@@ -203,10 +202,10 @@ class SqliteDatabaseService implements IDatabaseService {
 
 	public function runMigrations():Void {
 		var dir = "migrations/sqlite";
-		if (!sys.FileSystem.exists(dir)) return;
 
+		trace("SqliteDatabaseService.runMigrations() Creating migrations table if not exists...");
 		execute('CREATE TABLE IF NOT EXISTS migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TEXT DEFAULT CURRENT_TIMESTAMP);');
-		
+
 		var rs = requestRead("SELECT name FROM migrations;");
 		var applied = new Map<String, Bool>();
 		while (rs.hasNext()) {
@@ -224,7 +223,8 @@ class SqliteDatabaseService implements IDatabaseService {
 					var statements = sql.split(';');
 					for (stmt in statements) {
 						stmt = StringTools.trim(stmt);
-						if (stmt.length == 0) continue;
+						if (stmt.length == 0)
+							continue;
 						execute(stmt);
 					}
 					execute("INSERT INTO migrations (name) VALUES (" + quoteString(file) + ");");
@@ -236,7 +236,8 @@ class SqliteDatabaseService implements IDatabaseService {
 	}
 
 	public function buildSql(sql:String, params:Map<String, Dynamic>):String {
-		if (params == null || params.keys().hasNext() == false) return sql;
+		if (params == null || params.keys().hasNext() == false)
+			return sql;
 		var out = new StringBuf();
 		var i = 0;
 		while (i < sql.length) {
@@ -263,7 +264,8 @@ class SqliteDatabaseService implements IDatabaseService {
 			}
 			if (ch == '@' || ch == ':') {
 				var start = i + 1;
-				while (start < sql.length && isIdentChar(sql.charCodeAt(start))) start++;
+				while (start < sql.length && isIdentChar(sql.charCodeAt(start)))
+					start++;
 				var name = sql.substr(i + 1, start - (i + 1));
 				if (name.length > 0 && params.exists(name)) {
 					out.add(formatValue(params.get(name)));
@@ -278,33 +280,44 @@ class SqliteDatabaseService implements IDatabaseService {
 	}
 
 	private static inline function isIdentChar(code:Int):Bool {
-		return (code >= 'A'.code && code <= 'Z'.code) || (code >= 'a'.code && code <= 'z'.code) || (code >= '0'.code && code <= '9'.code) || code == '_'.code;
+		return (code >= 'A'.code && code <= 'Z'.code)
+			|| (code >= 'a'.code && code <= 'z'.code)
+			|| (code >= '0'.code && code <= '9'.code)
+			|| code == '_'.code;
 	}
 
-	public inline function raw(v:String):RawSql return new RawSql(v);
+	public inline function raw(v:String):RawSql
+		return new RawSql(v);
 
 	private function formatValue(v:Dynamic):String {
-		if (v == null) return "NULL";
-		if (Std.isOfType(v, RawSql)) return cast(v, RawSql).value;
+		if (v == null)
+			return "NULL";
+		if (Std.isOfType(v, RawSql))
+			return cast(v, RawSql).value;
 		if (Std.isOfType(v, Array)) {
 			var arr:Array<Dynamic> = cast v;
 			var parts = [];
-			for (item in arr) parts.push(formatValueScalar(item));
+			for (item in arr)
+				parts.push(formatValueScalar(item));
 			return '(' + parts.join(',') + ')';
 		}
 		return formatValueScalar(v);
 	}
 
 	private function formatValueScalar(v:Dynamic):String {
-		if (v == null) return "NULL";
-		if (Std.isOfType(v, String)) return quoteString(cast v);
-		if (Std.isOfType(v, Bool)) return (cast v ? '1' : '0');
+		if (v == null)
+			return "NULL";
+		if (Std.isOfType(v, String))
+			return quoteString(cast v);
+		if (Std.isOfType(v, Bool))
+			return (cast v ? '1' : '0');
 		if (Std.isOfType(v, Date)) {
 			var d:Date = cast v;
 			var formatted = DateTools.format(d, "%Y-%m-%d %H:%M:%S");
 			return quoteString(formatted);
 		}
-		if (Std.isOfType(v, Int) || Std.isOfType(v, Float)) return Std.string(v);
+		if (Std.isOfType(v, Int) || Std.isOfType(v, Float))
+			return Std.string(v);
 		return quoteString(Std.string(v));
 	}
 

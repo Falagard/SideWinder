@@ -1,12 +1,10 @@
 package sidewinder.interfaces;
-import sidewinder.interfaces.User;
 
+import sidewinder.interfaces.User;
 import sidewinder.logging.HybridLogger;
 import sidewinder.core.WorkerIsland;
-
 import sys.thread.Thread;
 import haxe.crypto.Md5;
-
 
 /**
  * Manages a pool of WorkerIslands and handles request distribution.
@@ -17,19 +15,22 @@ class IslandManager {
 	private var numIslands:Int;
 	private var roundRobinCounter:Int = 0;
 
-	public function new(numIslands:Int) {
+	private var onThreadStart:() -> Void;
+
+	public function new(numIslands:Int, ?onThreadStart:() -> Void) {
 		this.numIslands = numIslands;
+		this.onThreadStart = onThreadStart;
 		init();
 	}
 
 	private function init():Void {
-		HybridLogger.info('[IslandManager] Initializing $numIslands logic islands');
+		islands = [];
 		for (i in 0...numIslands) {
 			var island = new WorkerIsland(i, (req) -> {
 				req.work();
 			});
 			islands.push(island);
-			island.start();
+			island.start(onThreadStart);
 		}
 	}
 
@@ -67,8 +68,9 @@ class IslandManager {
 		}
 	}
 
-	public function getIslandCount():Int return numIslands;
-	
+	public function getIslandCount():Int
+		return numIslands;
+
 	public function getLoadInfo():Array<Int> {
 		return islands.map(i -> i.getLoad());
 	}
