@@ -37,6 +37,9 @@ class AutoRouter {
 					case TAbstract(a, _):
 						var n = a.get().name;
 						(n == "Int" || n == "Float" || n == "Bool" || n == "String") ? n : null;
+					case TInst(t, _):
+						var n = t.get().name;
+						(n == "String") ? n : null;
 					case _: null;
 				};
 			}

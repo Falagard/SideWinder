@@ -202,6 +202,7 @@ class SqliteDatabaseService implements IDatabaseService {
 
 	public function runMigrations():Void {
 		var dir = "migrations/sqlite";
+		trace("SqliteDatabaseService.runMigrations() dir: " + dir + " cwd: " + sys.FileSystem.fullPath("."));
 
 		trace("SqliteDatabaseService.runMigrations() Creating migrations table if not exists...");
 		execute('CREATE TABLE IF NOT EXISTS migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TEXT DEFAULT CURRENT_TIMESTAMP);');
@@ -212,8 +213,15 @@ class SqliteDatabaseService implements IDatabaseService {
 			applied.set(rs.next().name, true);
 		}
 
+		if (!sys.FileSystem.exists(dir)) {
+			trace("SqliteDatabaseService.runMigrations() dir NOT FOUND: " + dir);
+			return;
+		}
+
 		var files = sys.FileSystem.readDirectory(dir);
+		trace("SqliteDatabaseService.runMigrations() found files: " + files.length);
 		var sqlFiles = files.filter(f -> StringTools.endsWith(f, ".sql"));
+		trace("SqliteDatabaseService.runMigrations() sql files: " + sqlFiles.length);
 		sqlFiles.sort((a, b) -> Reflect.compare(a, b));
 
 		for (file in sqlFiles) {
