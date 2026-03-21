@@ -35,6 +35,8 @@ class SqliteDatabaseService implements IDatabaseService {
 	// Shared resources
 	var mutex = new Mutex();
 	var pool:Array<Connection> = [];
+	var transactionMutex = new Mutex();
+	var inTransaction = new ThreadLocal<Bool>(() -> false);
 
 	// Thread-local storage for read connections
 	var threadConn = new ThreadLocal<Connection>(() -> {
@@ -152,17 +154,30 @@ class SqliteDatabaseService implements IDatabaseService {
 		var finalSql = (params != null) ? buildSql(sql, params) : sql;
 		var responseQueue = new Deque<WriteResponse>();
 
-		writeQueue.push({
-			sql: finalSql,
-			response: responseQueue,
-			returnId: false
-		});
-
-		var res = responseQueue.pop(true);
-		if (res.error != null) {
-			throw res.error;
+		var locked = false;
+		if (!inTransaction.get()) {
+			transactionMutex.acquire();
+			locked = true;
 		}
-		return res.rs;
+
+		try {
+			writeQueue.push({
+				sql: finalSql,
+				response: responseQueue,
+				returnId: false
+			});
+
+			var res = responseQueue.pop(true);
+			if (res.error != null) {
+				throw res.error;
+			}
+			var result = res.rs;
+			if (locked) transactionMutex.release();
+			return result;
+		} catch (e:Dynamic) {
+			if (locked) transactionMutex.release();
+			throw e;
+		}
 	}
 
 	public inline function write(sql:String, ?params:Map<String, Dynamic>):ResultSet {
@@ -173,18 +188,31 @@ class SqliteDatabaseService implements IDatabaseService {
 		var finalSql = (params != null) ? buildSql(sql, params) : sql;
 		var responseQueue = new Deque<WriteResponse>();
 
-		writeQueue.push({
-			sql: finalSql,
-			response: responseQueue,
-			returnId: true
-		});
-
-		var res = responseQueue.pop(true);
-		if (res.error != null) {
-			throw res.error;
+		var locked = false;
+		if (!inTransaction.get()) {
+			transactionMutex.acquire();
+			locked = true;
 		}
-		HybridLogger.debug('[SqliteDatabaseService] Returning ID: ' + res.lastId);
-		return res.lastId;
+
+		try {
+			writeQueue.push({
+				sql: finalSql,
+				response: responseQueue,
+				returnId: true
+			});
+
+			var res = responseQueue.pop(true);
+			if (res.error != null) {
+				throw res.error;
+			}
+			HybridLogger.debug('[SqliteDatabaseService] Returning ID: ' + res.lastId);
+			var resultId = res.lastId;
+			if (locked) transactionMutex.release();
+			return resultId;
+		} catch (e:Dynamic) {
+			if (locked) transactionMutex.release();
+			throw e;
+		}
 	}
 
 	public function requestWithParams(sql:String, ?params:Map<String, Dynamic>):ResultSet {
@@ -339,6 +367,42 @@ class SqliteDatabaseService implements IDatabaseService {
 
 	public function sanitize(str:String):String {
 		return str == null ? null : escapeString(StringTools.trim(str));
+	}
+
+	public function beginTransaction():Void {
+		transactionMutex.acquire();
+		inTransaction.set(true);
+		try {
+			execute("BEGIN TRANSACTION;");
+		} catch (e:Dynamic) {
+			inTransaction.set(false);
+			transactionMutex.release();
+			throw e;
+		}
+	}
+
+	public function commit():Void {
+		try {
+			execute("COMMIT;");
+			inTransaction.set(false);
+			transactionMutex.release();
+		} catch (e:Dynamic) {
+			inTransaction.set(false);
+			transactionMutex.release();
+			throw e;
+		}
+	}
+
+	public function rollback():Void {
+		try {
+			execute("ROLLBACK;");
+			inTransaction.set(false);
+			transactionMutex.release();
+		} catch (e:Dynamic) {
+			inTransaction.set(false);
+			transactionMutex.release();
+			throw e;
+		}
 	}
 }
 

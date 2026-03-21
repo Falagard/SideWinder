@@ -88,6 +88,22 @@ interface IDatabaseService extends Service {
 	 * Create a raw SQL passthrough value
 	 */
 	public function raw(v:String):RawSql;
+
+	/**
+	 * Begin a database transaction.
+	 * In SQLite implementation, this locks the writer thread for exclusive use by the calling thread.
+	 */
+	public function beginTransaction():Void;
+
+	/**
+	 * Commit the current transaction.
+	 */
+	public function commit():Void;
+
+	/**
+	 * Roll back the current transaction.
+	 */
+	public function rollback():Void;
 }
 
 /** Represents raw SQL to be injected without quoting */
