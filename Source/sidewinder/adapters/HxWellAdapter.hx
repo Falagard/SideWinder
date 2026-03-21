@@ -363,18 +363,24 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 					} catch (_) {}
 				}
 			},
-			setCookie: function(name, value, ?options) {
-				var cookie = name + "=" + value;
+			setCookie: function(name:String, value:String, ?options:Dynamic) {
+				var cookie = Std.string(name) + "=" + Std.string(value);
 				if (options != null) {
-					if (options.path != null)
-						cookie += "; Path=" + options.path;
-					if (options.domain != null)
-						cookie += "; Domain=" + options.domain;
-					if (options.maxAge != null)
-						cookie += "; Max-Age=" + options.maxAge;
-					if (options.httpOnly)
+					if (Reflect.hasField(options, "path")) {
+						var p = Reflect.field(options, "path");
+						if (p != null) cookie += "; Path=" + Std.string(p);
+					}
+					if (Reflect.hasField(options, "domain")) {
+						var d = Reflect.field(options, "domain");
+						if (d != null) cookie += "; Domain=" + Std.string(d);
+					}
+					if (Reflect.hasField(options, "maxAge")) {
+						var ma = Reflect.field(options, "maxAge");
+						if (ma != null) cookie += "; Max-Age=" + Std.string(ma);
+					}
+					if (Reflect.field(options, "httpOnly") == true)
 						cookie += "; HttpOnly";
-					if (options.secure)
+					if (Reflect.field(options, "secure") == true)
 						cookie += "; Secure";
 				}
 				headers.set("Set-Cookie", cookie);

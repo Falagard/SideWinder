@@ -96,6 +96,7 @@ class WebSocketRouter implements IWebSocketHandler {
 		adapter.websocketSendText(conn, instructions);
 	}
 
+#if hl
 	public function onData(conn:Dynamic, flags:Int, data:hl.Bytes, length:Int):Void {
 		var entry = findConnection(conn);
 		if (entry == null) {
@@ -161,6 +162,9 @@ class WebSocketRouter implements IWebSocketHandler {
 			HybridLogger.warn('[WebSocketRouter] Connection has no handler assigned but not pending');
 		}
 	}
+#else
+	public function onData(conn:Dynamic, flags:Int, data:haxe.io.Bytes, length:Int):Void {}
+#end
 
 	public function onClose(conn:Dynamic):Void {
 		var entry = findConnection(conn);

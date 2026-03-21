@@ -79,6 +79,7 @@ class ChatRoomWebSocketHandler implements IWebSocketHandler {
 		adapter.websocketSendText(conn, haxe.Json.stringify(userListMsg));
 	}
 
+#if hl
 	public function onData(conn:Dynamic, flags:Int, data:hl.Bytes, length:Int):Void {
 		var opcode = flags & 0x0F;
 
@@ -129,6 +130,9 @@ class ChatRoomWebSocketHandler implements IWebSocketHandler {
 			}
 		}
 	}
+#else
+	public function onData(conn:Dynamic, flags:Int, data:haxe.io.Bytes, length:Int):Void {}
+#end
 
 	private function handleCommand(conn:Dynamic, connInfo:ConnectionInfo, message:String):Void {
 		var parts = message.split(" ");

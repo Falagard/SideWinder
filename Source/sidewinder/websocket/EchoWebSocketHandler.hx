@@ -41,6 +41,7 @@ class EchoWebSocketHandler implements IWebSocketHandler {
         adapter.websocketSendText(conn, "Welcome to SideWinder WebSocket Echo Server!");
     }
     
+#if hl
     public function onData(conn:Dynamic, flags:Int, data:hl.Bytes, length:Int):Void {
         // Extract opcode from flags (lower 4 bits)
         var opcode = flags & 0x0F;
@@ -71,6 +72,9 @@ class EchoWebSocketHandler implements IWebSocketHandler {
                 HybridLogger.info('[EchoWebSocket] Unknown opcode: $opcode');
         }
     }
+#else
+    public function onData(conn:Dynamic, flags:Int, data:haxe.io.Bytes, length:Int):Void {}
+#end
     
     public function onClose(conn:Dynamic):Void {
         HybridLogger.info('[EchoWebSocket] Connection closed');

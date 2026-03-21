@@ -60,6 +60,7 @@ class BroadcastWebSocketHandler implements IWebSocketHandler {
 		adapter.websocketSendText(conn, haxe.Json.stringify(welcomeMsg));
 	}
 
+#if hl
 	public function onData(conn:Dynamic, flags:Int, data:hl.Bytes, length:Int):Void {
 		var opcode = flags & 0x0F;
 
@@ -132,6 +133,9 @@ class BroadcastWebSocketHandler implements IWebSocketHandler {
 			}
 		}
 	}
+#else
+	public function onData(conn:Dynamic, flags:Int, data:haxe.io.Bytes, length:Int):Void {}
+#end
 
 	public function onClose(conn:Dynamic):Void {
 		var client = findConnection(conn);

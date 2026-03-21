@@ -84,6 +84,7 @@ class AuthenticatedWebSocketHandler implements IWebSocketHandler {
 		adapter.websocketSendText(conn, haxe.Json.stringify(authMsg));
 	}
 
+#if hl
 	public function onData(conn:Dynamic, flags:Int, data:hl.Bytes, length:Int):Void {
 		var opcode = flags & 0x0F;
 
@@ -169,6 +170,9 @@ class AuthenticatedWebSocketHandler implements IWebSocketHandler {
 			}
 		}
 	}
+#else
+	public function onData(conn:Dynamic, flags:Int, data:haxe.io.Bytes, length:Int):Void {}
+#end
 
 	public function onClose(conn:Dynamic):Void {
 		var client = connections.get(conn);

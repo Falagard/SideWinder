@@ -25,7 +25,11 @@ interface IWebSocketHandler {
      * @param data Data received
      * @param length Length of data
      */
+#if hl
     function onData(conn:Dynamic, flags:Int, data:hl.Bytes, length:Int):Void;
+#else
+    function onData(conn:Dynamic, flags:Int, data:haxe.io.Bytes, length:Int):Void;
+#end
     
     /**
      * Called when the WebSocket connection is closed

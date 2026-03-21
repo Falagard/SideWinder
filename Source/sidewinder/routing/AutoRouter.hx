@@ -13,78 +13,72 @@ using haxe.macro.TypeTools;
 
 /**
  * Macro that inspects an interface annotated with @get/@post/@put/@delete and
- * auto-registers concrete route handlers on a supplied router. For each interface
- * method it:
- *   - Derives HTTP method + path from metadata.
- *   - Extracts primitive args from req.params and complex args from req.jsonBody.
- *   - Instantiates the implementation via implExpr (a factory expression).
- *   - Invokes the method and writes JSON (application/json) for non-void results.
- *   - Supports @requiresAuth metadata to automatically inject userId from session.
- * Notes:
- *   - No try/catch or error normalization is currently added.
- *   - Complex arg resolution is simplistic (falls back to entire req.jsonBody).
- *   - All handlers are synchronous; async/promise return types are not handled.
+ * auto-registers concrete route handlers on a supplied router.
  */
 class AutoRouter {
+
 	public static macro function build(routerExpr:Expr, ifaceExpr:Expr, implExpr:Expr, ?cacheExpr:Expr):Expr {
+		trace('--- MACRO RUNNING FOR: ' + ifaceExpr.toString());
 		var router = routerExpr;
 		var routeExprs:Array<Expr> = [];
 
 		// Build expression that extracts an argument value from request (path params, query params, or JSON body).
-		function buildArgAccess(argName:String, t:Type, isOpt:Bool):Expr {
-			function primitive(kind:Type):Null<String> {
-				return switch kind {
-					case TAbstract(a, _):
-						var n = a.get().name;
-						(n == "Int" || n == "Float" || n == "Bool" || n == "String") ? n : null;
-					case TInst(t, _):
-						var n = t.get().name;
-						(n == "String") ? n : null;
-					case _: null;
-				};
-			}
-			var prim = primitive(t);
-			if (prim != null) {
-				// Check path parameters first, then query parameters
-				var base:Expr = macro(req.params.exists($v{argName}) ? req.params.get($v{argName}) : req.query.get($v{argName}));
-				if (isOpt)
-					base = macro(req.params.exists($v{argName}) ? req.params.get($v{argName}) : (req.query.exists($v{argName}) ? req.query.get($v{argName}) : null));
-				return switch prim {
-					case "Int":
-						if (isOpt) {
-							// NOTE: Using 0 as default may mask invalid input; consider returning null or sending 400.
-							macro($base != null ? (function(__s:String) {
-								var __v = Std.parseInt(__s);
-								return (__v == null ? 0 : __v);
-							})($base) : 0);
-						} else {
-							macro(function(__s:String) {
-								var __v = Std.parseInt(__s);
-								return (__v == null ? 0 : __v);
-							})($base);
-						}
-					case "Float":
-						if (isOpt) {
-							macro($base != null ? Std.parseFloat($base) : 0.0);
-						} else {
-							macro Std.parseFloat($base);
-						}
-					case "Bool":
-						// NOTE: Treats missing bool as false; consider null instead.
-						if (isOpt) {
-							macro($base != null ? ($base == "true" || $base == "1") : false);
-						} else {
-							macro($base != null ? ($base == "true" || $base == "1") : false);
-						}
-					case _: base;
-				};
+		function buildArgAccess(lookupName:String, t:Type, isOpt:Bool):Expr {
+			var typeStr = TypeTools.toString(t);
+			var isOptional = isOpt || typeStr.indexOf("Null<") != -1;
+			
+			var conversion:Expr = macro __val;
+			if (typeStr.indexOf("Int") != -1) {
+				conversion = macro (__val != null ? Std.parseInt(Std.string(__val)) : ($v{isOptional} ? null : (cast 0 : Int)));
+			} else if (typeStr.indexOf("Float") != -1) {
+				conversion = macro (__val != null ? Std.parseFloat(Std.string(__val)) : ($v{isOptional} ? null : 0.0));
+			} else if (typeStr.indexOf("Bool") != -1) {
+				conversion = macro (__val != null ? (Std.string(__val).toLowerCase() == "true") : ($v{isOptional} ? null : false));
+			} else if (typeStr.indexOf("String") != -1) {
+				conversion = macro (__val != null ? Std.string(__val) : null);
 			} else {
-				// For complex types: try field inside JSON body else pass whole body (may be ambiguous if multiple).
-				// Consider: if multiple complex args, this logic may not discriminate; enhance by requiring object root fields.
-				var access:Expr = macro(req.jsonBody != null
-					&& Reflect.hasField(req.jsonBody, $v{argName}) ? Reflect.field(req.jsonBody, $v{argName}) : req.jsonBody);
-				return access;
+				// Complex type: parsing from body or JSON string
+				conversion = macro {
+					var __json:Dynamic = null;
+					var __v:Dynamic = __val;
+					if (__v != null) {
+						if (Std.isOfType(__v, String)) {
+							try { __json = haxe.Json.parse(__v); } catch(e:Dynamic) {}
+						} else {
+							__json = __v;
+						}
+					}
+					if (__json == null && __rtReq.jsonBody != null) {
+						if (Reflect.hasField(__rtReq.jsonBody, $v{lookupName})) __json = Reflect.field(__rtReq.jsonBody, $v{lookupName});
+						else __json = __rtReq.jsonBody;
+					}
+					__json;
+				};
 			}
+
+			// Use a totally unique name for __val to avoid any collision
+			var uniqueValName = "__val_" + lookupName.split("-").join("_").split(".").join("_");
+
+			return macro {
+				var $uniqueValName:Dynamic = null;
+				var __name = $v{lookupName};
+				var __nameLower = __name.toLowerCase();
+				
+				if (__rtReq.params != null && __rtReq.params.exists(__name)) {
+					$i{uniqueValName} = __rtReq.params.get(__name);
+				} else if (__rtReq.params != null && __rtReq.params.exists(__nameLower)) {
+					$i{uniqueValName} = __rtReq.params.get(__nameLower);
+				} else if (__rtReq.query != null && __rtReq.query.exists(__name)) {
+					$i{uniqueValName} = __rtReq.query.get(__name);
+				} else if (__rtReq.query != null && __rtReq.query.exists(__nameLower)) {
+					$i{uniqueValName} = __rtReq.query.get(__nameLower);
+				} else if (__rtReq.jsonBody != null && Reflect.hasField(__rtReq.jsonBody, __name)) {
+					$i{uniqueValName} = Reflect.field(__rtReq.jsonBody, __name);
+				}
+				
+				var __val = $i{uniqueValName};
+				$conversion;
+			};
 		}
 
 		var type = Context.getType(ifaceExpr.toString());
@@ -138,9 +132,34 @@ class AutoRouter {
 
 							switch (field.type) {
 								case TFun(args, ret):
-									var callArgs:Array<Expr> = [];
 									var hasUserIdParam = false;
 									var userIdParamIndex = -1;
+
+									var headerInjections = new Map<String, String>();
+									var queryInjections = new Map<String, String>();
+									var pathInjections = new Map<String, String>();
+									var bodyParam:String = null;
+									
+									for (m in field.meta.get()) {
+										if (m.name == "headerParam" && m.params.length == 2) {
+											var argName = switch (m.params[0].expr) { case EConst(CString(s)): s; default: null; };
+											var headerName = switch (m.params[1].expr) { case EConst(CString(s)): s; default: null; };
+											if (argName != null && headerName != null) headerInjections.set(argName, headerName);
+										}
+										if (m.name == "queryParam" && m.params.length == 2) {
+											var argName = switch (m.params[0].expr) { case EConst(CString(s)): s; default: null; };
+											var targetName = switch (m.params[1].expr) { case EConst(CString(s)): s; default: null; };
+											if (argName != null && targetName != null) queryInjections.set(argName, targetName);
+										}
+										if (m.name == "pathParam" && m.params.length == 2) {
+											var argName = switch (m.params[0].expr) { case EConst(CString(s)): s; default: null; };
+											var targetName = switch (m.params[1].expr) { case EConst(CString(s)): s; default: null; };
+											if (argName != null && targetName != null) pathInjections.set(argName, targetName);
+										}
+										if (m.name == "bodyParam" && m.params.length == 1) {
+											bodyParam = switch (m.params[0].expr) { case EConst(CString(s)): s; default: null; };
+										}
+									}
 
 									// Check if there's a userId parameter
 									for (i in 0...args.length) {
@@ -151,205 +170,231 @@ class AutoRouter {
 										}
 									}
 
+									var argVars:Array<Expr> = [];
+									var callArgNames:Array<Expr> = [];
+
 									for (i in 0...args.length) {
 										var arg = args[i];
-										// Skip userId parameter - we'll inject it later if requiresAuth
-										if (arg.name == "userId" && hasUserIdParam) {
-											callArgs.push(macro null); // placeholder
+										var argName = arg.name;
+										var varName = "__arg_" + i;
+										callArgNames.push({ expr: EConst(CIdent(varName)), pos: Context.currentPos() });
+										
+										if (headerInjections.exists(argName)) {
+											var hName = headerInjections.get(argName);
+											argVars.push(macro var $varName = (function(headers:Map<String, String>) {
+												if (headers == null) return null;
+												if (headers.exists($v{hName})) return headers.get($v{hName});
+												var lower = $v{hName.toLowerCase()};
+												for (k in headers.keys()) {
+													if (k.toLowerCase() == lower) return headers.get(k);
+												}
+												return null;
+											})(__rtReq.headers));
+										} else if (argName == bodyParam) {
+											argVars.push(macro var $varName = __rtReq.body);
 										} else {
-											callArgs.push(buildArgAccess(arg.name, arg.t, arg.opt));
+											var lookupName = argName;
+											if (queryInjections.exists(argName)) lookupName = queryInjections.get(argName);
+											if (pathInjections.exists(argName)) lookupName = pathInjections.get(argName);
+											
+											// Special handling for userId - only inject from session if NOT in path/query
+											if (argName == "userId" && hasUserIdParam) {
+												var isBoundToPath = path.indexOf(":" + lookupName) != -1 || path.indexOf(":*" + lookupName) != -1;
+												if (!isBoundToPath && !queryInjections.exists(argName)) {
+													argVars.push(macro var $varName = __userId);
+													continue;
+												}
+											}
+
+											argVars.push(macro var $varName = ${buildArgAccess(lookupName, arg.t, arg.opt)});
 										}
 									}
 
 									var followedRet = Context.follow(ret);
 									var retName = TypeTools.toString(followedRet);
-									inline function isVoid():Bool
-										return retName == "Void";
-									inline function isPrimitive():Bool
-										return (retName == "Int" || retName == "Float" || retName == "Bool" || retName == "String");
+									inline function isVoid():Bool return retName == "Void";
+									inline function isPrimitive():Bool return (retName == "Int" || retName == "Float" || retName == "Bool" || retName == "String");
 
 									var methodName = field.name;
 
-									// Build auth check if requiresAuth is true (always check session)
-									var authCheck:Expr = if (requiresAuth) {
-										macro {
-											var __userId:String = null;
-											var __sessionToken:String = null;
+									// Trace request metadata for debugging
+									var traceReq = macro {
+										var paramsStr = "";
+										if (__rtReq.params != null) {
+											var pKeys = [];
+											for (k in __rtReq.params.keys()) pKeys.push(k + " => " + __rtReq.params.get(k));
+											paramsStr = "[" + pKeys.join(", ") + "]";
+										}
+										var queryStr = "";
+										if (__rtReq.query != null) {
+											var qKeys = [];
+											for (k in __rtReq.query.keys()) qKeys.push(k + " => " + __rtReq.query.get(k));
+											queryStr = "[" + qKeys.join(", ") + "]";
+										}
+										trace('[AutoRouter] ' + $v{methodName} + ' - Params: ' + paramsStr + ', Query: ' + queryStr);
+									};
 
-											// Extract auth_token from cookies
-											if (req.cookies != null && req.cookies.exists("auth_token")) {
-												__sessionToken = req.cookies.get("auth_token");
+									// Build session extraction and auth check
+									var authRun:Expr = macro {
+										$traceReq;
+										// 1. Try to get from AuthenticationMiddleware (__rtReq.params)
+										if (__rtReq.params != null) {
+											if (__rtReq.params.exists("auth_user_json")) {
+												var __uJson = __rtReq.params.get("auth_user_json");
+												try { __sessionData = haxe.Json.parse(__uJson); } catch (e:Dynamic) {}
 											}
+											if (__rtReq.params.exists("auth_user_id")) { __userId = __rtReq.params.get("auth_user_id"); }
+											if (__rtReq.params.exists("auth_token")) { __sessionToken = __rtReq.params.get("auth_token"); }
+										}
 
-											// Fallback: Check Authorization header
+										// 2. Fallback extraction
+										if (__sessionToken == null) {
+											if (__rtReq.cookies != null && __rtReq.cookies.exists("session_token")) { __sessionToken = __rtReq.cookies.get("session_token"); }
 											if (__sessionToken == null) {
-												var authHeader = req.headers.get("Authorization");
-												if (authHeader != null && authHeader.indexOf("Bearer ") == 0) {
-													__sessionToken = authHeader.substring(7);
+												var authHeader = __rtReq.headers.get("Authorization");
+												if (authHeader == null) authHeader = __rtReq.headers.get("authorization");
+												if (authHeader != null && authHeader.indexOf("Bearer ") == 0) { __sessionToken = authHeader.substring(7); }
+											}
+										}
+										if (__sessionToken != null && __sessionData == null && $cacheExpr != null) {
+											var cached = ($cacheExpr).get("auth:session_by_token:" + __sessionToken);
+											if (cached != null) {
+												if (Std.isOfType(cached, String)) { try { __sessionData = haxe.Json.parse(cached); } catch (e:Dynamic) {} }
+												else { __sessionData = cached; }
+											}
+										}
+										if (__userId == null && __sessionData != null) {
+											if (Reflect.hasField(__sessionData, "id")) __userId = Std.string(Reflect.field(__sessionData, "id"));
+											else if (Reflect.hasField(__sessionData, "userId")) __userId = Std.string(Reflect.field(__sessionData, "userId"));
+										}
+
+										if ($v{requiresAuth} && __userId == null) {
+											__rtRes.sendResponse(snake.http.HTTPStatus.UNAUTHORIZED);
+											__rtRes.setHeader("Content-Type", "application/json");
+											__rtRes.endHeaders();
+											__rtRes.write(haxe.Json.stringify({error: "Unauthorized - Authentication required"}));
+											__rtRes.end();
+											return;
+										}
+
+										if ($v{requiresAuth} && $v{requiredPermission} != null) {
+											var __hasPerm = false;
+											if (__sessionData != null && Reflect.hasField(__sessionData, "permissions")) {
+												var __perms:Array<Dynamic> = Reflect.field(__sessionData, "permissions");
+												if (__perms != null) {
+													for (__p in __perms) {
+														var __ps = Std.string(__p);
+														if (__ps == $v{requiredPermission} || __ps == "admin" || __ps == "*") { __hasPerm = true; break; }
+													}
 												}
 											}
-
-											var __sessionData:Dynamic = null;
-											if (__sessionToken != null && $cacheExpr != null) {
-												// Look up session from cache by token
-												__sessionData = ($cacheExpr).get("auth:session_by_token:" + __sessionToken);
-
-												// Parse JSON if it's a string (since cache stores stringified JSON)
-												if (__sessionData != null && Std.isOfType(__sessionData, String)) {
-													try {
-														__sessionData = haxe.Json.parse(__sessionData);
-													} catch (e:Dynamic) {
-														__sessionData = null;
-													}
-												}
-
-												if (__sessionData != null) {
-													if (Reflect.hasField(__sessionData, "userId")) {
-														__userId = Std.string(Reflect.field(__sessionData, "userId"));
-													}
-												} else {
-													// TRY param injection fallback
-													if (req.params.exists("auth_user_json")) {
-														var __uJson = req.params.get("auth_user_json");
-														try {
-															var __uObj = haxe.Json.parse(__uJson);
-															if (Reflect.hasField(__uObj, "id")) {
-																__userId = Reflect.field(__uObj, "id");
-															}
-														} catch (e:Dynamic) {}
-													}
-												}
-											}
-
-											if (__userId == null) {
-												res.sendResponse(snake.http.HTTPStatus.UNAUTHORIZED);
-												res.setHeader("Content-Type", "application/json");
-												res.endHeaders();
-												res.write(haxe.Json.stringify({error: "Unauthorized - Authentication required"}));
-												res.end();
+											if (!__hasPerm) {
+												__rtRes.sendResponse(snake.http.HTTPStatus.FORBIDDEN);
+												__rtRes.setHeader("Content-Type", "application/json");
+												__rtRes.endHeaders();
+												__rtRes.write(haxe.Json.stringify({error: "Forbidden - Missing permission: " + $v{requiredPermission}}));
+												__rtRes.end();
 												return;
 											}
-
-											// Permission check
-											if ($v{requiredPermission} != null) {
-												var __hasPerm = false;
-												if (__sessionData != null && Reflect.hasField(__sessionData, "permissions")) {
-													var __perms:Array<String> = Reflect.field(__sessionData, "permissions");
-													if (__perms != null
-														&& (__perms.indexOf($v{requiredPermission}) != -1
-															|| __perms.indexOf("admin") != -1)) {
-														__hasPerm = true;
-													}
-												}
-												if (!__hasPerm) {
-													res.sendResponse(snake.http.HTTPStatus.FORBIDDEN);
-													res.setHeader("Content-Type", "application/json");
-													res.endHeaders();
-													res.write(haxe.Json.stringify({error: "Forbidden - Missing required permission: " + $v{requiredPermission}}));
-													res.end();
-													return;
-												}
-											}
-										};
-									} else {
-										macro {};
+										}
 									};
 
-									// Replace userId placeholder with actual value if needed
-									if (requiresAuth && hasUserIdParam && userIdParamIndex >= 0) {
-										callArgs[userIdParamIndex] = macro __userId;
+									var injectFields = macro {
+										if (inst != null) {
+											try { (cast inst).session = __sessionData; } catch(e:Dynamic) {}
+											try { (cast inst).currentUser = __sessionData; } catch(e:Dynamic) {}
+											try { (cast inst).currentToken = __sessionToken; } catch(e:Dynamic) {}
+											try { (cast inst).userId = __userId; } catch(e:Dynamic) {}
+										}
+									};
+
+									// Build the handler body as a flat list of expressions to avoid scope issues
+									var handlerBody:Array<Expr> = [];
+									handlerBody.push(macro var __userId:String = null);
+									handlerBody.push(macro var __sessionToken:String = null);
+									handlerBody.push(macro var __sessionData:Dynamic = null);
+									handlerBody.push(authRun);
+									handlerBody.push(macro var inst:Dynamic = ($implExpr)());
+									handlerBody.push(injectFields);
+
+									// Flat injection of argument variables
+									for (v in argVars) handlerBody.push(v);
+
+									handlerBody.push(macro trace('[AutoRouter] Calling ' + $v{methodName} + ' with args: ' + Std.string([ $a{callArgNames} ])));
+
+									if (isVoid()) {
+										handlerBody.push(macro inst.$methodName($a{callArgNames}));
+										handlerBody.push(macro __rtRes.sendResponse(sidewinder.routing.StatusHelper.getStatus(200)));
+										handlerBody.push(macro __rtRes.endHeaders());
+										handlerBody.push(macro __rtRes.end());
+									} else if (isPrimitive()) {
+										handlerBody.push(macro var result = inst.$methodName($a{callArgNames}));
+										handlerBody.push(macro __rtRes.sendResponse(sidewinder.routing.StatusHelper.getStatus(200)));
+										handlerBody.push(macro __rtRes.setHeader("Content-Type", "application/json"));
+										handlerBody.push(macro var json = haxe.Json.stringify(result));
+										handlerBody.push(macro __rtRes.setHeader('Content-Length', Std.string(haxe.io.Bytes.ofString(json).length)));
+										handlerBody.push(macro __rtRes.endHeaders());
+										handlerBody.push(macro __rtRes.write(json));
+										handlerBody.push(macro __rtRes.end());
+									} else {
+										handlerBody.push(macro var result = inst.$methodName($a{callArgNames}));
+										handlerBody.push(macro trace('[AutoRouter] ' + $v{methodName} + ' returned: ' + Std.string(result)));
+										handlerBody.push(macro {
+											var __statusInt:Int = 200;
+											if (result != null) {
+												if (Reflect.hasField(result, "status")) {
+													var __v = Reflect.field(result, "status");
+													if (Std.isOfType(__v, Int)) __statusInt = __v;
+												} else if (Reflect.hasField(result, "statusCode")) {
+													var __v = Reflect.field(result, "statusCode");
+													if (Std.isOfType(__v, Int)) __statusInt = __v;
+												} else if (Reflect.hasField(result, "success")) {
+													var __v = Reflect.field(result, "success");
+													if (__v == false) __statusInt = 400;
+												}
+											}
+											__rtRes.sendResponse(sidewinder.routing.StatusHelper.getStatus(__statusInt));
+											__rtRes.setHeader("Content-Type", "application/json");
+
+											if (result != null && Reflect.hasField(result, "cookies")) {
+												var __cookies:Array<Dynamic> = Reflect.field(result, "cookies");
+												if (__cookies != null) {
+													for (__c in __cookies) { __rtRes.setCookie(__c.name, __c.value, __c.options); }
+												}
+											}
+
+											var json = (result != null ? haxe.Json.stringify(result) : "");
+											__rtRes.setHeader('Content-Length', Std.string(haxe.io.Bytes.ofString(json).length));
+											__rtRes.endHeaders();
+											__rtRes.write(json);
+											__rtRes.end();
+										});
 									}
 
-									// Handler body; consider wrapping in try/catch for 500 responses.
-									var handler:Expr = if (isVoid()) {
-										macro function(req, res) {
-											var __userId:String = null;
-											$authCheck;
-											try {
-												var inst = ($implExpr)();
-												inst.$methodName($a{callArgs});
-												res.sendResponse(snake.http.HTTPStatus.OK);
-												res.endHeaders();
-												res.end();
-											} catch (e:Dynamic) {
-												sidewinder.logging.HybridLogger.error('[AutoRouter] Error in ' + $v{methodName} + ': ' + e);
-												var errStr = Std.string(e);
-												if (errStr.indexOf("UNIQUE constraint") != -1) {
-													res.sendError(snake.http.HTTPStatus.CONFLICT);
-													res.endHeaders();
-													res.write(haxe.Json.stringify({error: "Conflict", message: errStr}));
-												} else {
-													res.sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR);
-													res.endHeaders();
-													res.write(haxe.Json.stringify({error: "Internal Server Error"}));
-												}
-												res.end();
-											}
-										};
-									} else if (isPrimitive()) {
-										macro function(req, res) {
-											var __userId:String = null;
-											$authCheck;
-											try {
-												var inst = ($implExpr)();
-												var result = inst.$methodName($a{callArgs});
-												res.sendResponse(snake.http.HTTPStatus.OK);
-												res.setHeader("Content-Type", "application/json"); // changed to application/json
-												var json = haxe.Json.stringify(result);
-												res.setHeader('Content-Length', Std.string(haxe.io.Bytes.ofString(json).length));
-												res.endHeaders();
-												res.write(json);
-												res.end();
-											} catch (e:Dynamic) {
-												sidewinder.logging.HybridLogger.error('[AutoRouter] Error in ' + $v{methodName} + ': ' + e);
-												var errStr = Std.string(e);
-												if (errStr.indexOf("UNIQUE constraint") != -1) {
-													res.sendError(snake.http.HTTPStatus.CONFLICT);
-													res.endHeaders();
-													res.write(haxe.Json.stringify({error: "Conflict", message: errStr}));
-												} else {
-													res.sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR);
-													res.endHeaders();
-													res.write(haxe.Json.stringify({error: "Internal Server Error"}));
-												}
-												res.end();
-											}
-										};
-									} else {
-										// JSON Response (default)
-										macro function(req, res) {
-											var __userId:String = null;
-											$authCheck;
-											try {
-												var inst = ($implExpr)();
-												var result = inst.$methodName($a{callArgs});
-												res.sendResponse(snake.http.HTTPStatus.OK);
-												res.setHeader("Content-Type", "application/json"); // changed to application/json
-												var json = "";
-												if ((cast result : Dynamic) != null)
-													json = haxe.Json.stringify(result);
-												res.setHeader('Content-Length', Std.string(haxe.io.Bytes.ofString(json).length));
-												res.endHeaders();
-												res.write(json);
-												res.end();
-											} catch (e:Dynamic) {
-												sidewinder.logging.HybridLogger.error('[AutoRouter] Error in ' + $v{methodName} + ': ' + e);
-												var errStr = Std.string(e);
-												if (errStr.indexOf("UNIQUE constraint") != -1) {
-													res.sendError(snake.http.HTTPStatus.CONFLICT);
-													res.endHeaders();
-													res.write(haxe.Json.stringify({error: "Conflict", message: errStr}));
-												} else {
-													res.sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR);
-													res.endHeaders();
-													res.write(haxe.Json.stringify({error: "Internal Server Error"}));
-												}
-												res.end();
-											}
-										};
+									// Final handler wrapping everything in a try-catch
+									var handler = macro function(__rtReq, __rtRes) {
+										try {
+											$b{handlerBody}
+										} catch (e:Dynamic) {
+											var stack = haxe.CallStack.toString(haxe.CallStack.exceptionStack());
+											trace('[AutoRouter] Error in ' + $v{methodName} + ': ' + Std.string(e) + '\nStack: ' + stack);
+											sidewinder.logging.HybridLogger.error('[AutoRouter] Error in ' + $v{methodName} + ': ' + Std.string(e) + '\nStack: ' + stack);
+											var errStr = Std.string(e);
+											var __errStatusInt:Int = 500;
+											if (errStr == "404") __errStatusInt = 404;
+											else if (errStr == "403") __errStatusInt = 403;
+											else if (errStr == "401") __errStatusInt = 401;
+											else if (errStr.indexOf("UNIQUE constraint") != -1) __errStatusInt = 409;
+											else if (errStr.indexOf("signature") != -1 || errStr.indexOf("Signature") != -1) __errStatusInt = 400;
+											
+											__rtRes.sendError(sidewinder.routing.StatusHelper.getStatus(__errStatusInt));
+											__rtRes.endHeaders();
+											if (__errStatusInt == 500) { __rtRes.write(haxe.Json.stringify({error: "Internal Server Error", message: errStr})); }
+											else { __rtRes.write(haxe.Json.stringify({error: errStr})); }
+											__rtRes.end();
+										}
 									};
 
-									// Register route; assumes upper-case method matching router expectations.
 									var addRoute:Expr = switch httpMethod {
 										case "get": macro __autoRouter.add("GET", $v{path}, $handler);
 										case "post": macro __autoRouter.add("POST", $v{path}, $handler);
@@ -359,18 +404,17 @@ class AutoRouter {
 									};
 
 									if (addRoute != null) {
-										trace('AutoRouter registering: ' + httpMethod.toUpperCase() + ' ' + path + ' -> ' + field.name);
+										// var printer = new haxe.macro.Printer();
+										// trace('GENERATED FOR ' + methodName + ':\n' + printer.printExpr(handler));
 										routeExprs.push(addRoute);
 									}
 
 								default:
 									Context.error('Unexpected non-function type on method', field.pos);
 							}
-
 						default:
 					}
 				}
-
 			default:
 				Context.error('Expected an interface type, got ' + TypeTools.toString(type), ifaceExpr.pos);
 		}

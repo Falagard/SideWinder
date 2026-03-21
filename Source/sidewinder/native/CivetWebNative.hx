@@ -5,138 +5,77 @@ import sidewinder.interfaces.IWebSocketHandler.WebSocketOpcode;
  * HashLink native bindings for CivetWeb
  * Low-level interface to the CivetWeb C library
  */
+#if hl
 @:hlNative("civetweb")
 abstract CivetWebNative(hl.Abstract<"hl_civetweb_server">) {
-	/**
-	 * Create a new CivetWeb server instance
-	 * @param host Host address (e.g., "127.0.0.1")
-	 * @param port Port number
-	 * @param documentRoot Optional document root for static files
-	 * @return Server handle
-	 */
 	@:hlNative("civetweb", "create")
 	public static function create(host:hl.Bytes, port:Int, documentRoot:hl.Bytes):CivetWebNative {
 		return null;
 	}
 
-	/**
-	 * Start the server (uses polling architecture - no callback)
-	 * @param server Server handle
-	 * @return True if started successfully
-	 */
 	@:hlNative("civetweb", "start")
 	public static function start(server:CivetWebNative):Bool {
 		return false;
 	}
 
-	/**
-	 * Stop the server
-	 * @param server Server handle
-	 */
 	@:hlNative("civetweb", "stop")
 	public static function stop(server:CivetWebNative):Void {}
 
-	/**
-	 * Check if server is running
-	 * @param server Server handle
-	 * @return True if running
-	 */
 	@:hlNative("civetweb", "is_running")
 	public static function isRunning(server:CivetWebNative):Bool {
 		return false;
 	}
 
-	/**
-	 * Get server port
-	 * @param server Server handle
-	 * @return Port number
-	 */
 	@:hlNative("civetweb", "get_port")
 	public static function getPort(server:CivetWebNative):Int {
 		return 0;
 	}
 
-	/**
-	 * Get server host
-	 * @param server Server handle
-	 * @return Host address
-	 */
 	@:hlNative("civetweb", "get_host")
 	public static function getHost(server:CivetWebNative):hl.Bytes {
 		return null;
 	}
 
-	/**
-	 * Free server resources
-	 * @param server Server handle
-	 */
 	@:hlNative("civetweb", "free")
 	public static function free(server:CivetWebNative):Void {}
 
-	// ============================================================================
-	// POLLING ARCHITECTURE: WebSocket Functions
-	// ============================================================================
-
-	/**
-	 * Poll for a single pending WebSocket event (called from Haxe main thread)
-	 * Returns event object or null if queue is empty
-	 * @param server Server handle
-	 * @return Dynamic event object or null
-	 */
 	@:hlNative("civetweb", "poll_websocket_event")
 	public static function pollWebSocketEvent(server:CivetWebNative):Dynamic {
 		return null;
 	}
 
-	/**
-	 * Send data through WebSocket
-	 * @param conn Connection handle
-	 * @param opcode WebSocket opcode (1=text, 2=binary, 8=close, 9=ping, 10=pong)
-	 * @param data Data to send
-	 * @param length Length of data
-	 * @return Bytes sent or -1 on error
-	 */
 	@:hlNative("civetweb", "websocket_send")
 	public static function websocketSend(conn:hl.Bytes, opcode:Int, data:hl.Bytes, length:Int):Int {
 		return -1;
 	}
 
-	/**
-	 * Close WebSocket connection
-	 * @param conn Connection handle
-	 * @param code Close status code
-	 * @param reason Close reason
-	 */
 	@:hlNative("civetweb", "websocket_close")
 	public static function websocketClose(conn:hl.Bytes, code:Int, reason:hl.Bytes):Void {}
 
-	// ============================================================================
-	// POLLING ARCHITECTURE: New Functions
-	// ============================================================================
-
-	/**
-	 * Poll for a single pending HTTP request (called from Haxe main thread)
-	 * Returns request data object or null if queue is empty
-	 * @param server Server handle
-	 * @return Dynamic request object or null
-	 */
 	@:hlNative("civetweb", "poll_request")
 	public static function pollRequest(server:CivetWebNative):Dynamic {
 		return null;
 	}
 
-	/**
-	 * Push a response for a request ID (called from Haxe main thread)
-	 * @param server Server handle
-	 * @param requestId Request ID from polled request
-	 * @param statusCode HTTP status code
-	 * @param contentType Content-Type header
-	 * @param body Response body
-	 * @param bodyLength Length of response body
-	 */
 	@:hlNative("civetweb", "push_response")
 	public static function pushResponse(server:CivetWebNative, requestId:Int, statusCode:Int, contentType:hl.Bytes, body:hl.Bytes, bodyLength:Int):Void {}
 }
+#else
+abstract CivetWebNative(Dynamic) {
+	public static function create(host:Dynamic, port:Int, documentRoot:Dynamic):CivetWebNative return null;
+	public static function start(server:CivetWebNative):Bool return false;
+	public static function stop(server:CivetWebNative):Void {}
+	public static function isRunning(server:CivetWebNative):Bool return false;
+	public static function getPort(server:CivetWebNative):Int return 0;
+	public static function getHost(server:CivetWebNative):Dynamic return null;
+	public static function free(server:CivetWebNative):Void {}
+	public static function pollWebSocketEvent(server:CivetWebNative):Dynamic return null;
+	public static function websocketSend(conn:Dynamic, opcode:Int, data:Dynamic, length:Int):Int return -1;
+	public static function websocketClose(conn:Dynamic, code:Int, reason:Dynamic):Void {}
+	public static function pollRequest(server:CivetWebNative):Dynamic return null;
+	public static function pushResponse(server:CivetWebNative, requestId:Int, statusCode:Int, contentType:Dynamic, body:Dynamic, bodyLength:Int):Void {}
+}
+#end
 
 /**
  * HTTP request data from CivetWeb
