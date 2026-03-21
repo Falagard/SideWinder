@@ -58,6 +58,7 @@ class SqliteDatabaseService implements IDatabaseService {
 
 	public function new() {
 		startWriterThread();
+		logSqliteStatus();
 	}
 
 	private function startWriterThread() {
@@ -402,6 +403,45 @@ class SqliteDatabaseService implements IDatabaseService {
 			inTransaction.set(false);
 			transactionMutex.release();
 			throw e;
+		}
+	}
+
+	private function logSqliteStatus() {
+		try {
+			var rsVersion = read("SELECT sqlite_version();");
+			var verStr = "unknown";
+			if (rsVersion.hasNext()) {
+				var version = rsVersion.next();
+				var fields = Reflect.fields(version);
+				verStr = fields.length > 0 ? Reflect.field(version, fields[0]) : "unknown";
+			}
+			trace('--- SQLite Version: $verStr ---');
+
+			var opts = read("PRAGMA compile_options;");
+			var options = [];
+			for (row in opts) {
+				var f = Reflect.fields(row);
+				options.push(Reflect.field(row, f[0]));
+			}
+			trace('--- SQLite Compile Options: ${options.join(", ")} ---');
+
+			// module_list depends on version >= 3.16.0
+			var parts = verStr.split(".");
+			if (parts.length >= 2) {
+				var major = Std.parseInt(parts[0]);
+				var minor = Std.parseInt(parts[1]);
+				if (major > 3 || (major == 3 && minor >= 16)) {
+					var mods = read("PRAGMA module_list;");
+					var modules = [];
+					for (row in mods) {
+						var f = Reflect.fields(row);
+						modules.push(Reflect.field(row, f[0]));
+					}
+					trace('--- SQLite Modules: ${modules.join(", ")} ---');
+				}
+			}
+		} catch (e:Dynamic) {
+			trace('Error logging SQLite status: $e');
 		}
 	}
 }
