@@ -1,0 +1,54 @@
+VerifySqlite.hx:8: SQLITE Version: 3.49.1
+VerifySqlite.hx:10: --- Compile Options ---
+VerifySqlite.hx:13: Option: ATOMIC_INTRINSICS=0
+VerifySqlite.hx:13: Option: COMPILER=msvc-1944
+VerifySqlite.hx:13: Option: DEFAULT_AUTOVACUUM
+VerifySqlite.hx:13: Option: DEFAULT_CACHE_SIZE=-2000
+VerifySqlite.hx:13: Option: DEFAULT_FILE_FORMAT=4
+VerifySqlite.hx:13: Option: DEFAULT_JOURNAL_SIZE_LIMIT=-1
+VerifySqlite.hx:13: Option: DEFAULT_MMAP_SIZE=0
+VerifySqlite.hx:13: Option: DEFAULT_PAGE_SIZE=4096
+VerifySqlite.hx:13: Option: DEFAULT_PCACHE_INITSZ=20
+VerifySqlite.hx:13: Option: DEFAULT_RECURSIVE_TRIGGERS
+VerifySqlite.hx:13: Option: DEFAULT_SECTOR_SIZE=4096
+VerifySqlite.hx:13: Option: DEFAULT_SYNCHRONOUS=2
+VerifySqlite.hx:13: Option: DEFAULT_WAL_AUTOCHECKPOINT=1000
+VerifySqlite.hx:13: Option: DEFAULT_WAL_SYNCHRONOUS=2
+VerifySqlite.hx:13: Option: DEFAULT_WORKER_THREADS=0
+VerifySqlite.hx:13: Option: DIRECT_OVERFLOW_READ
+VerifySqlite.hx:13: Option: ENABLE_DBSTAT_VTAB
+VerifySqlite.hx:13: Option: ENABLE_FTS5
+VerifySqlite.hx:13: Option: ENABLE_GEOPOLY
+VerifySqlite.hx:13: Option: ENABLE_MATH_FUNCTIONS
+VerifySqlite.hx:13: Option: ENABLE_PREUPDATE_HOOK
+VerifySqlite.hx:13: Option: ENABLE_RTREE
+VerifySqlite.hx:13: Option: ENABLE_SESSION
+VerifySqlite.hx:13: Option: MALLOC_SOFT_LIMIT=1024
+VerifySqlite.hx:13: Option: MAX_ATTACHED=10
+VerifySqlite.hx:13: Option: MAX_COLUMN=2000
+VerifySqlite.hx:13: Option: MAX_COMPOUND_SELECT=500
+VerifySqlite.hx:13: Option: MAX_DEFAULT_PAGE_SIZE=8192
+VerifySqlite.hx:13: Option: MAX_EXPR_DEPTH=1000
+VerifySqlite.hx:13: Option: MAX_FUNCTION_ARG=1000
+VerifySqlite.hx:13: Option: MAX_LENGTH=1000000000
+VerifySqlite.hx:13: Option: MAX_LIKE_PATTERN_LENGTH=50000
+VerifySqlite.hx:13: Option: MAX_MMAP_SIZE=0x7fff0000
+VerifySqlite.hx:13: Option: MAX_PAGE_COUNT=0xfffffffe
+VerifySqlite.hx:13: Option: MAX_PAGE_SIZE=65536
+VerifySqlite.hx:13: Option: MAX_SQL_LENGTH=1000000000
+VerifySqlite.hx:13: Option: MAX_TRIGGER_DEPTH=1000
+VerifySqlite.hx:13: Option: MAX_VARIABLE_NUMBER=32766
+VerifySqlite.hx:13: Option: MAX_VDBE_OP=250000000
+VerifySqlite.hx:13: Option: MAX_WORKER_THREADS=8
+VerifySqlite.hx:13: Option: MUTEX_W32
+VerifySqlite.hx:13: Option: SYSTEM_MALLOC
+VerifySqlite.hx:13: Option: TEMP_STORE=1
+VerifySqlite.hx:13: Option: THREADSAFE=1
+VerifySqlite.hx:13: Option: USE_ALLOCA
+VerifySqlite.hx:16: --- Feature Verification ---
+VerifySqlite.hx:21: Math Functions (sin(1.0)): SUCCESS (0.841470984807897)
+VerifySqlite.hx:27: JSON1 (json): SUCCESS ({"a":1})
+VerifySqlite.hx:33: FTS5: SUCCESS
+VerifySqlite.hx:39: RTREE: SUCCESS
+VerifySqlite.hx:45: GEOPOLY: SUCCESS (1)
+VerifySqlite.hx:54: Session Support: Check compile_options for ENABLE_SESSION
