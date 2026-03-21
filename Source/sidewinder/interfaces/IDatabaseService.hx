@@ -58,6 +58,13 @@ interface IDatabaseService extends Service {
 	 * Execute an INSERT and return the last insert ID
 	 */
 	public function executeAndGetId(sql:String, ?params:Map<String, Dynamic>):Int;
+
+	/**
+	 * Enqueue a non-query (INSERT/UPDATE/DELETE) for asynchronous execution.
+	 * This is "fire-and-forget" and should only be used for non-critical 
+	 * operations where immediate feedback or consistency is not required.
+	 */
+	public function enqueue(sql:String, ?params:Map<String, Dynamic>):Void;
 	
 	/**
 	 * Run database migrations

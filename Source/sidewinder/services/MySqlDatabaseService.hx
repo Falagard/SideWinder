@@ -105,6 +105,11 @@ class MySqlDatabaseService implements IDatabaseService {
 		requestWrite(sql, params);
 	}
 
+	public function enqueue(sql:String, ?params:Map<String, Dynamic>):Void {
+		// Sync fallback for MySQL implementation
+		requestWrite(sql, params);
+	}
+
 	public function executeAndGetId(sql:String, ?params:Map<String, Dynamic>):Int {
 		var conn = acquire();
 		var finalSql = (params != null) ? buildSql(sql, params) : sql;
@@ -242,5 +247,17 @@ class MySqlDatabaseService implements IDatabaseService {
 
 	public function sanitize(str:String):String {
 		return str == null ? null : escapeString(StringTools.trim(str));
+	}
+
+	public function beginTransaction():Void {
+		execute("START TRANSACTION;");
+	}
+
+	public function commit():Void {
+		execute("COMMIT;");
+	}
+
+	public function rollback():Void {
+		execute("ROLLBACK;");
 	}
 }

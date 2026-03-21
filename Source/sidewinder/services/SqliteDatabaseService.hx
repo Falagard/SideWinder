@@ -29,7 +29,7 @@ import DateTools;
  * - Dedicated background writer thread to serialize all writes.
  */
 class SqliteDatabaseService implements IDatabaseService {
-	static inline var DB_PATH = "data.db";
+	var dbPath:String;
 	static inline var MAX_POOL_SIZE = 32;
 
 	// Shared resources
@@ -39,24 +39,27 @@ class SqliteDatabaseService implements IDatabaseService {
 	var inTransaction = new ThreadLocal<Bool>(() -> false);
 
 	// Thread-local storage for read connections
-	var threadConn = new ThreadLocal<Connection>(() -> {
-		var conn = Sqlite.open(DB_PATH);
-		conn.request("PRAGMA foreign_keys = ON;");
-		conn.request("PRAGMA journal_mode = WAL;");
-		conn.request("PRAGMA synchronous = normal;");
-		conn.request("PRAGMA temp_store = memory;");
-		conn.request("PRAGMA mmap_size = 30000000000;");
-		return conn;
-	}, (conn) -> {
-		if (conn != null)
-			conn.close();
-	});
-
+	var threadConn:ThreadLocal<Connection>;
 	// Writer thread components
 	var writeQueue = new Deque<WriteRequest>();
 	var writerThread:Thread;
 
 	public function new() {
+		if (this.dbPath == null) this.dbPath = "data.db";
+
+		this.threadConn = new ThreadLocal<Connection>(() -> {
+			var conn = Sqlite.open(this.dbPath);
+			conn.request("PRAGMA foreign_keys = ON;");
+			conn.request("PRAGMA journal_mode = WAL;");
+			conn.request("PRAGMA synchronous = normal;");
+			conn.request("PRAGMA temp_store = memory;");
+			conn.request("PRAGMA mmap_size = 30000000000;");
+			return conn;
+		}, (conn) -> {
+			if (conn != null)
+				conn.close();
+		});
+
 		startWriterThread();
 		logSqliteStatus();
 	}
@@ -65,7 +68,7 @@ class SqliteDatabaseService implements IDatabaseService {
 		writerThread = Thread.create(() -> {
 			while (true) {
 				try {
-					var conn = Sqlite.open(DB_PATH);
+					var conn = Sqlite.open(dbPath);
 					conn.request("PRAGMA foreign_keys = ON;");
 					conn.request("PRAGMA journal_mode = WAL;");
 					conn.request("PRAGMA synchronous = normal;");
@@ -104,11 +107,15 @@ class SqliteDatabaseService implements IDatabaseService {
 									throw e;
 								}
 							}
-							request.response.push({rs: rs, error: null, lastId: lastId});
+							if (request.response != null) {
+								request.response.push({rs: rs, error: null, lastId: lastId});
+							}
 						} catch (e:Dynamic) {
 							// Single-query error doesn't kill the thread loop
 							HybridLogger.warn('[SqliteDatabaseService] Write error (query continued): ' + e);
-							request.response.push({rs: null, error: e, lastId: -1});
+							if (request.response != null) {
+								request.response.push({rs: null, error: e, lastId: -1});
+							}
 						}
 					}
 				} catch (e:Dynamic) {
@@ -227,6 +234,15 @@ class SqliteDatabaseService implements IDatabaseService {
 
 	public function execute(sql:String, ?params:Map<String, Dynamic>):Void {
 		requestWrite(sql, params);
+	}
+
+	public function enqueue(sql:String, ?params:Map<String, Dynamic>):Void {
+		var finalSql = (params != null) ? buildSql(sql, params) : sql;
+		writeQueue.push({
+			sql: finalSql,
+			response: null,
+			returnId: false
+		});
 	}
 
 	public function runMigrations():Void {
@@ -448,7 +464,7 @@ class SqliteDatabaseService implements IDatabaseService {
 
 typedef WriteRequest = {
 	var sql:String;
-	var response:Deque<WriteResponse>;
+	var ?response:Deque<WriteResponse>;
 	var returnId:Bool;
 }
 
