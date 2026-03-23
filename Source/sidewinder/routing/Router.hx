@@ -13,6 +13,7 @@ typedef Request = {
 	var query:Map<String, String>;
 	var params:Map<String, String>;
 	var body:String;
+	var ?rawBodyBytes:haxe.io.Bytes;
 	var jsonBody:Dynamic;
 	var formBody:StringMap<String>;
 	var cookies:StringMap<String>;

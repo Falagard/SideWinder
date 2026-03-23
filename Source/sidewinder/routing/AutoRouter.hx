@@ -342,12 +342,12 @@ class AutoRouter {
 										handlerBody.push(macro {
 											var __statusInt:Int = 200;
 											if (result != null) {
-												if (Reflect.hasField(result, "status")) {
-													var __v = Reflect.field(result, "status");
-													if (Std.isOfType(__v, Int)) __statusInt = __v;
-												} else if (Reflect.hasField(result, "statusCode")) {
+												if (Reflect.hasField(result, "statusCode")) {
 													var __v = Reflect.field(result, "statusCode");
-													if (Std.isOfType(__v, Int)) __statusInt = __v;
+													if (Std.isOfType(__v, Int)) __statusInt = (cast __v : Int);
+												} else if (Reflect.hasField(result, "status")) {
+													var __v = Reflect.field(result, "status");
+													if (Std.isOfType(__v, Int)) __statusInt = (cast __v : Int);
 												} else if (Reflect.hasField(result, "success")) {
 													var __v = Reflect.field(result, "success");
 													if (__v == false) __statusInt = 400;

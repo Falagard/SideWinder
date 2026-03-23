@@ -130,13 +130,17 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 		return result;
 	}
 
-	function readBody():String {
+	function readBodyBytes():haxe.io.Bytes {
 		var len = Std.parseInt(headers.get("Content-Length"));
 		if (len == null || len <= 0)
-			return "";
+			return haxe.io.Bytes.alloc(0);
 		var bytes = haxe.io.Bytes.alloc(len);
 		rfile.readFullBytes(bytes, 0, len);
-		return bytes.toString();
+		return bytes;
+	}
+
+	function readBody():String {
+		return readBodyBytes().toString();
 	}
 
 	function parseJsonFromBody(headers:StringMap<String>, body:String):Dynamic {
@@ -189,7 +193,8 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 			return;
 		}
 
-		var body = readBody();
+		var rawBody = readBodyBytes();
+		var body = rawBody.toString();
 		var query = parseQuery(this.path);
 		var parsed = parseJsonFromBody(headers, body);
 		var formBody = parseFormFromBody(headers, body);
@@ -220,6 +225,7 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 			headers: headers,
 			query: query,
 			body: body,
+			rawBodyBytes: rawBody,
 			jsonBody: parsed,
 			formBody: formBody,
 			params: match.params,
