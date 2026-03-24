@@ -70,6 +70,11 @@ interface IDatabaseService extends Service {
 	 * Run database migrations
 	 */
 	public function runMigrations():Void;
+
+	/**
+	 * Block until all enqueued asynchronous operations are completed.
+	 */
+	public function flush():Void;
 	
 	/**
 	 * Build an SQL string by substituting named parameters

@@ -12,70 +12,81 @@ import core.IServerConfig;
 
 /**
  * SQLite implementation of the database service.
- * Supports multiple database files and non-blocking writes via enqueue().
+ * Supports multiple thread-safe connections and non-blocking writes via enqueue().
  */
 class SqliteDatabaseService implements IDatabaseService {
-    private static var connections:Map<String, Connection> = new Map();
-    private static var mutexes:Map<String, Mutex> = new Map();
     private static var deques:Map<String, Deque<{sql:String, params:Map<String, Dynamic>}>> = new Map();
+    private static var pendingCounts:Map<String, Int> = new Map();
+    private static var writerStarted:Map<String, Bool> = new Map();
     private static var globalMutex:Mutex = new Mutex();
 
     private var dbPath:String;
     private var conn:Connection;
-    private var mutex:Mutex;
     private var deque:Deque<{sql:String, params:Map<String, Dynamic>}>;
 
-    public function new(config:IServerConfig) {
-        if (this.dbPath == null) this.dbPath = "Export/hl/bin/data.db";
+    public function new(config:core.IServerConfig) {
+        if (this.dbPath == null) this.dbPath = config != null ? "Export/hl/bin/data.db" : "Export/hl/bin/data.db";
         
-        globalMutex.acquire();
-        if (!connections.exists(dbPath)) {
-            try {
-                var dir = haxe.io.Path.directory(dbPath);
-                if (dir != "" && !sys.FileSystem.exists(dir)) {
-                    sys.FileSystem.createDirectory(dir);
-                }
-                
-                var c = Sqlite.open(dbPath);
-                c.request("PRAGMA journal_mode=WAL;");
-                c.request("PRAGMA synchronous=NORMAL;");
-                c.request("PRAGMA busy_timeout=5000;");
-                c.request("PRAGMA foreign_keys=ON;");
-                
-                connections.set(dbPath, c);
-                mutexes.set(dbPath, new Mutex());
-                var d = new Deque<{sql:String, params:Map<String, Dynamic>}>();
-                deques.set(dbPath, d);
-                
-                startWriterThread(dbPath, c, mutexes.get(dbPath), d);
-                HybridLogger.info('SqliteDatabaseService initialized and writer thread started for: $dbPath');
-            } catch (e:Dynamic) {
-                globalMutex.release();
-                HybridLogger.error("Failed to initialize SQLite connection for " + dbPath + ": " + e);
-                throw e;
+        // Initialize connection for this instance
+        try {
+            var dir = haxe.io.Path.directory(dbPath);
+            if (dir != "" && !sys.FileSystem.exists(dir)) {
+                sys.FileSystem.createDirectory(dir);
             }
+            
+            this.conn = Sqlite.open(dbPath);
+            this.conn.request("PRAGMA journal_mode=WAL;");
+            this.conn.request("PRAGMA synchronous=NORMAL;");
+            this.conn.request("PRAGMA busy_timeout=5000;");
+            this.conn.request("PRAGMA foreign_keys=ON;");
+            
+            globalMutex.acquire();
+            if (!deques.exists(dbPath)) {
+                deques.set(dbPath, new Deque());
+                pendingCounts.set(dbPath, 0);
+            }
+            this.deque = deques.get(dbPath);
+
+            if (!writerStarted.exists(dbPath)) {
+                writerStarted.set(dbPath, true);
+                startWriterThread(dbPath, deques.get(dbPath));
+            }
+            globalMutex.release();
+            
+        } catch (e:Dynamic) {
+            HybridLogger.error("Failed to initialize SQLite connection for " + dbPath + ": " + e);
+            throw e;
         }
-        
-        this.conn = connections.get(dbPath);
-        this.mutex = mutexes.get(dbPath);
-        this.deque = deques.get(dbPath);
-        globalMutex.release();
     }
 
-    private static function startWriterThread(path:String, conn:Connection, mutex:Mutex, deque:Deque<{sql:String, params:Map<String, Dynamic>}>) {
+    private static function startWriterThread(path:String, deque:Deque<{sql:String, params:Map<String, Dynamic>}>) {
         Thread.create(function() {
+            var writerConn:Connection = null;
+            try {
+                writerConn = Sqlite.open(path);
+                writerConn.request("PRAGMA journal_mode=WAL;");
+                writerConn.request("PRAGMA synchronous=NORMAL;");
+                writerConn.request("PRAGMA busy_timeout=5000;");
+            } catch (e:Dynamic) {
+                HybridLogger.error('Failed to start SQLite writer thread for $path: $e');
+                return;
+            }
+
             while (true) {
                 var task = deque.pop(true);
                 if (task == null) continue;
                 
-                mutex.acquire();
                 try {
                     var finalSql = buildSqlStatic(task.sql, task.params);
-                    conn.request(finalSql);
+                    writerConn.request(finalSql);
                 } catch (e:Dynamic) {
                     HybridLogger.error('Async write error to $path: $e | SQL: ${task.sql}');
                 }
-                mutex.release();
+                
+                globalMutex.acquire();
+                var count = pendingCounts.get(path);
+                pendingCounts.set(path, count - 1);
+                globalMutex.release();
             }
         });
     }
@@ -105,46 +116,51 @@ class SqliteDatabaseService implements IDatabaseService {
     }
 
     public function execute(sql:String, ?params:Map<String, Dynamic>):Void {
-        mutex.acquire();
         try {
             var finalSql = (params != null) ? buildSqlStatic(sql, params) : sql;
             conn.request(finalSql);
-            mutex.release();
         } catch (e:Dynamic) {
-            mutex.release();
             HybridLogger.error('SqliteDatabaseService.execute error: $e | SQL: $sql');
             throw e;
         }
     }
 
     public function executeAndGetId(sql:String, ?params:Map<String, Dynamic>):Int {
-        mutex.acquire();
         try {
             var finalSql = (params != null) ? buildSqlStatic(sql, params) : sql;
             conn.request(finalSql);
-            var id = conn.lastInsertId();
-            mutex.release();
-            return id;
+            return conn.lastInsertId();
         } catch (e:Dynamic) {
-            mutex.release();
+            HybridLogger.error('SqliteDatabaseService.executeAndGetId error: $e | SQL: $sql');
             throw e;
         }
     }
 
     public function enqueue(sql:String, ?params:Map<String, Dynamic>):Void {
+        globalMutex.acquire();
+        var count = pendingCounts.get(dbPath);
+        pendingCounts.set(dbPath, count + 1);
+        globalMutex.release();
+        
         deque.push({sql: sql, params: params});
     }
 
+    public function flush():Void {
+        while (true) {
+            globalMutex.acquire();
+            var count = pendingCounts.get(dbPath);
+            globalMutex.release();
+            if (count <= 0) break;
+            Sys.sleep(0.001);
+        }
+    }
+
     public function request(sql:String, ?params:Map<String, Dynamic>):ResultSet {
-        mutex.acquire();
         try {
             var finalSql = (params != null) ? buildSqlStatic(sql, params) : sql;
             var rs = conn.request(finalSql);
-            var staticRs = new StaticResultSet(rs);
-            mutex.release();
-            return staticRs;
+            return new StaticResultSet(rs);
         } catch (e:Dynamic) {
-            mutex.release();
             HybridLogger.error('SqliteDatabaseService.request error: $e | SQL: $sql');
             throw e;
         }
