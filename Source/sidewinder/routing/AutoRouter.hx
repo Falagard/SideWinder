@@ -341,30 +341,41 @@ class AutoRouter {
 										handlerBody.push(macro trace('[AutoRouter] ' + $v{methodName} + ' returned: ' + Std.string(result)));
 										handlerBody.push(macro {
 											var __statusInt:Int = 200;
+											var __cookies:Array<Dynamic> = null;
+
 											if (result != null) {
-												if (Reflect.hasField(result, "statusCode")) {
-													var __v = Reflect.field(result, "statusCode");
-													if (Std.isOfType(__v, Int)) __statusInt = (cast __v : Int);
-												} else if (Reflect.hasField(result, "status")) {
-													var __v = Reflect.field(result, "status");
-													if (Std.isOfType(__v, Int)) __statusInt = (cast __v : Int);
-												} else if (Reflect.hasField(result, "success")) {
-													var __v = Reflect.field(result, "success");
-													if (__v == false) __statusInt = 400;
-												}
+												try {
+													if (Reflect.hasField(result, "statusCode")) {
+														var __v = Reflect.field(result, "statusCode");
+														if (Std.isOfType(__v, Int)) __statusInt = (cast __v : Int);
+													} else if (Reflect.hasField(result, "status")) {
+														var __v = Reflect.field(result, "status");
+														if (Std.isOfType(__v, Int)) __statusInt = (cast __v : Int);
+													} else if (Reflect.hasField(result, "success")) {
+														var __v = Reflect.field(result, "success");
+														if (__v == false) __statusInt = 400;
+													}
+													if (Reflect.hasField(result, "cookies")) {
+														__cookies = Reflect.field(result, "cookies");
+													}
+												} catch (e:Dynamic) {}
 											}
+
+											var json = "";
+											try {
+												json = (result != null ? haxe.Json.stringify(result) : "");
+											} catch (e:Dynamic) {
+												json = haxe.Json.stringify({error: "Serialization Error", message: Std.string(e)});
+												__statusInt = 500;
+											}
+
 											__rtRes.sendResponse(sidewinder.routing.StatusHelper.getStatus(__statusInt));
 											__rtRes.setHeader("Content-Type", "application/json");
 
-											if (result != null && Reflect.hasField(result, "cookies")) {
-												var __cookies:Array<Dynamic> = Reflect.field(result, "cookies");
-												if (__cookies != null) {
-													for (__c in __cookies) { __rtRes.setCookie(__c.name, __c.value, __c.options); }
-												}
+											if (__cookies != null) {
+												for (__c in __cookies) { __rtRes.setCookie(__c.name, __c.value, __c.options); }
 											}
 
-											var json = (result != null ? haxe.Json.stringify(result) : "");
-											__rtRes.setHeader('Content-Length', Std.string(haxe.io.Bytes.ofString(json).length));
 											__rtRes.endHeaders();
 											__rtRes.write(json);
 											__rtRes.end();

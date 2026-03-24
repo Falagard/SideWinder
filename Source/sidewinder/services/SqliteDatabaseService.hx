@@ -1,475 +1,258 @@
 package sidewinder.services;
 
-import sidewinder.interfaces.IDatabaseService.RawSql;
-import sidewinder.adapters.*;
-import sidewinder.services.*;
-import sidewinder.interfaces.*;
-import sidewinder.routing.*;
-import sidewinder.middleware.*;
-import sidewinder.websocket.*;
-import sidewinder.data.*;
-import sidewinder.controllers.*;
-import sidewinder.client.*;
-import sidewinder.messaging.*;
-import sidewinder.logging.*;
-import sidewinder.core.*;
 import sys.db.Connection;
 import sys.db.ResultSet;
 import sys.db.Sqlite;
 import sys.thread.Mutex;
 import sys.thread.Thread;
 import sys.thread.Deque;
-import haxe.ThreadLocal;
-import DateTools;
+import sidewinder.interfaces.IDatabaseService;
+import sidewinder.logging.HybridLogger;
+import core.IServerConfig;
 
 /**
  * SQLite implementation of the database service.
- * Refactored for SQLite optimization:
- * - Thread-local read connections using haxe.ThreadLocal (from hxwell).
- * - Dedicated background writer thread to serialize all writes.
+ * Supports multiple database files and non-blocking writes via enqueue().
  */
 class SqliteDatabaseService implements IDatabaseService {
-	var dbPath:String;
-	static inline var MAX_POOL_SIZE = 32;
+    private static var connections:Map<String, Connection> = new Map();
+    private static var mutexes:Map<String, Mutex> = new Map();
+    private static var deques:Map<String, Deque<{sql:String, params:Map<String, Dynamic>}>> = new Map();
+    private static var globalMutex:Mutex = new Mutex();
 
-	// Shared resources
-	var mutex = new Mutex();
-	var pool:Array<Connection> = [];
-	var transactionMutex = new Mutex();
-	var inTransaction = new ThreadLocal<Bool>(() -> false);
+    private var dbPath:String;
+    private var conn:Connection;
+    private var mutex:Mutex;
+    private var deque:Deque<{sql:String, params:Map<String, Dynamic>}>;
 
-	// Thread-local storage for read connections
-	var threadConn:ThreadLocal<Connection>;
-	// Writer thread components
-	var writeQueue = new Deque<WriteRequest>();
-	var writerThread:Thread;
+    public function new(config:IServerConfig) {
+        if (this.dbPath == null) this.dbPath = "Export/hl/bin/data.db";
+        
+        globalMutex.acquire();
+        if (!connections.exists(dbPath)) {
+            try {
+                var dir = haxe.io.Path.directory(dbPath);
+                if (dir != "" && !sys.FileSystem.exists(dir)) {
+                    sys.FileSystem.createDirectory(dir);
+                }
+                
+                var c = Sqlite.open(dbPath);
+                c.request("PRAGMA journal_mode=WAL;");
+                c.request("PRAGMA synchronous=NORMAL;");
+                c.request("PRAGMA busy_timeout=5000;");
+                c.request("PRAGMA foreign_keys=ON;");
+                
+                connections.set(dbPath, c);
+                mutexes.set(dbPath, new Mutex());
+                var d = new Deque<{sql:String, params:Map<String, Dynamic>}>();
+                deques.set(dbPath, d);
+                
+                startWriterThread(dbPath, c, mutexes.get(dbPath), d);
+                HybridLogger.info('SqliteDatabaseService initialized and writer thread started for: $dbPath');
+            } catch (e:Dynamic) {
+                globalMutex.release();
+                HybridLogger.error("Failed to initialize SQLite connection for " + dbPath + ": " + e);
+                throw e;
+            }
+        }
+        
+        this.conn = connections.get(dbPath);
+        this.mutex = mutexes.get(dbPath);
+        this.deque = deques.get(dbPath);
+        globalMutex.release();
+    }
 
-	public function new() {
-		if (this.dbPath == null) this.dbPath = "data.db";
+    private static function startWriterThread(path:String, conn:Connection, mutex:Mutex, deque:Deque<{sql:String, params:Map<String, Dynamic>}>) {
+        Thread.create(function() {
+            while (true) {
+                var task = deque.pop(true);
+                if (task == null) continue;
+                
+                mutex.acquire();
+                try {
+                    var finalSql = buildSqlStatic(task.sql, task.params);
+                    conn.request(finalSql);
+                } catch (e:Dynamic) {
+                    HybridLogger.error('Async write error to $path: $e | SQL: ${task.sql}');
+                }
+                mutex.release();
+            }
+        });
+    }
 
-		this.threadConn = new ThreadLocal<Connection>(() -> {
-			var conn = Sqlite.open(this.dbPath);
-			conn.request("PRAGMA foreign_keys = ON;");
-			conn.request("PRAGMA journal_mode = WAL;");
-			conn.request("PRAGMA synchronous = normal;");
-			conn.request("PRAGMA temp_store = memory;");
-			conn.request("PRAGMA mmap_size = 30000000000;");
-			return conn;
-		}, (conn) -> {
-			if (conn != null)
-				conn.close();
-		});
+    public function acquire():Connection return conn;
+    public function release(conn:Connection):Void {}
 
-		startWriterThread();
-		logSqliteStatus();
-	}
+    public function write(sql:String, ?params:Map<String, Dynamic>):ResultSet {
+        execute(sql, params);
+        return null;
+    }
 
-	private function startWriterThread() {
-		writerThread = Thread.create(() -> {
-			while (true) {
-				try {
-					var conn = Sqlite.open(dbPath);
-					conn.request("PRAGMA foreign_keys = ON;");
-					conn.request("PRAGMA journal_mode = WAL;");
-					conn.request("PRAGMA synchronous = normal;");
-					conn.request("PRAGMA temp_store = memory;");
-					conn.request("PRAGMA mmap_size = 30000000000;");
+    public function read(sql:String, ?params:Map<String, Dynamic>):ResultSet {
+        return request(sql, params);
+    }
 
-					while (true) {
-						var request = writeQueue.pop(true);
-						if (request == null)
-							continue;
+    public function requestRead(sql:String, ?params:Map<String, Dynamic>):ResultSet {
+        return read(sql, params);
+    }
 
-						try {
-							var rs = null;
-							var lastId = -1;
-							var retries = 10; // More retries for high concurrency
+    public function requestWrite(sql:String, ?params:Map<String, Dynamic>):ResultSet {
+        return write(sql, params);
+    }
 
-							while (true) {
-								try {
-									rs = conn.request(request.sql);
-									if (request.returnId) {
-										var changes = conn.request("SELECT changes();").getIntResult(0);
-										if (changes == 0) {
-											throw "No rows affected (possible UNIQUE constraint violation)";
-										}
-										lastId = conn.lastInsertId();
-										HybridLogger.debug('[SqliteDatabaseService] Inserted ID: ' + lastId + ' for SQL: ' + request.sql);
-									}
-									break;
-								} catch (e:Dynamic) {
-									var err = Std.string(e).toLowerCase();
-									if (retries > 0 && (err.indexOf("locked") != -1 || err.indexOf("busy") != -1)) {
-										retries--;
-										Sys.sleep(0.01 + (10 - retries) * 0.01); // Incremental backoff
-										continue;
-									}
-									throw e;
-								}
-							}
-							if (request.response != null) {
-								request.response.push({rs: rs, error: null, lastId: lastId});
-							}
-						} catch (e:Dynamic) {
-							// Single-query error doesn't kill the thread loop
-							HybridLogger.warn('[SqliteDatabaseService] Write error (query continued): ' + e);
-							if (request.response != null) {
-								request.response.push({rs: null, error: e, lastId: -1});
-							}
-						}
-					}
-				} catch (e:Dynamic) {
-					// Critical error (e.g. file locked)
-					HybridLogger.error("Fatal error in SQLite writer thread (restarting in 1s): " + e);
-					Sys.sleep(1.0);
-				}
-			}
-		});
-	}
+    public function requestWithParams(sql:String, ?params:Map<String, Dynamic>):ResultSet {
+        return read(sql, params);
+    }
 
-	public function acquire():Connection {
-		return threadConn.get();
-	}
+    public function execute(sql:String, ?params:Map<String, Dynamic>):Void {
+        mutex.acquire();
+        try {
+            var finalSql = (params != null) ? buildSqlStatic(sql, params) : sql;
+            conn.request(finalSql);
+            mutex.release();
+        } catch (e:Dynamic) {
+            mutex.release();
+            HybridLogger.error('SqliteDatabaseService.execute error: $e | SQL: $sql');
+            throw e;
+        }
+    }
 
-	public function release(conn:Connection):Void {
-		// Handled by ThreadLocal
-	}
+    public function executeAndGetId(sql:String, ?params:Map<String, Dynamic>):Int {
+        mutex.acquire();
+        try {
+            var finalSql = (params != null) ? buildSqlStatic(sql, params) : sql;
+            conn.request(finalSql);
+            var id = conn.lastInsertId();
+            mutex.release();
+            return id;
+        } catch (e:Dynamic) {
+            mutex.release();
+            throw e;
+        }
+    }
 
-	public function requestRead(sql:String, ?params:Map<String, Dynamic>):ResultSet {
-		var conn = acquire();
-		var finalSql = (params != null) ? buildSql(sql, params) : sql;
-		var retries = 5;
-		while (true) {
-			try {
-				return conn.request(finalSql);
-			} catch (e:Dynamic) {
-				var err = Std.string(e).toLowerCase();
-				if (retries > 0 && (err.indexOf("locked") != -1 || err.indexOf("busy") != -1)) {
-					retries--;
-					Sys.sleep(0.01);
-					continue;
-				}
-				throw e;
-			}
-		}
-	}
+    public function enqueue(sql:String, ?params:Map<String, Dynamic>):Void {
+        deque.push({sql: sql, params: params});
+    }
 
-	public inline function read(sql:String, ?params:Map<String, Dynamic>):ResultSet {
-		return requestRead(sql, params);
-	}
+    public function request(sql:String, ?params:Map<String, Dynamic>):ResultSet {
+        mutex.acquire();
+        try {
+            var finalSql = (params != null) ? buildSqlStatic(sql, params) : sql;
+            var rs = conn.request(finalSql);
+            var staticRs = new StaticResultSet(rs);
+            mutex.release();
+            return staticRs;
+        } catch (e:Dynamic) {
+            mutex.release();
+            HybridLogger.error('SqliteDatabaseService.request error: $e | SQL: $sql');
+            throw e;
+        }
+    }
 
-	public function requestWrite(sql:String, ?params:Map<String, Dynamic>):ResultSet {
-		var finalSql = (params != null) ? buildSql(sql, params) : sql;
-		var responseQueue = new Deque<WriteResponse>();
+    public function beginTransaction():Void execute("BEGIN TRANSACTION;");
+    public function commit():Void execute("COMMIT;");
+    public function rollback():Void execute("ROLLBACK;");
 
-		var locked = false;
-		if (!inTransaction.get()) {
-			transactionMutex.acquire();
-			locked = true;
-		}
+    public function runMigrations():Void {
+        var dir = "migrations/sqlite";
+        execute('CREATE TABLE IF NOT EXISTS migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TEXT DEFAULT CURRENT_TIMESTAMP);');
 
-		try {
-			writeQueue.push({
-				sql: finalSql,
-				response: responseQueue,
-				returnId: false
-			});
+        var rs = request("SELECT name FROM migrations;");
+        var applied = new Map<String, Bool>();
+        while (rs.hasNext()) {
+            applied.set(rs.next().name, true);
+        }
 
-			var res = responseQueue.pop(true);
-			if (res.error != null) {
-				throw res.error;
-			}
-			var result = res.rs;
-			if (locked) transactionMutex.release();
-			return result;
-		} catch (e:Dynamic) {
-			if (locked) transactionMutex.release();
-			throw e;
-		}
-	}
+        if (!sys.FileSystem.exists(dir)) return;
 
-	public inline function write(sql:String, ?params:Map<String, Dynamic>):ResultSet {
-		return requestWrite(sql, params);
-	}
+        var files = sys.FileSystem.readDirectory(dir);
+        var sqlFiles = files.filter(f -> StringTools.endsWith(f, ".sql"));
+        sqlFiles.sort((a, b) -> Reflect.compare(a, b));
 
-	public function executeAndGetId(sql:String, ?params:Map<String, Dynamic>):Int {
-		var finalSql = (params != null) ? buildSql(sql, params) : sql;
-		var responseQueue = new Deque<WriteResponse>();
+        for (file in sqlFiles) {
+            if (!applied.exists(file)) {
+                var sql = sys.io.File.getContent(dir + "/" + file);
+                try {
+                    var statements = sql.split(';');
+                    for (stmt in statements) {
+                        stmt = StringTools.trim(stmt);
+                        if (stmt.length == 0) continue;
+                        execute(stmt);
+                    }
+                    execute("INSERT INTO migrations (name) VALUES (@name);", ["name" => file]);
+                } catch (e:Dynamic) {
+                    HybridLogger.error('Migration failed for ' + file + ': ' + e);
+                }
+            }
+        }
+    }
 
-		var locked = false;
-		if (!inTransaction.get()) {
-			transactionMutex.acquire();
-			locked = true;
-		}
+    public static function buildSqlStatic(sql:String, params:Map<String, Dynamic>):String {
+        if (params == null || !params.keys().hasNext()) return sql;
+        var result = sql;
+        
+        var keys = [];
+        for (k in params.keys()) keys.push(k);
+        keys.sort((a, b) -> b.length - a.length);
 
-		try {
-			writeQueue.push({
-				sql: finalSql,
-				response: responseQueue,
-				returnId: true
-			});
+        for (key in keys) {
+            var val = params.get(key);
+            var escapedVal = "";
+            
+            if (val == null) {
+                escapedVal = "NULL";
+            } else if (Std.isOfType(val, String)) {
+                escapedVal = "'" + StringTools.replace(Std.string(val), "'", "''") + "'";
+            } else if (Std.isOfType(val, Bool)) {
+                escapedVal = val ? "1" : "0";
+            } else if (Std.isOfType(val, Date)) {
+                var time = val.getTime() / 1000.0;
+                escapedVal = Std.string(time);
+            } else if (Std.isOfType(val, sidewinder.interfaces.IDatabaseService.RawSql)) {
+                escapedVal = cast(val, sidewinder.interfaces.IDatabaseService.RawSql).value;
+            } else {
+                escapedVal = Std.string(val);
+            }
+            
+            result = StringTools.replace(result, "@" + key, escapedVal);
+        }
+        return result;
+    }
 
-			var res = responseQueue.pop(true);
-			if (res.error != null) {
-				throw res.error;
-			}
-			HybridLogger.debug('[SqliteDatabaseService] Returning ID: ' + res.lastId);
-			var resultId = res.lastId;
-			if (locked) transactionMutex.release();
-			return resultId;
-		} catch (e:Dynamic) {
-			if (locked) transactionMutex.release();
-			throw e;
-		}
-	}
-
-	public function requestWithParams(sql:String, ?params:Map<String, Dynamic>):ResultSet {
-		var trimmed = StringTools.trim(sql).toUpperCase();
-		if (StringTools.startsWith(trimmed, "SELECT") || StringTools.startsWith(trimmed, "PRAGMA")) {
-			return requestRead(sql, params);
-		} else {
-			return requestWrite(sql, params);
-		}
-	}
-
-	public function execute(sql:String, ?params:Map<String, Dynamic>):Void {
-		requestWrite(sql, params);
-	}
-
-	public function enqueue(sql:String, ?params:Map<String, Dynamic>):Void {
-		var finalSql = (params != null) ? buildSql(sql, params) : sql;
-		writeQueue.push({
-			sql: finalSql,
-			response: null,
-			returnId: false
-		});
-	}
-
-	public function runMigrations():Void {
-		var dir = "migrations/sqlite";
-		trace("SqliteDatabaseService.runMigrations() dir: " + dir + " cwd: " + sys.FileSystem.fullPath("."));
-
-		trace("SqliteDatabaseService.runMigrations() Creating migrations table if not exists...");
-		execute('CREATE TABLE IF NOT EXISTS migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TEXT DEFAULT CURRENT_TIMESTAMP);');
-
-		var rs = requestRead("SELECT name FROM migrations;");
-		var applied = new Map<String, Bool>();
-		while (rs.hasNext()) {
-			applied.set(rs.next().name, true);
-		}
-
-		if (!sys.FileSystem.exists(dir)) {
-			trace("SqliteDatabaseService.runMigrations() dir NOT FOUND: " + dir);
-			return;
-		}
-
-		var files = sys.FileSystem.readDirectory(dir);
-		trace("SqliteDatabaseService.runMigrations() found files: " + files.length);
-		var sqlFiles = files.filter(f -> StringTools.endsWith(f, ".sql"));
-		trace("SqliteDatabaseService.runMigrations() sql files: " + sqlFiles.length);
-		sqlFiles.sort((a, b) -> Reflect.compare(a, b));
-
-		for (file in sqlFiles) {
-			if (!applied.exists(file)) {
-				var sql = sys.io.File.getContent(dir + "/" + file);
-				try {
-					var statements = sql.split(';');
-					for (stmt in statements) {
-						stmt = StringTools.trim(stmt);
-						if (stmt.length == 0)
-							continue;
-						execute(stmt);
-					}
-					execute("INSERT INTO migrations (name) VALUES (" + quoteString(file) + ");");
-				} catch (e:Dynamic) {
-					HybridLogger.error('Migration failed for ' + file + ': ' + e);
-				}
-			}
-		}
-	}
-
-	public function buildSql(sql:String, params:Map<String, Dynamic>):String {
-		if (params == null || params.keys().hasNext() == false)
-			return sql;
-		var out = new StringBuf();
-		var i = 0;
-		while (i < sql.length) {
-			var ch = sql.charAt(i);
-			if (ch == "'") {
-				out.add(ch);
-				i++;
-				while (i < sql.length) {
-					var c2 = sql.charAt(i);
-					out.add(c2);
-					if (c2 == "'") {
-						if (i + 1 < sql.length && sql.charAt(i + 1) == "'") {
-							out.add("'");
-							i += 2;
-							continue;
-						} else {
-							i++;
-							break;
-						}
-					}
-					i++;
-				}
-				continue;
-			}
-			if (ch == '@' || ch == ':') {
-				var start = i + 1;
-				while (start < sql.length && isIdentChar(sql.charCodeAt(start)))
-					start++;
-				var name = sql.substr(i + 1, start - (i + 1));
-				if (name.length > 0 && params.exists(name)) {
-					out.add(formatValue(params.get(name)));
-					i = start;
-					continue;
-				}
-			}
-			out.add(ch);
-			i++;
-		}
-		return out.toString();
-	}
-
-	private static inline function isIdentChar(code:Int):Bool {
-		return (code >= 'A'.code && code <= 'Z'.code)
-			|| (code >= 'a'.code && code <= 'z'.code)
-			|| (code >= '0'.code && code <= '9'.code)
-			|| code == '_'.code;
-	}
-
-	public inline function raw(v:String):RawSql
-		return new RawSql(v);
-
-	private function formatValue(v:Dynamic):String {
-		if (v == null)
-			return "NULL";
-		if (Std.isOfType(v, RawSql))
-			return cast(v, RawSql).value;
-		if (Std.isOfType(v, Array)) {
-			var arr:Array<Dynamic> = cast v;
-			var parts = [];
-			for (item in arr)
-				parts.push(formatValueScalar(item));
-			return '(' + parts.join(',') + ')';
-		}
-		return formatValueScalar(v);
-	}
-
-	private function formatValueScalar(v:Dynamic):String {
-		if (v == null)
-			return "NULL";
-		if (Std.isOfType(v, String))
-			return quoteString(cast v);
-		if (Std.isOfType(v, Bool))
-			return (cast v ? '1' : '0');
-		if (Std.isOfType(v, Date)) {
-			var d:Date = cast v;
-			var formatted = DateTools.format(d, "%Y-%m-%d %H:%M:%S");
-			return quoteString(formatted);
-		}
-		if (Std.isOfType(v, Int) || Std.isOfType(v, Float))
-			return Std.string(v);
-		return quoteString(Std.string(v));
-	}
-
-	public function escapeString(str:String):String {
-		return str == null ? null : StringTools.replace(str, "'", "''");
-	}
-
-	public function quoteString(str:String):String {
-		return str == null ? null : "'" + StringTools.replace(str, "'", "''") + "'";
-	}
-
-	public function sanitize(str:String):String {
-		return str == null ? null : escapeString(StringTools.trim(str));
-	}
-
-	public function beginTransaction():Void {
-		transactionMutex.acquire();
-		inTransaction.set(true);
-		try {
-			execute("BEGIN TRANSACTION;");
-		} catch (e:Dynamic) {
-			inTransaction.set(false);
-			transactionMutex.release();
-			throw e;
-		}
-	}
-
-	public function commit():Void {
-		try {
-			execute("COMMIT;");
-			inTransaction.set(false);
-			transactionMutex.release();
-		} catch (e:Dynamic) {
-			inTransaction.set(false);
-			transactionMutex.release();
-			throw e;
-		}
-	}
-
-	public function rollback():Void {
-		try {
-			execute("ROLLBACK;");
-			inTransaction.set(false);
-			transactionMutex.release();
-		} catch (e:Dynamic) {
-			inTransaction.set(false);
-			transactionMutex.release();
-			throw e;
-		}
-	}
-
-	private function logSqliteStatus() {
-		try {
-			var rsVersion = read("SELECT sqlite_version();");
-			var verStr = "unknown";
-			if (rsVersion.hasNext()) {
-				var version = rsVersion.next();
-				var fields = Reflect.fields(version);
-				verStr = fields.length > 0 ? Reflect.field(version, fields[0]) : "unknown";
-			}
-			trace('--- SQLite Version: $verStr ---');
-
-			var opts = read("PRAGMA compile_options;");
-			var options = [];
-			for (row in opts) {
-				var f = Reflect.fields(row);
-				options.push(Reflect.field(row, f[0]));
-			}
-			trace('--- SQLite Compile Options: ${options.join(", ")} ---');
-
-			// module_list depends on version >= 3.16.0
-			var parts = verStr.split(".");
-			if (parts.length >= 2) {
-				var major = Std.parseInt(parts[0]);
-				var minor = Std.parseInt(parts[1]);
-				if (major > 3 || (major == 3 && minor >= 16)) {
-					var mods = read("PRAGMA module_list;");
-					var modules = [];
-					for (row in mods) {
-						var f = Reflect.fields(row);
-						modules.push(Reflect.field(row, f[0]));
-					}
-					trace('--- SQLite Modules: ${modules.join(", ")} ---');
-				}
-			}
-		} catch (e:Dynamic) {
-			trace('Error logging SQLite status: $e');
-		}
-	}
+    public function buildSql(sql:String, params:Map<String, Dynamic>):String return buildSqlStatic(sql, params);
+    public function escapeString(str:String):String return StringTools.replace(str, "'", "''");
+    public function quoteString(str:String):String return "'" + escapeString(str) + "'";
+    public function sanitize(str:String):String return escapeString(StringTools.trim(str));
+    public function raw(v:String):sidewinder.interfaces.IDatabaseService.RawSql return new sidewinder.interfaces.IDatabaseService.RawSql(v);
 }
 
-typedef WriteRequest = {
-	var sql:String;
-	var ?response:Deque<WriteResponse>;
-	var returnId:Bool;
-}
+class StaticResultSet implements sys.db.ResultSet {
+    var rows:Array<Dynamic>;
+    var index:Int = 0;
 
-typedef WriteResponse = {
-	var rs:ResultSet;
-	var error:Dynamic;
-	var lastId:Int;
+    public function new(rs:sys.db.ResultSet) {
+        rows = [];
+        while (rs != null && rs.hasNext()) {
+            rows.push(rs.next());
+        }
+    }
+
+    public var length(get, null):Int;
+    public var nfields(get, null):Int;
+    function get_length() return rows.length;
+    function get_nfields() return rows.length > 0 ? Reflect.fields(rows[0]).length : 0;
+
+    public function hasNext():Bool return index < rows.length;
+    public function next():Dynamic return rows[index++];
+    public function results():List<Dynamic> {
+        var l = new List<Dynamic>();
+        for (r in rows) l.add(r);
+        return l;
+    }
+    public function getFieldsNames():Array<String> return rows.length > 0 ? Reflect.fields(rows[0]) : [];
+    public function getResult(n:Int):String return "";
+    public function getIntResult(n:Int):Int return 0;
+    public function getFloatResult(n:Int):Float return 0;
+    public function getStringResult(n:Int):String return "";
 }

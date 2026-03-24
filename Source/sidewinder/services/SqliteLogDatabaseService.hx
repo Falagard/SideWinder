@@ -7,8 +7,8 @@ import sidewinder.interfaces.ILogDatabaseService;
  * Points to logs.db by default.
  */
 class SqliteLogDatabaseService extends SqliteDatabaseService implements ILogDatabaseService {
-    public function new() {
-        this.dbPath = "logs.db";
-        super();
+    public function new(config:core.IServerConfig) {
+        this.dbPath = "Export/hl/bin/logs.db";
+        super(config);
     }
 }
