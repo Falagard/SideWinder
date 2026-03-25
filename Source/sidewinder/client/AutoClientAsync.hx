@@ -184,7 +184,7 @@ class AutoClientAsync {
 								}
 							}
 
-							h.onError = function(e:String) onError(e);
+							h.onError = function(e:Dynamic) onError(Std.string(e));
 
 							// Store response headers callback for sys targets
 							// Store response headers callback for sys targets (excluding JS/HTML5)
@@ -289,7 +289,29 @@ class AutoClientAsync {
 								#end
 							} else {
 								// GET/POST handled by request; POST when body or explicit method
-								h.onData = function(d:String) onData(d);
+								h.onData = function(d:Dynamic) {
+									var s:String = null;
+									if (d != null) {
+										if (Std.isOfType(d, String)) {
+											s = cast d;
+										} else {
+											// On HashLink, data might be hl.Bytes (native)
+											#if hl
+											if (Std.isOfType(d, hl.Bytes)) {
+												s = @:privateAccess String.fromUTF8(d);
+											}
+											#end
+											if (s == null) {
+												if (Std.isOfType(d, haxe.io.Bytes)) {
+													s = cast(d, haxe.io.Bytes).toString();
+												} else {
+													s = Std.string(d);
+												}
+											}
+										}
+									}
+									onData(s);
+								};
 								trace('[AutoClientAsync] invoking request isPost=' + (method == "POST"));
 								try
 									h.request(method == "POST")
@@ -393,7 +415,22 @@ class AutoClientAsync {
 										parseExpr = macro {
 											var s = d;
 											trace('[AutoClientAsync] parse Bool raw=' + s);
-											onSuccess(s == "true" || s == "1");
+											if (s == "true" || s == "1") {
+												onSuccess(true);
+											} else if (s == "false" || s == "0" || s == null || s == "") {
+												onSuccess(false);
+											} else {
+												try {
+													var json = haxe.Json.parse(s);
+													if (Reflect.hasField(json, "success")) {
+														onSuccess(Reflect.field(json, "success"));
+													} else {
+														onSuccess(false);
+													}
+												} catch (e:Dynamic) {
+													onSuccess(false);
+												}
+											}
 										};
 									} else if (retName == "String") {
 										parseExpr = macro {trace('[AutoClientAsync] pass String raw length=' + (d == null ? 0 : d.length)); onSuccess(d);};

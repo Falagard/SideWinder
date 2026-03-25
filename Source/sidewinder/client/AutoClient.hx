@@ -77,12 +77,32 @@ class AutoClient {
                                     h.setHeader("Cookie", cookieHeader);
                                 }
                                 #end
-                                h.onData = function(data:String) {
-                                    result = data;
+                                h.onData = function(data:Dynamic) {
+                                    var s:String = null;
+                                    if (data != null) {
+                                        if (Std.isOfType(data, String)) {
+                                            s = cast data;
+                                        } else {
+                                            // On HashLink, data might be hl.Bytes (native)
+                                            #if hl
+                                            if (Std.isOfType(data, hl.Bytes)) {
+                                                s = @:privateAccess String.fromUTF8(data);
+                                            }
+                                            #end
+                                            if (s == null) {
+                                                if (Std.isOfType(data, haxe.io.Bytes)) {
+                                                    s = cast(data, haxe.io.Bytes).toString();
+                                                } else {
+                                                    s = Std.string(data);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    result = s;
                                     done = true;
                                 };
-                                h.onError = function(msg:String) {
-                                    error = msg;
+                                h.onError = function(msg:Dynamic) {
+                                    error = Std.string(msg);
                                     done = true;
                                 };
                                 // Store response headers callback for sys targets
@@ -201,7 +221,15 @@ class AutoClient {
                                         methodBody = macro {
                                             var resp:Dynamic = doRequest($v{httpMethod}, $fullPathExpr, $bodyExpr);
                                             var s = Std.string(resp);
-                                            return (s == "true" || s == "1");
+                                            if (s == "true" || s == "1") return true;
+                                            if (s == "false" || s == "0" || s == null || s == "") return false;
+                                            try {
+                                                var json = haxe.Json.parse(s);
+                                                if (Reflect.hasField(json, "success")) return Reflect.field(json, "success");
+                                                return false;
+                                            } catch (e:Dynamic) {
+                                                return false;
+                                            }
                                         };
                                     } else if (retName == "String") {
                                         methodBody = macro {
