@@ -1,4 +1,7 @@
 package sidewinder.logging;
+#if (html5 && !sys)
+#error "HybridLogger is not available on HTML5. Use a client-side logger instead."
+#end
 
 import sidewinder.interfaces.ILogProvider.LogEntry;
 

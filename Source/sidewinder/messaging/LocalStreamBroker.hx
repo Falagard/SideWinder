@@ -1,4 +1,7 @@
 package sidewinder.messaging;
+#if (html5 && !sys)
+#error "LocalStreamBroker is not available on HTML5."
+#end
 
 import sys.thread.Mutex;
 import haxe.ds.StringMap;

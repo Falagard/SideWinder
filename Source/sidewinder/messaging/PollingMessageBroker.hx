@@ -1,4 +1,7 @@
 package sidewinder.messaging;
+#if (html5 && !sys)
+#error "PollingMessageBroker is not available on HTML5."
+#end
 
 import sidewinder.adapters.*;
 import sidewinder.services.*;

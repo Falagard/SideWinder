@@ -1,4 +1,7 @@
 package sidewinder.services;
+#if (html5 && !sys)
+#error "SqliteDatabaseService is not available on HTML5. Use a client-side storage service instead."
+#end
 
 import sys.db.Connection;
 import sys.db.ResultSet;

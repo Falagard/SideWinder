@@ -1,4 +1,7 @@
 package sidewinder.interfaces;
+#if (html5 && !sys)
+#error "InMemoryCacheService is not available on HTML5 as it uses native threads for TTL sweeps."
+#end
 
 import sidewinder.adapters.*;
 import sidewinder.services.*;

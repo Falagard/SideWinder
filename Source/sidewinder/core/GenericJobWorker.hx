@@ -1,4 +1,7 @@
 package sidewinder.core;
+#if (html5 && !sys)
+#error "GenericJobWorker is not available on HTML5."
+#end
 
 import sidewinder.routing.Router.UploadedFile;
 import sidewinder.routing.Router.Request;
