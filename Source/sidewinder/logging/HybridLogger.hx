@@ -154,7 +154,3 @@ class HybridLogger {
 		#end
 	}
 }
-
-
-
-
