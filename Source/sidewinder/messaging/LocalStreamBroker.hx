@@ -19,31 +19,25 @@ using StringTools;
  */
 class LocalStreamBroker implements IStreamBroker {
 	// Stream storage: stream name -> array of messages
-	private var streams:StringMap<Array<StreamMessage>>;
+	private static var streams:StringMap<Array<StreamMessage>> = new StringMap<Array<StreamMessage>>();
 
 	// Consumer groups: stream name -> group name -> group data
-	private var consumerGroups:StringMap<StringMap<ConsumerGroup>>;
+	private static var consumerGroups:StringMap<StringMap<ConsumerGroup>> = new StringMap<StringMap<ConsumerGroup>>();
 
 	// Pending messages: stream:group:consumer -> array of message IDs
-	private var pendingMessages:StringMap<Array<PendingMessage>>;
+	private static var pendingMessages:StringMap<Array<PendingMessage>> = new StringMap<Array<PendingMessage>>();
 
 	// Message ID sequence counters
-	private var messageSequence:StringMap<Int>;
+	private static var messageSequence:StringMap<Int> = new StringMap<Int>();
 
 	// Mutex for thread safety
-	private var mutex:Mutex;
+	private static var mutex:Mutex = new Mutex();
 
 	// Configuration
 	private var maxStreamLength:Int = 10000; // Default max length per stream
 	private var maxPendingMessages:Int = 1000; // Max pending messages per consumer
 
 	public function new() {
-		streams = new StringMap<Array<StreamMessage>>();
-		consumerGroups = new StringMap<StringMap<ConsumerGroup>>();
-		pendingMessages = new StringMap<Array<PendingMessage>>();
-		messageSequence = new StringMap<Int>();
-		mutex = new Mutex();
-
 		HybridLogger.info('[LocalStreamBroker] Initialized');
 	}
 

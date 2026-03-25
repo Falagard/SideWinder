@@ -25,7 +25,17 @@ class SqliteDatabaseService implements IDatabaseService {
     private var deque:Deque<{sql:String, params:Map<String, Dynamic>}>;
 
     public function new(config:core.IServerConfig) {
-        if (this.dbPath == null) this.dbPath = config != null ? "Export/hl/bin/data.db" : "Export/hl/bin/data.db";
+        if (this.dbPath == null) {
+            this.dbPath = Sys.getEnv("DATABASE_PATH");
+            if (this.dbPath == null) {
+                // Heuristic for project structure
+                if (sys.FileSystem.exists("Export/hl/bin")) {
+                    this.dbPath = "Export/hl/bin/data.db";
+                } else {
+                    this.dbPath = "data.db";
+                }
+            }
+        }
         
         // Initialize connection for this instance
         try {

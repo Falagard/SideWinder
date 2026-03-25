@@ -231,7 +231,8 @@ class AutoRouter {
 											for (k in __rtReq.query.keys()) qKeys.push(k + " => " + __rtReq.query.get(k));
 											queryStr = "[" + qKeys.join(", ") + "]";
 										}
-										trace('[AutoRouter] ' + $v{methodName} + ' - Params: ' + paramsStr + ', Query: ' + queryStr);
+										var bodyStr = (__rtReq.jsonBody != null ? haxe.Json.stringify(__rtReq.jsonBody) : "null");
+										trace('[AutoRouter] ' + $v{methodName} + ' - Params: ' + paramsStr + ', Query: ' + queryStr + ', Body: ' + bodyStr);
 									};
 
 									// Build session extraction and auth check
