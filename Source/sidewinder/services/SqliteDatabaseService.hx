@@ -35,10 +35,23 @@ class SqliteDatabaseService implements IDatabaseService {
             }
             
             this.conn = Sqlite.open(dbPath);
-            this.conn.request("PRAGMA journal_mode=WAL;");
-            this.conn.request("PRAGMA synchronous=NORMAL;");
-            this.conn.request("PRAGMA busy_timeout=5000;");
-            this.conn.request("PRAGMA foreign_keys=ON;");
+            
+            // Retry PRAGMAs if database is locked (common during parallel initialization)
+            var success = false;
+            var retries = 5;
+            while (retries > 0 && !success) {
+                try {
+                    this.conn.request("PRAGMA journal_mode=WAL;");
+                    this.conn.request("PRAGMA synchronous=NORMAL;");
+                    this.conn.request("PRAGMA busy_timeout=5000;");
+                    this.conn.request("PRAGMA foreign_keys=ON;");
+                    success = true;
+                } catch (e:Dynamic) {
+                    retries--;
+                    if (retries == 0) throw e;
+                    Sys.sleep(0.1);
+                }
+            }
             
             globalMutex.acquire();
             if (!deques.exists(dbPath)) {
