@@ -18,6 +18,8 @@ import core.IServerConfig;
  * Supports multiple thread-safe connections and non-blocking writes via enqueue().
  */
 class SqliteDatabaseService implements IDatabaseService {
+    private static var connections:Map<String, Connection> = new Map();
+    private static var connectionMutexes:Map<String, Mutex> = new Map();
     private static var deques:Map<String, Deque<{sql:String, params:Map<String, Dynamic>}>> = new Map();
     private static var pendingCounts:Map<String, Int> = new Map();
     private static var writerStarted:Map<String, Bool> = new Map();
@@ -26,63 +28,64 @@ class SqliteDatabaseService implements IDatabaseService {
     private var dbPath:String;
     private var conn:Connection;
     private var deque:Deque<{sql:String, params:Map<String, Dynamic>}>;
+    private var currentMutex:Mutex;
 
     public function new(config:core.IServerConfig) {
+        this.dbPath = Sys.getEnv("DATABASE_PATH");
         if (this.dbPath == null) {
-            this.dbPath = Sys.getEnv("DATABASE_PATH");
-            if (this.dbPath == null) {
-                // Heuristic for project structure
-                if (sys.FileSystem.exists("Export/hl/bin")) {
-                    this.dbPath = "Export/hl/bin/data.db";
-                } else {
-                    this.dbPath = "data.db";
-                }
+            // Heuristic for project structure
+            if (sys.FileSystem.exists("Export/hl/bin")) {
+                this.dbPath = "Export/hl/bin/data.db";
+            } else {
+                this.dbPath = "data.db";
             }
         }
         
-        // Initialize connection for this instance
+        // Use absolute path for uniqueness in the map
         try {
-            var dir = haxe.io.Path.directory(dbPath);
-            if (dir != "" && !sys.FileSystem.exists(dir)) {
-                sys.FileSystem.createDirectory(dir);
-            }
-            
-            this.conn = Sqlite.open(dbPath);
-            
-            // Retry PRAGMAs if database is locked (common during parallel initialization)
-            var success = false;
-            var retries = 5;
-            while (retries > 0 && !success) {
-                try {
-                    this.conn.request("PRAGMA journal_mode=WAL;");
-                    this.conn.request("PRAGMA synchronous=NORMAL;");
-                    this.conn.request("PRAGMA busy_timeout=5000;");
-                    this.conn.request("PRAGMA foreign_keys=ON;");
-                    success = true;
-                } catch (e:Dynamic) {
-                    retries--;
-                    if (retries == 0) throw e;
-                    Sys.sleep(0.1);
-                }
-            }
-            
-            globalMutex.acquire();
-            if (!deques.exists(dbPath)) {
-                deques.set(dbPath, new Deque());
-                pendingCounts.set(dbPath, 0);
-            }
-            this.deque = deques.get(dbPath);
+            this.dbPath = sys.FileSystem.fullPath(this.dbPath).split("\\").join("/");
+        } catch (e:Dynamic) {}
+        
+        var mapKey = this.dbPath.toLowerCase();
 
-            if (!writerStarted.exists(dbPath)) {
-                writerStarted.set(dbPath, true);
-                startWriterThread(dbPath, deques.get(dbPath));
+        // Initialize connection for this dbPath (shared across many instances)
+        globalMutex.acquire();
+        try {
+            if (!connections.exists(mapKey)) {
+                HybridLogger.info('CREATING NEW SHARED CONNECTION for $dbPath');
+                var dir = haxe.io.Path.directory(dbPath);
+                if (dir != "" && !sys.FileSystem.exists(dir)) {
+                    sys.FileSystem.createDirectory(dir);
+                }
+                
+                var newConn = Sqlite.open(dbPath);
+                newConn.request("PRAGMA journal_mode=WAL;");
+                newConn.request("PRAGMA synchronous=NORMAL;");
+                newConn.request("PRAGMA busy_timeout=5000;");
+                newConn.request("PRAGMA foreign_keys=ON;");
+                
+                connections.set(mapKey, newConn);
+                connectionMutexes.set(mapKey, new Mutex());
+                deques.set(mapKey, new Deque());
+                pendingCounts.set(mapKey, 0);
+            } else {
+                HybridLogger.info('USING EXISTING SHARED CONNECTION for $dbPath');
             }
-            globalMutex.release();
             
+            this.conn = connections.get(mapKey);
+            this.currentMutex = connectionMutexes.get(mapKey);
+            this.deque = deques.get(mapKey);
+
+            if (!writerStarted.exists(mapKey)) {
+                writerStarted.set(mapKey, true);
+                startWriterThread(dbPath, this.deque);
+            }
         } catch (e:Dynamic) {
-            HybridLogger.error("Failed to initialize SQLite connection for " + dbPath + ": " + e);
+            globalMutex.release();
+            HybridLogger.error("Failed to initialize shared SQLite connection for " + dbPath + ": " + e);
             throw e;
         }
+        globalMutex.release();
     }
 
     private static function startWriterThread(path:String, deque:Deque<{sql:String, params:Map<String, Dynamic>}>) {
@@ -142,21 +145,46 @@ class SqliteDatabaseService implements IDatabaseService {
     }
 
     public function execute(sql:String, ?params:Map<String, Dynamic>):Void {
+        var thread = sys.thread.Thread.current();
+        var tid = "T" + Std.string(Type.enumIndex(cast thread)); // Try to get a unique-ish string
+        if (tid == "T") tid = "T" + StringTools.hex(Std.parseInt(Std.string(thread))); // Fallback for HL
+        currentMutex.acquire();
         try {
             var finalSql = (params != null) ? buildSqlStatic(sql, params) : sql;
+            var trimmedSql = StringTools.trim(finalSql).toUpperCase();
+            if (trimmedSql.indexOf("INSERT") == 0 || trimmedSql.indexOf("UPDATE") == 0 || trimmedSql.indexOf("DELETE") == 0) {
+                HybridLogger.info('[$tid] SQL EXECUTE: $finalSql');
+            }
             conn.request(finalSql);
+
+            // Immediate verification for inserts in api_keys
+            if (trimmedSql.indexOf("INSERT INTO API_KEYS") == 0) {
+                var rsCount = conn.request("SELECT count(*) as count FROM api_keys");
+                if (rsCount.hasNext()) {
+                    var row = rsCount.next();
+                    var count:Int = row.count;
+                    HybridLogger.info('[$tid] VERIFY: Count in api_keys is now $count');
+                }
+            }
+
+            currentMutex.release();
         } catch (e:Dynamic) {
+            currentMutex.release();
             HybridLogger.error('SqliteDatabaseService.execute error: $e | SQL: $sql');
             throw e;
         }
     }
 
     public function executeAndGetId(sql:String, ?params:Map<String, Dynamic>):Int {
+        currentMutex.acquire();
         try {
             var finalSql = (params != null) ? buildSqlStatic(sql, params) : sql;
             conn.request(finalSql);
-            return conn.lastInsertId();
+            var id = conn.lastInsertId();
+            currentMutex.release();
+            return id;
         } catch (e:Dynamic) {
+            currentMutex.release();
             HybridLogger.error('SqliteDatabaseService.executeAndGetId error: $e | SQL: $sql');
             throw e;
         }
@@ -182,11 +210,17 @@ class SqliteDatabaseService implements IDatabaseService {
     }
 
     public function request(sql:String, ?params:Map<String, Dynamic>):ResultSet {
+        var tid = Std.string(sys.thread.Thread.current());
+        currentMutex.acquire();
         try {
             var finalSql = (params != null) ? buildSqlStatic(sql, params) : sql;
+            // HybridLogger.info('[$tid] SQL REQUEST: $finalSql');
             var rs = conn.request(finalSql);
-            return new StaticResultSet(rs);
+            var result = new StaticResultSet(rs);
+            currentMutex.release();
+            return result;
         } catch (e:Dynamic) {
+            currentMutex.release();
             HybridLogger.error('SqliteDatabaseService.request error: $e | SQL: $sql');
             throw e;
         }
@@ -275,8 +309,16 @@ class StaticResultSet implements sys.db.ResultSet {
 
     public function new(rs:sys.db.ResultSet) {
         rows = [];
-        while (rs != null && rs.hasNext()) {
-            rows.push(rs.next());
+        if (rs != null) {
+            while (rs.hasNext()) {
+                var row = rs.next();
+                // Deep copy row if it's dynamic to avoid driver reuse issues
+                var copy = {};
+                for (f in Reflect.fields(row)) {
+                    Reflect.setField(copy, f, Reflect.field(row, f));
+                }
+                rows.push(copy);
+            }
         }
     }
 

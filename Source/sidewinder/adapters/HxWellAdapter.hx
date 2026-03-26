@@ -109,6 +109,14 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 	}
 
 	public function processQueuedRequest(q:QueuedRequest):Void {
+		var scope = DI.createScope();
+		DI.setThreadProvider(scope);
+
+		var cleanup = function() {
+			DI.resetThreadProvider();
+			scope.destroy();
+		};
+
 		try {
 			var swRes = createResponse(q.socket);
 			var swReq = convertRequest(q.hxRequest, q.socket);
@@ -125,6 +133,7 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			if (swReq.method == "OPTIONS") {
 				swRes.sendResponse(HTTPStatus.OK);
 				swRes.end();
+				cleanup();
 				return;
 			}
 
@@ -136,6 +145,7 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 					HybridLogger.debug('[HxWellAdapter] Route match found for ${swReq.path}');
 					swReq.params = match.params;
 					router.handle(swReq, swRes, match.route);
+					cleanup();
 					return;
 				}
 			}
@@ -147,12 +157,14 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 				swRes.sendError(HTTPStatus.NOT_FOUND);
 				swRes.end();
 			}
+			cleanup();
 		} catch (e:Dynamic) {
 			HybridLogger.error('[HxWellAdapter] Error processing request: ' + e);
 			try {
 				q.socket.shutdown(false, true);
 				q.socket.close();
 			} catch (_) {}
+			cleanup();
 		}
 	}
 

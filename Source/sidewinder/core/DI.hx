@@ -69,4 +69,38 @@ class DI {
 	public static function get<S:hx.injection.Service>(service:Class<S>, ?binding:Null<Class<S>>):S {
 		return provider().getService(service, binding);
 	}
+
+	/**
+		Create a new child DI scope from the global provider.
+	**/
+	public static function createScope():ServiceProvider {
+		if (_globalProvider == null) throw 'DI not initialized. Call DI.init() first.';
+		return _globalProvider.createChildScope();
+	}
+
+	/**
+		Set the provider for the current thread.
+	**/
+	public static function setThreadProvider(p:ServiceProvider):Void {
+		#if (sys && !html5)
+		var thread = Thread.current();
+		_mutex.acquire();
+		_providers.set(thread, p);
+		_mutex.release();
+		#else
+		_globalProvider = p;
+		#end
+	}
+
+	/**
+		Remove the provider for the current thread, causing it to fall back to the global one.
+	**/
+	public static function resetThreadProvider():Void {
+		#if (sys && !html5)
+		var thread = Thread.current();
+		_mutex.acquire();
+		_providers.remove(thread);
+		_mutex.release();
+		#end
+	}
 }

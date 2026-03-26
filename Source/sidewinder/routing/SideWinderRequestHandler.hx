@@ -173,6 +173,22 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 	}
 
 	override function handleCommand(method:String):Void {
+		var scope = DI.createScope();
+		DI.setThreadProvider(scope);
+
+		try {
+			handleCommandInternal(method);
+		} catch (e:Dynamic) {
+			sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR, "Internal Server Error");
+			trace("Middleware/Handler error: " + Std.string(e));
+			trace(haxe.CallStack.toString(haxe.CallStack.exceptionStack()));
+		}
+
+		DI.resetThreadProvider();
+		scope.destroy();
+	}
+
+	private function handleCommandInternal(method:String):Void {
 		var pathOnly = this.path.split("?")[0];
 		// Handle OPTIONS preflight request
 		if (method == "OPTIONS") {
@@ -265,15 +281,10 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 			}
 		};
 
-		try {
-			// Process request synchronously - async queue doesn't work with snake-server's model
-			// because Response closures reference instance members (wfile, sendHeader, etc.)
-			// that become invalid when processed asynchronously
-			router.handle(req, res, match.route);
-		} catch (e:Dynamic) {
-			sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR, "Internal Server Error");
-			trace("Middleware/Handler error: " + Std.string(e));
-		}
+		// Process request synchronously - async queue doesn't work with snake-server's model
+		// because Response closures reference instance members (wfile, sendHeader, etc.)
+		// that become invalid when processed asynchronously
+		router.handle(req, res, match.route);
 	}
 
 	function handleStatic() {
