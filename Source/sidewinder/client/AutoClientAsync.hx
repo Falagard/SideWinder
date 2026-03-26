@@ -290,23 +290,28 @@ class AutoClientAsync {
 							} else {
 								// GET/POST handled by request; POST when body or explicit method
 								h.onData = function(d:Dynamic) {
+									if (d == null) {
+										onData(null);
+										return;
+									}
 									var s:String = null;
-									if (d != null) {
-										if (Std.isOfType(d, String)) {
-											s = cast d;
-										} else {
-											// On HashLink, data might be hl.Bytes (native)
-											#if hl
-											if (Std.isOfType(d, hl.Bytes)) {
+									if (Std.isOfType(d, String)) {
+										s = (cast d : String);
+									} else {
+										#if hl
+										if (Std.isOfType(d, hl.Bytes)) {
+											try {
 												s = @:privateAccess String.fromUTF8(d);
+											} catch (_:Dynamic) {
+												try { s = Std.string(d); } catch(_:Dynamic) { s = "[Bytes]"; }
 											}
-											#end
-											if (s == null) {
-												if (Std.isOfType(d, haxe.io.Bytes)) {
-													s = cast(d, haxe.io.Bytes).toString();
-												} else {
-													s = Std.string(d);
-												}
+										}
+										#end
+										if (s == null) {
+											try {
+												s = Std.string(d);
+											} catch(_:Dynamic) {
+												s = "[Unknown Data]";
 											}
 										}
 									}
@@ -444,10 +449,24 @@ class AutoClientAsync {
 													trace('[AutoClientAsync] parsing JSON length=' + d.length);
 													var raw = haxe.Json.parse(d);
 													var converted = sidewinder.client.AutoClientAsync.normalizeDates(raw);
-													onSuccess(converted);
+													
+													// HashLink specific: verify array return if expected
+													var isArr = $v{StringTools.startsWith(retName, "Array<")};
+													if (isArr && converted != null && !Std.isOfType(converted, Array)) {
+														trace('[AutoClientAsync] Expected array but got object, likely error response or login required');
+														onFailure(Std.string(converted));
+													} else {
+														try {
+															// Use untyped to avoid HashLink strict cast issues at the call site
+															untyped onSuccess(converted);
+														} catch (err:Dynamic) {
+															trace('[AutoClientAsync] callback error ' + Std.string(err));
+															onFailure(Std.string(err));
+														}
+													}
 												} catch (e:Dynamic) {
 													trace('[AutoClientAsync] JSON parse error ' + Std.string(e));
-													onFailure(e);
+													onFailure(Std.string(e));
 												}
 											}
 										};
