@@ -146,6 +146,74 @@ class AutoClientAsync {
 							var jsonBody = (body != null) ? haxe.Json.stringify(body) : null;
 							if (jsonBody != null)
 								trace('[AutoClientAsync] jsonBody=' + jsonBody);
+							#if (hl && lime)
+							trace('[AutoClientAsync] using CURL via thread for ' + method);
+							sys.thread.Thread.create(function() {
+								var curl = new lime.net.curl.CURL();
+								curl.setOption(lime.net.curl.CURLOption.URL, full);
+								curl.setOption(lime.net.curl.CURLOption.CUSTOMREQUEST, method);
+								curl.setOption(lime.net.curl.CURLOption.NOSIGNAL, true);
+								curl.setOption(lime.net.curl.CURLOption.FOLLOWLOCATION, true);
+
+								var curlHeaders = ["Accept: application/json"];
+								if (jsonBody != null) {
+									curlHeaders.push("Content-Type: application/json");
+									curl.setOption(lime.net.curl.CURLOption.POSTFIELDS, jsonBody);
+								}
+								
+								if (apiKey != null && apiKey != "") {
+									curlHeaders.push("X-Project-Key: " + apiKey);
+								}
+
+								var cookieHeader = cookieJar.getCookieHeader(full);
+								if (cookieHeader != "") {
+									curlHeaders.push("Cookie: " + cookieHeader);
+								}
+								
+								// Auth header from session_token
+								for (c in cookieJar.getAllCookies()) {
+									if (c.name == "session_token") {
+										curlHeaders.push("Authorization: Bearer " + c.value);
+									}
+								}
+
+								curl.setOption(lime.net.curl.CURLOption.HTTPHEADER, curlHeaders);
+
+								var responseBuffer = new haxe.io.BytesBuffer();
+								curl.setOption(lime.net.curl.CURLOption.WRITEFUNCTION, function(c, bytes) {
+									responseBuffer.add(bytes);
+									return bytes.length;
+								});
+
+								curl.setOption(lime.net.curl.CURLOption.HEADERFUNCTION, function(c, bytes) {
+									var line = bytes.toString();
+									if (StringTools.startsWith(line.toLowerCase(), "set-cookie:")) {
+										var val = StringTools.trim(line.substring("set-cookie:".length));
+										cookieJar.setCookie(val, full);
+									}
+									return bytes.length;
+								});
+
+								try {
+									var curlResult = curl.perform();
+									if (curlResult == lime.net.curl.CURLCode.OK) {
+										var respStr = responseBuffer.getBytes().toString();
+										haxe.Timer.delay(function() {
+											onData(respStr);
+										}, 0);
+									} else {
+										haxe.Timer.delay(function() {
+											onError("CURL error: " + curlResult);
+										}, 0);
+									}
+								} catch (e:Dynamic) {
+									haxe.Timer.delay(function() {
+										onError(e);
+									}, 0);
+								}
+								curl.cleanup();
+							});
+							#else
 							var h = new haxe.Http(full);
 							h.setHeader("Accept", "application/json");
 							if (jsonBody != null) {
@@ -323,6 +391,7 @@ class AutoClientAsync {
 								catch (e:Dynamic)
 									onError(e);
 							}
+							#end
 							trace('[AutoClientAsync] doRequestAsync exit method=' + method + ' path=' + path);
 						}
 					}),

@@ -64,6 +64,58 @@ class AutoClient {
                                 var result:Dynamic = null;
                                 var error:Dynamic = null;
                                 var done = false;
+                                #if (hl && lime)
+                                var curl = new lime.net.curl.CURL();
+                                curl.setOption(lime.net.curl.CURLOption.URL, fullUrl);
+                                curl.setOption(lime.net.curl.CURLOption.CUSTOMREQUEST, method);
+                                curl.setOption(lime.net.curl.CURLOption.NOSIGNAL, true);
+                                curl.setOption(lime.net.curl.CURLOption.FOLLOWLOCATION, true);
+
+                                var curlHeaders = ["Accept: application/json"];
+                                if (jsonBody != null) {
+                                    curlHeaders.push("Content-Type: application/json");
+                                    curl.setOption(lime.net.curl.CURLOption.POSTFIELDS, jsonBody);
+                                }
+
+                                #if sys
+                                var cookieHeader = cookieJar.getCookieHeader(fullUrl);
+                                if (cookieHeader != "") {
+                                    curlHeaders.push("Cookie: " + cookieHeader);
+                                }
+                                #end
+
+                                curl.setOption(lime.net.curl.CURLOption.HTTPHEADER, curlHeaders);
+
+                                var responseBuffer = new haxe.io.BytesBuffer();
+                                curl.setOption(lime.net.curl.CURLOption.WRITEFUNCTION, function(c, bytes) {
+                                    responseBuffer.add(bytes);
+                                    return bytes.length;
+                                });
+
+                                #if sys
+                                curl.setOption(lime.net.curl.CURLOption.HEADERFUNCTION, function(c, bytes) {
+                                    var line = bytes.toString();
+                                    if (StringTools.startsWith(line.toLowerCase(), "set-cookie:")) {
+                                        var val = StringTools.trim(line.substring("set-cookie:".length));
+                                        cookieJar.setCookie(val, fullUrl);
+                                    }
+                                    return bytes.length;
+                                });
+                                #end
+
+                                try {
+                                    var curlResult = curl.perform();
+                                    if (curlResult == lime.net.curl.CURLCode.OK) {
+                                        result = responseBuffer.getBytes().toString();
+                                    } else {
+                                        error = "CURL error: " + curlResult;
+                                    }
+                                } catch (e:Dynamic) {
+                                    error = Std.string(e);
+                                }
+                                curl.cleanup();
+                                done = true;
+                                #else
                                 var h = new haxe.Http(fullUrl);
                                 h.setHeader("Accept", "application/json");
                                 if (jsonBody != null) {
@@ -130,6 +182,7 @@ class AutoClient {
                                 while (!done && (haxe.Timer.stamp() - start) < 5) {
                                     // spin; consider refactoring to async API returning Future
                                 }
+                                #end
                                 if (error != null) return null;
                                 return result;
                         }
