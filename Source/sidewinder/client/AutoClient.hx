@@ -12,7 +12,7 @@ using haxe.macro.TypeTools;
 using haxe.macro.ExprTools;
 
 class AutoClient {
-    public static macro function create(iface:Expr, baseUrl:Expr):Expr {
+    public static macro function create(iface:Expr, baseUrl:Expr, ?cookieJar:Expr, ?projectKey:Expr):Expr {
         var ifaceName = switch (iface.expr) {
             case EConst(CIdent(s)): s;
             default: Context.error("Expected interface identifier", iface.pos); "";
@@ -32,17 +32,31 @@ class AutoClient {
                     pos: Context.currentPos()
                 });
                 fields.push({
+                    name: "projectKey",
+                    access: [APrivate],
+                    kind: FVar(macro:String, null),
+                    pos: Context.currentPos()
+                });
+                fields.push({
                     name: "cookieJar",
-                    access: [APublic, AStatic],
-                    kind: FVar(macro:sidewinder.data.CookieJar, macro new sidewinder.data.CookieJar()),
+                    access: [APublic],
+                    kind: FVar(macro:sidewinder.data.CookieJar, null),
                     pos: Context.currentPos()
                 });
                 fields.push({
                     name: "new",
                     access: [APublic],
                     kind: FFun({
-                        args: [ { name: "baseUrl", type: macro:String } ],
-                        expr: macro this.baseUrl = baseUrl,
+                        args: [ 
+                            { name: "baseUrl", type: macro:String },
+                            { name: "cookieJar", type: macro:sidewinder.data.CookieJar, opt: true },
+                            { name: "projectKey", type: macro:String, opt: true }
+                        ],
+                        expr: macro {
+                            this.baseUrl = baseUrl;
+                            this.cookieJar = (cookieJar != null) ? cookieJar : new sidewinder.data.CookieJar();
+                            this.projectKey = projectKey;
+                        },
                         params: [],
                         ret: null
                     }),
@@ -72,6 +86,10 @@ class AutoClient {
                                 curl.setOption(lime.net.curl.CURLOption.FOLLOWLOCATION, true);
 
                                 var curlHeaders = ["Accept: application/json"];
+                                if (this.projectKey != null) {
+                                    curlHeaders.push("X-API-Key: " + this.projectKey);
+                                    curlHeaders.push("X-Project-Key: " + this.projectKey);
+                                }
                                 if (jsonBody != null) {
                                     curlHeaders.push("Content-Type: application/json");
                                     curl.setOption(lime.net.curl.CURLOption.POSTFIELDS, jsonBody);
@@ -118,6 +136,10 @@ class AutoClient {
                                 #else
                                 var h = new haxe.Http(fullUrl);
                                 h.setHeader("Accept", "application/json");
+                                if (this.projectKey != null) {
+                                    h.setHeader("X-API-Key", this.projectKey);
+                                    h.setHeader("X-Project-Key", this.projectKey);
+                                }
                                 if (jsonBody != null) {
                                     h.setHeader("Content-Type", "application/json");
                                     h.setPostData(jsonBody);
@@ -331,7 +353,7 @@ class AutoClient {
                 var typePath:TypePath = { pack: ["sidewinder"], name: uniqueName };
                 // Return the new instance, strictly typed as the interface
                 var ifaceType = Context.toComplexType(t);
-                return macro (cast (new $typePath($e{baseUrl}) : $ifaceType));
+                return macro (cast (new $typePath($e{baseUrl}, $e{cookieJar}, $e{projectKey}) : $ifaceType));
             case _: Context.error("Expected interface type", iface.pos); return macro null;
         }
     }
