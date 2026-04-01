@@ -22,26 +22,38 @@ using StringTools;
  */
 class LocalStreamBroker implements IStreamBroker {
 	// Stream storage: stream name -> array of messages
-	private static var streams:StringMap<Array<StreamMessage>> = new StringMap<Array<StreamMessage>>();
+	private static var _streams:StringMap<Array<StreamMessage>>;
+	private static var _consumerGroups:StringMap<StringMap<ConsumerGroup>>;
+	private static var _pendingMessages:StringMap<Array<PendingMessage>>;
+	private static var _messageSequence:StringMap<Int>;
+	private static var _mutex:Mutex = new Mutex();
+	private static var _globalInstanceCount:Int = 0;
 
-	// Consumer groups: stream name -> group name -> group data
-	private static var consumerGroups:StringMap<StringMap<ConsumerGroup>> = new StringMap<StringMap<ConsumerGroup>>();
-
-	// Pending messages: stream:group:consumer -> array of message IDs
-	private static var pendingMessages:StringMap<Array<PendingMessage>> = new StringMap<Array<PendingMessage>>();
-
-	// Message ID sequence counters
-	private static var messageSequence:StringMap<Int> = new StringMap<Int>();
-
-	// Mutex for thread safety
-	private static var mutex:Mutex = new Mutex();
-
-	// Configuration
-	private var maxStreamLength:Int = 10000; // Default max length per stream
-	private var maxPendingMessages:Int = 1000; // Max pending messages per consumer
+	private var instanceId:Int;
+	private var maxStreamLength:Int = 10000;
+	private var maxPendingMessages:Int = 1000;
 
 	public function new() {
-		HybridLogger.info('[LocalStreamBroker] Initialized');
+		initShared();
+		_mutex.acquire();
+		this.instanceId = ++_globalInstanceCount;
+		_mutex.release();
+		Sys.println('[LocalStreamBroker] NEW INSTANCE CREATED: ID=$instanceId');
+	}
+
+	private static function initShared():Void {
+		_mutex.acquire();
+		var tid = Std.string(sys.thread.Thread.current());
+		if (_streams == null) {
+			_streams = new StringMap<Array<StreamMessage>>();
+			_consumerGroups = new StringMap<StringMap<ConsumerGroup>>();
+			_pendingMessages = new StringMap<Array<PendingMessage>>();
+			_messageSequence = new StringMap<Int>();
+			Sys.println('[LocalStreamBroker] SHARED STORE INITIALIZED by Thread-$tid');
+		} else {
+			Sys.println('[LocalStreamBroker] SHARED STORE already exists - Used by Thread-$tid');
+		}
+		_mutex.release();
 	}
 
 	public function getConstructorArgs():Array<String> {
@@ -49,20 +61,20 @@ class LocalStreamBroker implements IStreamBroker {
 	}
 
 	public function xadd(stream:String, data:Dynamic):String {
-		mutex.acquire();
+		_mutex.acquire();
 		try {
 			// Initialize stream if it doesn't exist
-			if (!streams.exists(stream)) {
-				streams.set(stream, []);
-				messageSequence.set(stream, 0);
+			if (!_streams.exists(stream)) {
+				_streams.set(stream, []);
+				_messageSequence.set(stream, 0);
 			}
 
 			// Generate message ID (timestamp-sequence)
 			// Use Date.now().getTime() to get milliseconds as Float, then convert to string
 			// This avoids integer overflow that occurs with Math.floor() on large timestamps
 			var timestampMs = Date.now().getTime();
-			var sequence = messageSequence.get(stream);
-			messageSequence.set(stream, sequence + 1);
+			var sequence = _messageSequence.get(stream);
+			_messageSequence.set(stream, sequence + 1);
 			// Use fixed-point string representation for large timestamps
 			var messageId = '${Math.ffloor(timestampMs)}-${sequence}';
 
@@ -74,43 +86,37 @@ class LocalStreamBroker implements IStreamBroker {
 			};
 
 			// Add to stream
-			var streamMessages = streams.get(stream);
+			var streamMessages = _streams.get(stream);
 			streamMessages.push(message);
 
-			// Auto-trim if stream is too long
-			if (streamMessages.length > maxStreamLength) {
-				streamMessages.shift(); // Remove oldest message
-				HybridLogger.debug('[LocalStreamBroker] Auto-trimmed stream: $stream');
-			}
+			Sys.println('[LocalStreamBroker #$instanceId] XADD success to $stream: $messageId');
 
-			HybridLogger.debug('[LocalStreamBroker] Added message to stream $stream: $messageId');
-
-			mutex.release();
+			_mutex.release();
 			return messageId;
 		} catch (e:Dynamic) {
-			mutex.release();
+			_mutex.release();
 			throw e;
 		}
 	}
 
 	public function createGroup(stream:String, group:String, startId:String = "$"):Void {
-		mutex.acquire();
+		_mutex.acquire();
 		try {
 			// Initialize stream if it doesn't exist
-			if (!streams.exists(stream)) {
-				streams.set(stream, []);
+			if (!_streams.exists(stream)) {
+				_streams.set(stream, []);
 			}
 
 			// Initialize consumer groups map for stream if needed
-			if (!consumerGroups.exists(stream)) {
-				consumerGroups.set(stream, new StringMap<ConsumerGroup>());
+			if (!_consumerGroups.exists(stream)) {
+				_consumerGroups.set(stream, new StringMap<ConsumerGroup>());
 			}
 
-			var groups = consumerGroups.get(stream);
+			var groups = _consumerGroups.get(stream);
 
 			if (groups.exists(group)) {
 				HybridLogger.warn('[LocalStreamBroker] Consumer group already exists: $stream:$group');
-				mutex.release();
+				_mutex.release();
 				return;
 			}
 
@@ -118,7 +124,7 @@ class LocalStreamBroker implements IStreamBroker {
 			var lastId = "0-0";
 			if (startId == "$") {
 				// Start from next message (current end of stream)
-				var streamMessages = streams.get(stream);
+				var streamMessages = _streams.get(stream);
 				if (streamMessages.length > 0) {
 					lastId = streamMessages[streamMessages.length - 1].id;
 				}
@@ -136,24 +142,24 @@ class LocalStreamBroker implements IStreamBroker {
 			groups.set(group, consumerGroup);
 
 			HybridLogger.info('[LocalStreamBroker] Created consumer group: $stream:$group (start: $lastId)');
-			mutex.release();
+			_mutex.release();
 		} catch (e:Dynamic) {
-			mutex.release();
+			_mutex.release();
 			throw e;
 		}
 	}
 
 	public function deleteGroup(stream:String, group:String):Void {
-		mutex.acquire();
+		_mutex.acquire();
 		try {
-			if (!consumerGroups.exists(stream)) {
-				mutex.release();
+			if (!_consumerGroups.exists(stream)) {
+				_mutex.release();
 				return;
 			}
 
-			var groups = consumerGroups.get(stream);
+			var groups = _consumerGroups.get(stream);
 			if (!groups.exists(group)) {
-				mutex.release();
+				_mutex.release();
 				return;
 			}
 
@@ -161,15 +167,15 @@ class LocalStreamBroker implements IStreamBroker {
 			var consumerGroup = groups.get(group);
 			for (consumerName in consumerGroup.consumers.keys()) {
 				var key = '$stream:$group:$consumerName';
-				pendingMessages.remove(key);
+				_pendingMessages.remove(key);
 			}
 
 			groups.remove(group);
 
 			HybridLogger.info('[LocalStreamBroker] Deleted consumer group: $stream:$group');
-			mutex.release();
+			_mutex.release();
 		} catch (e:Dynamic) {
-			mutex.release();
+			_mutex.release();
 			throw e;
 		}
 	}
@@ -180,17 +186,18 @@ class LocalStreamBroker implements IStreamBroker {
 		var messages:Array<StreamMessage> = [];
 
 		while (true) {
-			mutex.acquire();
+			_mutex.acquire();
 			try {
 				// Validate stream and group exist
-				if (!streams.exists(stream) || !consumerGroups.exists(stream)) {
-					mutex.release();
+				if (!_streams.exists(stream) || !_consumerGroups.exists(stream)) {
+					// Silent return, but we want to know it's not a crash
+					_mutex.release();
 					return messages;
 				}
 
-				var groups = consumerGroups.get(stream);
+				var groups = _consumerGroups.get(stream);
 				if (!groups.exists(group)) {
-					mutex.release();
+					_mutex.release();
 					return messages;
 				}
 
@@ -211,7 +218,7 @@ class LocalStreamBroker implements IStreamBroker {
 				consumerData.lastActivity = Sys.time();
 
 				// Get all messages after the last delivered ID
-				var streamMessages = streams.get(stream);
+				var streamMessages = _streams.get(stream);
 				var lastDeliveredId = consumerGroup.lastDeliveredId;
 
 				for (message in streamMessages) {
@@ -220,10 +227,10 @@ class LocalStreamBroker implements IStreamBroker {
 
 						// Add to pending
 						var key = '$stream:$group:$consumer';
-						if (!pendingMessages.exists(key)) {
-							pendingMessages.set(key, []);
+						if (!_pendingMessages.exists(key)) {
+							_pendingMessages.set(key, []);
 						}
-						var pending = pendingMessages.get(key);
+						var pending = _pendingMessages.get(key);
 						pending.push({
 							messageId: message.id,
 							consumer: consumer,
@@ -243,14 +250,14 @@ class LocalStreamBroker implements IStreamBroker {
 				// If we got messages or not blocking, return
 				if (messages.length > 0 || blockMs == 0) {
 					if (messages.length > 0) {
-						HybridLogger.debug('[LocalStreamBroker] Read ${messages.length} messages for $stream:$group:$consumer');
+						Sys.println('[LocalStreamBroker #$instanceId] XREADGROUP found ${messages.length} messages for $stream:$group:$consumer');
 					}
-					mutex.release();
+					_mutex.release();
 					return messages;
 				}
-				mutex.release();
+				_mutex.release();
 			} catch (e:Dynamic) {
-				mutex.release();
+				_mutex.release();
 				throw e;
 			}
 
@@ -273,17 +280,17 @@ class LocalStreamBroker implements IStreamBroker {
 	}
 
 	public function xack(stream:String, group:String, messageIds:Array<String>):Int {
-		mutex.acquire();
+		_mutex.acquire();
 		try {
 			var ackCount = 0;
 
 			// Find and remove pending messages
-			for (key in pendingMessages.keys()) {
+			for (key in _pendingMessages.keys()) {
 				if (!key.startsWith('$stream:$group:')) {
 					continue;
 				}
 
-				var pending = pendingMessages.get(key);
+				var pending = _pendingMessages.get(key);
 				var remaining:Array<PendingMessage> = [];
 
 				for (p in pending) {
@@ -295,14 +302,14 @@ class LocalStreamBroker implements IStreamBroker {
 				}
 
 				if (remaining.length == 0) {
-					pendingMessages.remove(key);
+					_pendingMessages.remove(key);
 				} else {
-					pendingMessages.set(key, remaining);
+					_pendingMessages.set(key, remaining);
 				}
 
 				// Update consumer pending count
-				if (consumerGroups.exists(stream)) {
-					var groups = consumerGroups.get(stream);
+				if (_consumerGroups.exists(stream)) {
+					var groups = _consumerGroups.get(stream);
 					if (groups.exists(group)) {
 						var consumerGroup = groups.get(group);
 						var consumerName = key.substr(key.lastIndexOf(':') + 1);
@@ -318,29 +325,29 @@ class LocalStreamBroker implements IStreamBroker {
 				HybridLogger.debug('[LocalStreamBroker] Acknowledged $ackCount messages for $stream:$group');
 			}
 
-			mutex.release();
+			_mutex.release();
 			return ackCount;
 		} catch (e:Dynamic) {
-			mutex.release();
+			_mutex.release();
 			throw e;
 		}
 	}
 
 	public function xpending(stream:String, group:String, ?consumer:String):Array<StreamMessage> {
-		mutex.acquire();
+		_mutex.acquire();
 		try {
 			var result:Array<StreamMessage> = [];
 
-			if (!streams.exists(stream)) {
-				mutex.release();
+			if (!_streams.exists(stream)) {
+				_mutex.release();
 				return result;
 			}
 
-			var streamMessages = streams.get(stream);
+			var streamMessages = _streams.get(stream);
 			var pendingIds:Array<String> = [];
 
 			// Collect pending message IDs
-			for (key in pendingMessages.keys()) {
+			for (key in _pendingMessages.keys()) {
 				if (consumer != null) {
 					if (key != '$stream:$group:$consumer') {
 						continue;
@@ -351,7 +358,7 @@ class LocalStreamBroker implements IStreamBroker {
 					}
 				}
 
-				var pending = pendingMessages.get(key);
+				var pending = _pendingMessages.get(key);
 				for (p in pending) {
 					pendingIds.push(p.messageId);
 				}
@@ -364,43 +371,43 @@ class LocalStreamBroker implements IStreamBroker {
 				}
 			}
 
-			mutex.release();
+			_mutex.release();
 			return result;
 		} catch (e:Dynamic) {
-			mutex.release();
+			_mutex.release();
 			throw e;
 		}
 	}
 
 	public function xautoclaim(stream:String, group:String, consumer:String, minIdleMs:Int, count:Int = 1):Array<StreamMessage> {
-		mutex.acquire();
+		_mutex.acquire();
 		try {
 			var claimed:Array<StreamMessage> = [];
 			var minIdleSeconds = minIdleMs / 1000.0;
 			var now = Sys.time();
 
-			if (!streams.exists(stream) || !consumerGroups.exists(stream)) {
-				mutex.release();
+			if (!_streams.exists(stream) || !_consumerGroups.exists(stream)) {
+				_mutex.release();
 				return claimed;
 			}
 
-			var groups = consumerGroups.get(stream);
+			var groups = _consumerGroups.get(stream);
 			if (!groups.exists(group)) {
-				mutex.release();
+				_mutex.release();
 				return claimed;
 			}
 
 			var consumerGroup = groups.get(group);
-			var streamMessages = streams.get(stream);
+			var streamMessages = _streams.get(stream);
 
 			// Find stale pending messages from other consumers
-			for (key in pendingMessages.keys()) {
+			for (key in _pendingMessages.keys()) {
 				if (!key.startsWith('$stream:$group:') || key == '$stream:$group:$consumer') {
 					continue;
 				}
 
 				var oldConsumer = key.substr(key.lastIndexOf(':') + 1);
-				var pending = pendingMessages.get(key);
+				var pending = _pendingMessages.get(key);
 				var remaining:Array<PendingMessage> = [];
 
 				for (p in pending) {
@@ -413,10 +420,10 @@ class LocalStreamBroker implements IStreamBroker {
 
 							// Add to new consumer's pending
 							var newKey = '$stream:$group:$consumer';
-							if (!pendingMessages.exists(newKey)) {
-								pendingMessages.set(newKey, []);
+							if (!_pendingMessages.exists(newKey)) {
+								_pendingMessages.set(newKey, []);
 							}
-							var newPending = pendingMessages.get(newKey);
+							var newPending = _pendingMessages.get(newKey);
 							newPending.push({
 								messageId: p.messageId,
 								consumer: consumer,
@@ -431,9 +438,9 @@ class LocalStreamBroker implements IStreamBroker {
 
 				// Update old consumer's pending
 				if (remaining.length == 0) {
-					pendingMessages.remove(key);
+					_pendingMessages.remove(key);
 				} else {
-					pendingMessages.set(key, remaining);
+					_pendingMessages.set(key, remaining);
 				}
 
 				// Update consumer pending counts
@@ -443,8 +450,8 @@ class LocalStreamBroker implements IStreamBroker {
 				if (consumerGroup.consumers.exists(consumer)) {
 					var newConsumer = consumerGroup.consumers.get(consumer);
 					var newKey = '$stream:$group:$consumer';
-					if (pendingMessages.exists(newKey)) {
-						newConsumer.pendingCount = pendingMessages.get(newKey).length;
+					if (_pendingMessages.exists(newKey)) {
+						newConsumer.pendingCount = _pendingMessages.get(newKey).length;
 					}
 				}
 			}
@@ -453,41 +460,41 @@ class LocalStreamBroker implements IStreamBroker {
 				HybridLogger.debug('[LocalStreamBroker] Auto-claimed ${claimed.length} messages for $stream:$group:$consumer');
 			}
 
-			mutex.release();
+			_mutex.release();
 			return claimed;
 		} catch (e:Dynamic) {
-			mutex.release();
+			_mutex.release();
 			throw e;
 		}
 	}
 
 	public function xlen(stream:String):Int {
-		mutex.acquire();
+		_mutex.acquire();
 		try {
-			if (!streams.exists(stream)) {
-				mutex.release();
+			if (!_streams.exists(stream)) {
+				_mutex.release();
 				return 0;
 			}
-			var len = streams.get(stream).length;
-			mutex.release();
+			var len = _streams.get(stream).length;
+			_mutex.release();
 			return len;
 		} catch (e:Dynamic) {
-			mutex.release();
+			_mutex.release();
 			throw e;
 		}
 	}
 
 	public function getGroupInfo(stream:String):Array<ConsumerGroupInfo> {
-		mutex.acquire();
+		_mutex.acquire();
 		try {
 			var result:Array<ConsumerGroupInfo> = [];
 
-			if (!consumerGroups.exists(stream)) {
-				mutex.release();
+			if (!_consumerGroups.exists(stream)) {
+				_mutex.release();
 				return result;
 			}
 
-			var groups = consumerGroups.get(stream);
+			var groups = _consumerGroups.get(stream);
 			for (groupName in groups.keys()) {
 				var group = groups.get(groupName);
 
@@ -512,31 +519,31 @@ class LocalStreamBroker implements IStreamBroker {
 				});
 			}
 
-			mutex.release();
+			_mutex.release();
 			return result;
 		} catch (e:Dynamic) {
-			mutex.release();
+			_mutex.release();
 			throw e;
 		}
 	}
 
 	public function deleteConsumer(stream:String, group:String, consumer:String):Int {
-		mutex.acquire();
+		_mutex.acquire();
 		try {
-			if (!consumerGroups.exists(stream)) {
-				mutex.release();
+			if (!_consumerGroups.exists(stream)) {
+				_mutex.release();
 				return 0;
 			}
 
-			var groups = consumerGroups.get(stream);
+			var groups = _consumerGroups.get(stream);
 			if (!groups.exists(group)) {
-				mutex.release();
+				_mutex.release();
 				return 0;
 			}
 
 			var consumerGroup = groups.get(group);
 			if (!consumerGroup.consumers.exists(consumer)) {
-				mutex.release();
+				_mutex.release();
 				return 0;
 			}
 
@@ -547,31 +554,31 @@ class LocalStreamBroker implements IStreamBroker {
 
 			// Remove pending messages
 			var key = '$stream:$group:$consumer';
-			pendingMessages.remove(key);
+			_pendingMessages.remove(key);
 
 			HybridLogger.info('[LocalStreamBroker] Deleted consumer: $stream:$group:$consumer (had $pendingCount pending)');
 
-			mutex.release();
+			_mutex.release();
 			return pendingCount;
 		} catch (e:Dynamic) {
-			mutex.release();
+			_mutex.release();
 			throw e;
 		}
 	}
 
 	public function xtrim(stream:String, maxLen:Int):Int {
-		mutex.acquire();
+		_mutex.acquire();
 		try {
-			if (!streams.exists(stream)) {
-				mutex.release();
+			if (!_streams.exists(stream)) {
+				_mutex.release();
 				return 0;
 			}
 
-			var streamMessages = streams.get(stream);
+			var streamMessages = _streams.get(stream);
 			var originalLength = streamMessages.length;
 
 			if (originalLength <= maxLen) {
-				mutex.release();
+				_mutex.release();
 				return 0;
 			}
 
@@ -581,10 +588,10 @@ class LocalStreamBroker implements IStreamBroker {
 
 			HybridLogger.info('[LocalStreamBroker] Trimmed stream $stream: removed $toRemove messages');
 
-			mutex.release();
+			_mutex.release();
 			return toRemove;
 		} catch (e:Dynamic) {
-			mutex.release();
+			_mutex.release();
 			throw e;
 		}
 	}
