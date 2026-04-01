@@ -27,9 +27,6 @@ class CustomSocketDriver extends SocketDriver {
 				// Set TCP_NODELAY (FastSend) on client socket
 				socket.setFastSend(true);
 				
-				// Lower timeout for faster recycling of connections under load
-				socket.setTimeout(10);
-
 				var peer = null;
 				try {
 					peer = socket.peer();

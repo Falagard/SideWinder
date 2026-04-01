@@ -52,7 +52,8 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 		this.numIslands = islandManager.getIslandCount();
 
 		// Start a background thread to process WebSocket events if a handler is registered
-		haxe.MainLoop.addThread(processWebSocketEvents);
+		// Using sys.thread.Thread.create for HashLink reliability over MainLoop.addThread
+		sys.thread.Thread.create(processWebSocketEvents);
 	}
 
 	public function start():Void {
@@ -102,7 +103,7 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 							websocketHandler.onClose(session);
 					}
 				} catch (e:Dynamic) {
-					HybridLogger.error('[HxWellAdapter] WebSocket event error: ' + e);
+					HybridLogger.error('[HxWellAdapter] WebSocket event processing error: ' + e);
 				}
 			}
 		}
