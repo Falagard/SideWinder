@@ -23,6 +23,7 @@ class SqliteDatabaseService implements IDatabaseService {
     private static var deques:Map<String, Deque<{sql:String, params:Map<String, Dynamic>}>> = new Map();
     private static var pendingCounts:Map<String, Int> = new Map();
     private static var writerStarted:Map<String, Bool> = new Map();
+    private static var lastUsedAt:Map<String, Float> = new Map();
     private static var globalMutex:Mutex = new Mutex();
 
     private var dbPath:String;
@@ -30,8 +31,28 @@ class SqliteDatabaseService implements IDatabaseService {
     private var deque:Deque<{sql:String, params:Map<String, Dynamic>}>;
     private var currentMutex:Mutex;
 
+    public static function normalizePath(path:String):String {
+        if (path == null) return null;
+        var p = path;
+        try {
+            p = sys.FileSystem.fullPath(p).split("\\").join("/");
+        } catch (e:Dynamic) {}
+        return p.toLowerCase();
+    }
+
+    public static function createWithPath(config:core.IServerConfig, dbPath:String):SqliteDatabaseService {
+        var svc = Type.createEmptyInstance(SqliteDatabaseService);
+        svc.init(config, dbPath);
+        return svc;
+    }
+
     public function new(config:core.IServerConfig) {
-        this.dbPath = Sys.getEnv("DATABASE_PATH");
+        init(config, null);
+    }
+
+    private function init(config:core.IServerConfig, dbPath:String) {
+        this.dbPath = dbPath;
+        if (this.dbPath == null) this.dbPath = Sys.getEnv("DATABASE_PATH");
         if (this.dbPath == null) {
             // Heuristic for project structure
             if (sys.FileSystem.exists("Export/hl/bin")) {
@@ -41,24 +62,20 @@ class SqliteDatabaseService implements IDatabaseService {
             }
         }
         
-        // Use absolute path for uniqueness in the map
-        try {
-            this.dbPath = sys.FileSystem.fullPath(this.dbPath).split("\\").join("/");
-        } catch (e:Dynamic) {}
+        var mapKey = normalizePath(this.dbPath);
+        this.dbPath = mapKey; // Store normalized path
         
-        var mapKey = this.dbPath.toLowerCase();
-
         // Initialize connection for this dbPath (shared across many instances)
         globalMutex.acquire();
         try {
             if (!connections.exists(mapKey)) {
                 HybridLogger.info('CREATING NEW SHARED CONNECTION for $dbPath');
-                var dir = haxe.io.Path.directory(dbPath);
+                var dir = haxe.io.Path.directory(this.dbPath);
                 if (dir != "" && !sys.FileSystem.exists(dir)) {
                     sys.FileSystem.createDirectory(dir);
                 }
                 
-                var newConn = Sqlite.open(dbPath);
+                var newConn = Sqlite.open(this.dbPath);
                 newConn.request("PRAGMA journal_mode=WAL;");
                 newConn.request("PRAGMA synchronous=NORMAL;");
                 newConn.request("PRAGMA busy_timeout=5000;");
@@ -78,17 +95,19 @@ class SqliteDatabaseService implements IDatabaseService {
 
             if (!writerStarted.exists(mapKey)) {
                 writerStarted.set(mapKey, true);
-                startWriterThread(dbPath, this.deque);
+                startWriterThread(mapKey, this.dbPath, this.deque);
             }
+            
+            lastUsedAt.set(mapKey, Date.now().getTime());
         } catch (e:Dynamic) {
             globalMutex.release();
-            HybridLogger.error("Failed to initialize shared SQLite connection for " + dbPath + ": " + e);
+            HybridLogger.error("Failed to initialize shared SQLite connection for " + this.dbPath + ": " + e);
             throw e;
         }
         globalMutex.release();
     }
 
-    private static function startWriterThread(path:String, deque:Deque<{sql:String, params:Map<String, Dynamic>}>) {
+    private static function startWriterThread(mapKey:String, path:String, deque:Deque<{sql:String, params:Map<String, Dynamic>}>) {
         Thread.create(function() {
             var writerConn:Connection = null;
             try {
@@ -103,7 +122,7 @@ class SqliteDatabaseService implements IDatabaseService {
 
             while (true) {
                 var task = deque.pop(true);
-                if (task == null) continue;
+                if (task == null) break; // Shutdown signal
                 
                 try {
                     var finalSql = buildSqlStatic(task.sql, task.params);
@@ -113,11 +132,109 @@ class SqliteDatabaseService implements IDatabaseService {
                 }
                 
                 globalMutex.acquire();
-                var count = pendingCounts.get(path);
-                pendingCounts.set(path, count - 1);
+                var count = pendingCounts.get(mapKey);
+                if (count != null) pendingCounts.set(mapKey, count - 1);
                 globalMutex.release();
             }
+
+            if (writerConn != null) {
+                try {
+                    writerConn.request("PRAGMA wal_checkpoint(PASSIVE);");
+                    writerConn.close();
+                } catch (e:Dynamic) {}
+            }
+            HybridLogger.info('SQLite writer thread for $path SHUTDOWN CLEANLY');
         });
+    }
+
+    public static function hasOpenConnection(path:String):Bool {
+        var mapKey = normalizePath(path);
+        globalMutex.acquire();
+        var exists = connections.exists(mapKey);
+        globalMutex.release();
+        return exists;
+    }
+
+    public static function getOpenConnectionCount():Int {
+        globalMutex.acquire();
+        var count = 0;
+        for (k in connections.keys()) count++;
+        globalMutex.release();
+        return count;
+    }
+
+    public static function touchByPath(path:String):Void {
+        var mapKey = normalizePath(path);
+        globalMutex.acquire();
+        lastUsedAt.set(mapKey, Date.now().getTime());
+        globalMutex.release();
+    }
+
+    public static function getLastUsedAt(path:String):Float {
+        var mapKey = normalizePath(path);
+        globalMutex.acquire();
+        var time = lastUsedAt.exists(mapKey) ? lastUsedAt.get(mapKey) : 0.0;
+        globalMutex.release();
+        return time;
+    }
+
+    public static function closeByPath(path:String):Void {
+        var mapKey = normalizePath(path);
+        globalMutex.acquire();
+        try {
+            if (connections.exists(mapKey)) {
+                HybridLogger.info('CLOSING SHARED CONNECTION for $path');
+                
+                // 1. Flush pending writes by sending shutdown signal
+                var dq = deques.get(mapKey);
+                if (dq != null) {
+                    dq.push(null); // Shutdown signal
+                }
+                
+                // 2. Wait for pending count to reach 0 (with timeout)
+                globalMutex.release();
+                var startTime = Date.now().getTime();
+                while (true) {
+                    globalMutex.acquire();
+                    var count = pendingCounts.get(mapKey);
+                    if (count == null || count <= 0) {
+                        globalMutex.release();
+                        break;
+                    }
+                    globalMutex.release();
+                    Sys.sleep(0.01);
+                    if (Date.now().getTime() - startTime > 10000) {
+                        HybridLogger.warn('Timeout flushing SQLite writes for $path');
+                        break;
+                    }
+                }
+                
+                // Give writer thread a tiny bit of time to close itself
+                Sys.sleep(0.1);
+                
+                globalMutex.acquire();
+                
+                // 3. Perform checkpoint and close connection
+                var conn = connections.get(mapKey);
+                if (conn != null) {
+                    try {
+                        conn.request("PRAGMA wal_checkpoint(PASSIVE);");
+                        conn.close();
+                    } catch (e:Dynamic) {}
+                }
+
+                // 4. Clean up maps
+                connections.remove(mapKey);
+                connectionMutexes.remove(mapKey);
+                deques.remove(mapKey);
+                pendingCounts.remove(mapKey);
+                writerStarted.remove(mapKey);
+                lastUsedAt.remove(mapKey);
+            }
+        } catch (e:Dynamic) {
+             HybridLogger.error('Error in closeByPath for $path: $e');
+        }
+        globalMutex.release();
     }
 
     public function acquire():Connection return conn;
@@ -145,6 +262,7 @@ class SqliteDatabaseService implements IDatabaseService {
     }
 
     public function execute(sql:String, ?params:Map<String, Dynamic>):Void {
+        touchByPath(dbPath);
         var thread = sys.thread.Thread.current();
         var tid = "T" + Std.string(Type.enumIndex(cast thread)); // Try to get a unique-ish string
         if (tid == "T") tid = "T" + StringTools.hex(Std.parseInt(Std.string(thread))); // Fallback for HL
@@ -180,6 +298,7 @@ class SqliteDatabaseService implements IDatabaseService {
     }
 
     public function executeAndGetId(sql:String, ?params:Map<String, Dynamic>):Int {
+        touchByPath(dbPath);
         currentMutex.acquire();
         try {
             var finalSql = (params != null) ? buildSqlStatic(sql, params) : sql;
@@ -214,6 +333,7 @@ class SqliteDatabaseService implements IDatabaseService {
     }
 
     public function request(sql:String, ?params:Map<String, Dynamic>):ResultSet {
+        touchByPath(dbPath);
         var tid = Std.string(sys.thread.Thread.current());
         currentMutex.acquire();
         try {
@@ -235,10 +355,15 @@ class SqliteDatabaseService implements IDatabaseService {
     public function rollback():Void execute("ROLLBACK;");
 
     public function runMigrations():Void {
-        var dir = "migrations/sqlite";
-        execute('CREATE TABLE IF NOT EXISTS migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TEXT DEFAULT CURRENT_TIMESTAMP);');
+        runMigrationsWithPath("migrations/sqlite");
+    }
 
-        var rs = request("SELECT name FROM migrations;");
+    public function runMigrationsWithPath(dir:String):Void {
+        // Use a distinct migrations table for non-default paths to avoid conflicts
+        var table = (dir == "migrations/sqlite") ? "migrations" : "_migrations";
+        execute('CREATE TABLE IF NOT EXISTS $table (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TEXT DEFAULT CURRENT_TIMESTAMP);');
+
+        var rs = request('SELECT name FROM $table;');
         var applied = new Map<String, Bool>();
         while (rs.hasNext()) {
             applied.set(rs.next().name, true);
@@ -260,9 +385,10 @@ class SqliteDatabaseService implements IDatabaseService {
                         if (stmt.length == 0) continue;
                         execute(stmt);
                     }
-                    execute("INSERT INTO migrations (name) VALUES (@name);", ["name" => file]);
+                    execute('INSERT INTO $table (name) VALUES (@name);', ["name" => file]);
                 } catch (e:Dynamic) {
-                    HybridLogger.error('Migration failed for ' + file + ': ' + e);
+                    HybridLogger.error('Migration failed for ' + file + ' in ' + dir + ': ' + e);
+                    throw e;
                 }
             }
         }

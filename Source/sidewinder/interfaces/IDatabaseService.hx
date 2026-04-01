@@ -67,9 +67,14 @@ interface IDatabaseService extends Service {
 	public function enqueue(sql:String, ?params:Map<String, Dynamic>):Void;
 	
 	/**
-	 * Run database migrations
+	 * Run database migrations from the default path (migrations/sqlite)
 	 */
 	public function runMigrations():Void;
+
+	/**
+	 * Run database migrations from a custom directory
+	 */
+	public function runMigrationsWithPath(dir:String):Void;
 
 	/**
 	 * Block until all enqueued asynchronous operations are completed.
