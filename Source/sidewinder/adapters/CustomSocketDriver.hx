@@ -63,7 +63,11 @@ class CustomSocketDriver extends SocketDriver {
 							hx.well.http.driver.socket.SocketRequestParser.parseBody(hxReq, input);
 						} catch (e:Dynamic) {
 							// If abort() was called or other parse error, we log it
-							HybridLogger.warn('[HxWellAdapter] Body parse error: ' + e);
+							if (Std.isOfType(e, haxe.io.Eof) || Std.string(e) == "Eof") {
+								HybridLogger.debug('[HxWellAdapter] Body parse Eof (client disconnected)');
+							} else {
+								HybridLogger.warn('[HxWellAdapter] Body parse error: ' + e);
+							}
 						}
 						hx.well.http.RequestStatic.set(null);
 					}
@@ -71,7 +75,11 @@ class CustomSocketDriver extends SocketDriver {
 				
 				adapter.pushRequest({hxRequest: hxReq, socket: socket});
 			} catch (e:Dynamic) {
-				HybridLogger.error('[HxWellAdapter] Background parse error: ' + e);
+				if (Std.isOfType(e, haxe.io.Eof) || Std.string(e) == "Eof") {
+					HybridLogger.debug('[HxWellAdapter] Background parse Eof (connection closed before request data sent)');
+				} else {
+					HybridLogger.error('[HxWellAdapter] Background parse error: ' + e + '\n' + haxe.CallStack.toString(haxe.CallStack.exceptionStack()));
+				}
 				try {
 					// Attempt to drain and close gracefully
 					socket.shutdown(false, true);
