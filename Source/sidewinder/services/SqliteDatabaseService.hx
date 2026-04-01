@@ -152,18 +152,22 @@ class SqliteDatabaseService implements IDatabaseService {
         try {
             var finalSql = (params != null) ? buildSqlStatic(sql, params) : sql;
             var trimmedSql = StringTools.trim(finalSql).toUpperCase();
-            if (trimmedSql.indexOf("INSERT") == 0 || trimmedSql.indexOf("UPDATE") == 0 || trimmedSql.indexOf("DELETE") == 0) {
+            var isWrite = trimmedSql.indexOf("INSERT") == 0 || trimmedSql.indexOf("UPDATE") == 0 || trimmedSql.indexOf("DELETE") == 0;
+            
+            if (isWrite) {
                 HybridLogger.info('[$tid] SQL EXECUTE: $finalSql');
             }
-            conn.request(finalSql);
-
-            // Immediate verification for inserts in api_keys
-            if (trimmedSql.indexOf("INSERT INTO API_KEYS") == 0) {
-                var rsCount = conn.request("SELECT count(*) as count FROM api_keys");
-                if (rsCount.hasNext()) {
-                    var row = rsCount.next();
-                    var count:Int = row.count;
-                    HybridLogger.info('[$tid] VERIFY: Count in api_keys is now $count');
+            
+            var rs = conn.request(finalSql);
+            
+            // Check for immediate success or side effects
+            if (isWrite) {
+                // If it's a critical table, force a tiny read to trigger driver error detection
+                if (trimmedSql.indexOf("INSERT INTO UPLOAD_SESSIONS") == 0 || trimmedSql.indexOf("INSERT INTO API_KEYS") == 0) {
+                   conn.request("SELECT 1;");
+                   // Explicitly trigger a WAL checkpoint to ensure visibility on other threads/processes
+                   // PRAGMA wal_checkpoint(FULL) ensures that all frames are written out
+                   conn.request("PRAGMA wal_checkpoint(PASSIVE);");
                 }
             }
 

@@ -72,8 +72,16 @@ class AutoRouter {
 					$i{uniqueValName} = __rtReq.query.get(__name);
 				} else if (__rtReq.query != null && __rtReq.query.exists(__nameLower)) {
 					$i{uniqueValName} = __rtReq.query.get(__nameLower);
-				} else if (__rtReq.jsonBody != null && Reflect.hasField(__rtReq.jsonBody, __name)) {
-					$i{uniqueValName} = Reflect.field(__rtReq.jsonBody, __name);
+				} else if (__rtReq.jsonBody != null) {
+					if (Reflect.hasField(__rtReq.jsonBody, __name)) {
+						$i{uniqueValName} = Reflect.field(__rtReq.jsonBody, __name);
+					} else {
+						// For complex types, if the name isn't found, try the root body
+						var typeStr = $v{typeStr};
+						if (typeStr != "String" && typeStr != "Int" && typeStr != "Float" && typeStr != "Bool") {
+							$i{uniqueValName} = __rtReq.jsonBody;
+						}
+					}
 				}
 				
 				var __val = $i{uniqueValName};
@@ -93,22 +101,25 @@ class AutoRouter {
 				for (field in cl.fields.get()) {
 					switch (field.kind) {
 						case FMethod(_):
-							var httpMethod = "";
-							var path = "";
+							var routesToRegister = [];
 							var requiresAuth = false;
 							var requiredPermission:String = null;
 							for (m in field.meta.get()) {
 								switch (m.name) {
-									case "get", "post", "put", "delete":
-										httpMethod = m.name;
+									case "get", "post", "put", "delete", "patch":
+										var method = m.name;
+										var routePath = "";
 										if (m.params.length > 0) {
 											var p = m.params[0];
 											switch (p.expr) {
 												case EConst(CString(s)):
-													path = s;
+													routePath = s;
 												default:
 													Context.error('Expected string literal in meta', p.pos);
 											}
+										}
+										if (routePath != "") {
+											routesToRegister.push({method: method, path: routePath});
 										}
 									case "requiresAuth":
 										requiresAuth = true;
@@ -127,7 +138,7 @@ class AutoRouter {
 								}
 							}
 
-							if (httpMethod == "" || path == "")
+							if (routesToRegister.length == 0)
 								continue;
 
 							switch (field.type) {
@@ -173,6 +184,8 @@ class AutoRouter {
 									var argVars:Array<Expr> = [];
 									var callArgNames:Array<Expr> = [];
 
+									var argNames = [for (a in args) a.name];
+									trace('[AutoRouter] Processing ' + field.name + ' with args: ' + argNames.join(", "));
 									for (i in 0...args.length) {
 										var arg = args[i];
 										var argName = arg.name;
@@ -191,7 +204,7 @@ class AutoRouter {
 												return null;
 											})(__rtReq.headers));
 										} else if (argName == bodyParam) {
-											argVars.push(macro var $varName = __rtReq.body);
+											argVars.push(macro var $varName = __rtReq.jsonBody);
 										} else {
 											var lookupName = argName;
 											if (queryInjections.exists(argName)) lookupName = queryInjections.get(argName);
@@ -199,7 +212,13 @@ class AutoRouter {
 											
 											// Special handling for userId - only inject from session if NOT in path/query
 											if (argName == "userId" && hasUserIdParam) {
-												var isBoundToPath = path.indexOf(":" + lookupName) != -1 || path.indexOf(":*" + lookupName) != -1;
+												var isBoundToPath = false;
+												for (r in routesToRegister) {
+													if (r.path.indexOf(":" + lookupName) != -1 || r.path.indexOf(":*" + lookupName) != -1) {
+														isBoundToPath = true;
+														break;
+													}
+												}
 												if (!isBoundToPath && !queryInjections.exists(argName)) {
 													argVars.push(macro var $varName = __userId);
 													continue;
@@ -407,18 +426,20 @@ class AutoRouter {
 										}
 									};
 
-									var addRoute:Expr = switch httpMethod {
-										case "get": macro __autoRouter.add("GET", $v{path}, $handler);
-										case "post": macro __autoRouter.add("POST", $v{path}, $handler);
-										case "put": macro __autoRouter.add("PUT", $v{path}, $handler);
-										case "delete": macro __autoRouter.add("DELETE", $v{path}, $handler);
-										default: null;
-									};
+									for (r in routesToRegister) {
+										var addRoute:Expr = switch r.method {
+											case "get": macro __autoRouter.add("GET", $v{r.path}, $handler);
+											case "post": macro __autoRouter.add("POST", $v{r.path}, $handler);
+											case "put": macro __autoRouter.add("PUT", $v{r.path}, $handler);
+											case "delete": macro __autoRouter.add("DELETE", $v{r.path}, $handler);
+											case "patch": macro __autoRouter.add("PATCH", $v{r.path}, $handler);
+											default: null;
+										};
 
-									if (addRoute != null) {
-										// var printer = new haxe.macro.Printer();
-										// trace('GENERATED FOR ' + methodName + ':\n' + printer.printExpr(handler));
-										routeExprs.push(addRoute);
+										if (addRoute != null) {
+											trace('[AutoRouter] REGISTERING ROUTE: ' + r.method.toUpperCase() + ' ' + r.path);
+											routeExprs.push(addRoute);
+										}
 									}
 
 								default:
