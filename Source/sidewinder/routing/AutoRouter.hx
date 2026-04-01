@@ -204,7 +204,12 @@ class AutoRouter {
 												return null;
 											})(__rtReq.headers));
 										} else if (argName == bodyParam) {
-											argVars.push(macro var $varName = __rtReq.jsonBody);
+											var argType = TypeTools.toString(arg.t);
+											if (argType == "String" || argType == "Null<String>") {
+												argVars.push(macro var $varName = __rtReq.body);
+											} else {
+												argVars.push(macro var $varName = __rtReq.jsonBody);
+											}
 										} else {
 											var lookupName = argName;
 											if (queryInjections.exists(argName)) lookupName = queryInjections.get(argName);
