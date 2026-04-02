@@ -146,252 +146,74 @@ class AutoClientAsync {
 							var jsonBody = (body != null) ? haxe.Json.stringify(body) : null;
 							if (jsonBody != null)
 								trace('[AutoClientAsync] jsonBody=' + jsonBody);
-							#if (hl && lime)
-							trace('[AutoClientAsync] using CURL via thread for ' + method);
-							sys.thread.Thread.create(function() {
-								var curl = new lime.net.curl.CURL();
-								curl.setOption(lime.net.curl.CURLOption.URL, full);
-								curl.setOption(lime.net.curl.CURLOption.CUSTOMREQUEST, method);
-								curl.setOption(lime.net.curl.CURLOption.NOSIGNAL, true);
-								curl.setOption(lime.net.curl.CURLOption.FOLLOWLOCATION, true);
+							var isPost = method == "POST";
+							var maxRedirects = 5;
+							var redirectCount = 0;
+							var currentFull = full;
 
-								var curlHeaders = ["Accept: application/json"];
+							var executeRequest:Void->Void = null;
+							executeRequest = function() {
+								var h = new haxe.Http(currentFull);
+								h.setHeader("Accept", "application/json");
 								if (jsonBody != null) {
-									curlHeaders.push("Content-Type: application/json");
-									curl.setOption(lime.net.curl.CURLOption.POSTFIELDS, jsonBody);
+									h.setHeader("Content-Type", "application/json");
+									h.setPostData(jsonBody);
 								}
-								
 								if (apiKey != null && apiKey != "") {
-									curlHeaders.push("X-Project-Key: " + apiKey);
+									h.setHeader("X-Project-Key", apiKey);
 								}
-
-								var cookieHeader = cookieJar.getCookieHeader(full);
-								if (cookieHeader != "") {
-									curlHeaders.push("Cookie: " + cookieHeader);
-								}
-								
-								// Auth header from session_token
+								#if (sys && !js && !html5)
+								var cookieHeader = cookieJar.getCookieHeader(currentFull);
+								if (cookieHeader != "") h.setHeader("Cookie", cookieHeader);
 								for (c in cookieJar.getAllCookies()) {
-									if (c.name == "session_token") {
-										curlHeaders.push("Authorization: Bearer " + c.value);
-									}
-								}
-
-								curl.setOption(lime.net.curl.CURLOption.HTTPHEADER, curlHeaders);
-
-								var responseBuffer = new haxe.io.BytesBuffer();
-								curl.setOption(lime.net.curl.CURLOption.WRITEFUNCTION, function(c, bytes) {
-									responseBuffer.add(bytes);
-									return bytes.length;
-								});
-
-								curl.setOption(lime.net.curl.CURLOption.HEADERFUNCTION, function(c, bytes) {
-									var line = bytes.toString();
-									if (StringTools.startsWith(line.toLowerCase(), "set-cookie:")) {
-										var val = StringTools.trim(line.substring("set-cookie:".length));
-										cookieJar.setCookie(val, full);
-									}
-									return bytes.length;
-								});
-
-								try {
-									var curlResult = curl.perform();
-									if (curlResult == lime.net.curl.CURLCode.OK) {
-										var respStr = responseBuffer.getBytes().toString();
-										haxe.Timer.delay(function() {
-											onData(respStr);
-										}, 0);
-									} else {
-										haxe.Timer.delay(function() {
-											onError("CURL error: " + curlResult);
-										}, 0);
-									}
-								} catch (e:Dynamic) {
-									haxe.Timer.delay(function() {
-										onError(e);
-									}, 0);
-								}
-								curl.cleanup();
-							});
-							#else
-							var h = new haxe.Http(full);
-							h.setHeader("Accept", "application/json");
-							if (jsonBody != null) {
-								h.setHeader("Content-Type", "application/json");
-								h.setPostData(jsonBody);
-							}
-							
-							if (apiKey != null && apiKey != "") {
-								h.setHeader("X-Project-Key", apiKey);
-								trace('[AutoClientAsync] Added X-Project-Key header');
-							}
-
-							// Add cookies for sys targets
-							// Add cookies for sys targets (excluding JS/HTML5 where browser handles it)
-							#if (sys && !js && !html5)
-							trace('[AutoClientAsync] Current cookies in jar: ' + cookieJar.getAllCookies().length);
-							for (c in cookieJar.getAllCookies()) {
-								trace('[AutoClientAsync]   Cookie: ' + c.toString());
-							}
-							var cookieHeader = cookieJar.getCookieHeader(full);
-							if (cookieHeader != "") {
-								h.setHeader("Cookie", cookieHeader);
-								trace('[AutoClientAsync] Sending Cookie header: ' + cookieHeader);
-							} else {
-								trace('[AutoClientAsync] No matching cookies to send for URL: ' + full);
-							}
-							#end
-
-							// Polyfill: Also set Authorization header if we have a session_token (ALL targets)
-							if (cookieJar != null) {
-								for (c in cookieJar.getAllCookies()) {
-									if (c.name == "session_token") {
-										h.setHeader("Authorization", "Bearer " + c.value);
-										trace('[AutoClientAsync] Added Authorization header from session_token cookie');
-									}
-								}
-							}
-
-							h.onError = function(e:Dynamic) onError(Std.string(e));
-
-							// Store response headers callback for sys targets
-							// Store response headers callback for sys targets (excluding JS/HTML5)
-							#if (sys && !js && !html5)
-							h.onStatus = function(status:Int) {
-								trace('[AutoClientAsync] Response status: ' + status);
-								try {
-									// Prefer multiple header values (e.g. duplicate Set-Cookie)
-									var handled = false;
-									try {
-										var setCookies:Array<String> = untyped h.getResponseHeaderValues("Set-Cookie");
-										if (setCookies != null && setCookies.length > 0) {
-											trace('[AutoClientAsync] Processing ' + setCookies.length + ' Set-Cookie headers...');
-											for (sc in setCookies) {
-												trace('[AutoClientAsync] Received Set-Cookie: ' + sc);
-												cookieJar.setCookie(sc, full);
-											}
-											trace('[AutoClientAsync] Cookie stored. Total cookies now: ' + cookieJar.getAllCookies().length);
-											handled = true;
-										}
-									} catch (_:Dynamic) {
-										// Method not available on this target/version; fallback below
-									}
-									if (!handled) {
-										// Fallback: legacy single-value map (may lose duplicates)
-										var headers:haxe.ds.StringMap<String> = h.responseHeaders;
-										if (headers != null) {
-											trace('[AutoClientAsync] Fallback header map iteration...');
-											for (key in headers.keys()) {
-												if (key.toLowerCase() == "set-cookie") {
-													var setCookieValue = headers.get(key);
-													if (setCookieValue != null) {
-														trace('[AutoClientAsync] Received Set-Cookie (map): ' + setCookieValue);
-														cookieJar.setCookie(setCookieValue, full);
-													}
-												}
-											}
-											trace('[AutoClientAsync] Cookie stored. Total cookies now: ' + cookieJar.getAllCookies().length);
-										} else {
-											trace('[AutoClientAsync] No response headers available');
-										}
-									}
-								} catch (e:Dynamic) {
-									trace('[AutoClientAsync] Error parsing headers: ' + Std.string(e));
-								}
-							};
-							#end
-
-							// Use customRequest for verbs beyond GET/POST (PUT/DELETE) as per gist reference.
-							if (method == "PUT" || method == "DELETE") {
-								#if (js || html5)
-								trace('[AutoClientAsync] using XMLHttpRequest for ' + method);
-								var xhr = new js.html.XMLHttpRequest();
-								xhr.open(method, full, true);
-								// Allow cookies / auth headers cross-origin when server sets Access-Control-Allow-Credentials
-								xhr.withCredentials = true;
-								xhr.setRequestHeader("Accept", "application/json");
-								if (jsonBody != null)
-									xhr.setRequestHeader("Content-Type", "application/json");
-
-								// Inject Authorization header from cookieJar
-								if (cookieJar != null) {
-									for (c in cookieJar.getAllCookies()) {
-										if (c.name == "session_token") {
-											xhr.setRequestHeader("Authorization", "Bearer " + c.value);
-										}
-									}
-								}
-								// Inject X-Project-Key header
-								if (apiKey != null && apiKey != "") {
-									xhr.setRequestHeader("X-Project-Key", apiKey);
-								}
-								xhr.onreadystatechange = function() {
-									if (xhr.readyState == 4) {
-										if (xhr.status >= 200 && xhr.status < 300) {
-											onData(xhr.responseText);
-										} else {
-											onError('HTTP ' + xhr.status + ' ' + xhr.statusText);
-										}
-									}
-								};
-								try {
-									xhr.send(jsonBody != null ? jsonBody : null);
-								} catch (e:Dynamic) {
-									trace('[AutoClientAsync] XHR error ' + Std.string(e));
-									onError(e);
-								}
-								#else
-								trace('[AutoClientAsync] using customRequest for ' + method);
-								var out = new haxe.io.BytesOutput();
-								try {
-									// post flag true if we have a body; method passed explicitly.
-									trace('[AutoClientAsync] invoking customRequest postFlag=' + (jsonBody != null));
-									h.customRequest(jsonBody != null, out, method);
-									trace('[AutoClientAsync] customRequest returned bytes length=' + out.getBytes().length);
-									var respStr = out.getBytes().toString();
-									onData(respStr);
-								} catch (e:Dynamic) {
-									trace('[AutoClientAsync] customRequest error ' + Std.string(e));
-									onError(e);
+									if (c.name == "session_token") h.setHeader("Authorization", "Bearer " + c.value);
 								}
 								#end
-							} else {
-								// GET/POST handled by request; POST when body or explicit method
+								// Capture redirect location from response headers after request completes
+								var redirectLocation:String = null;
+								h.onStatus = function(status:Int) {
+									if ((status == 301 || status == 302 || status == 307 || status == 308) && redirectCount < maxRedirects) {
+										var loc = h.responseHeaders.get("Location");
+										if (loc != null && loc != "") {
+											if (loc.indexOf("://") == -1) {
+												var base = currentFull.split("/").slice(0, 3).join("/");
+												loc = base + loc;
+											}
+											redirectLocation = loc;
+										}
+									}
+								};
 								h.onData = function(d:Dynamic) {
-									if (d == null) {
-										onData(null);
+									if (redirectLocation != null) {
+										// Redirect: fire next request after this response is done
+										redirectCount++;
+										currentFull = redirectLocation;
+										redirectLocation = null;
+										trace('[AutoClientAsync] Following redirect to: ' + currentFull);
+										executeRequest();
 										return;
 									}
-									var s:String = null;
-									if (Std.isOfType(d, String)) {
-										s = (cast d : String);
-									} else {
-										#if hl
-										if (Std.isOfType(d, hl.Bytes)) {
-											try {
-												s = @:privateAccess String.fromUTF8(d);
-											} catch (_:Dynamic) {
-												try { s = Std.string(d); } catch(_:Dynamic) { s = "[Bytes]"; }
-											}
-										}
-										#end
-										if (s == null) {
-											try {
-												s = Std.string(d);
-											} catch(_:Dynamic) {
-												s = "[Unknown Data]";
-											}
-										}
-									}
-									onData(s);
+									// Use Std.string which safely handles hl.Bytes on HashLink
+									onData(Std.string(d));
 								};
-								trace('[AutoClientAsync] invoking request isPost=' + (method == "POST"));
-								try
-									h.request(method == "POST")
-								catch (e:Dynamic)
+								h.onError = function(e:Dynamic) {
+									if (redirectLocation != null) {
+										redirectCount++;
+										currentFull = redirectLocation;
+										redirectLocation = null;
+										trace('[AutoClientAsync] Following redirect (via error) to: ' + currentFull);
+										executeRequest();
+										return;
+									}
 									onError(e);
-							}
-							#end
+								};
+								try {
+									h.request(isPost);
+								} catch (e:Dynamic) {
+									onError(e);
+								}
+							};
+							executeRequest();
 							trace('[AutoClientAsync] doRequestAsync exit method=' + method + ' path=' + path);
 						}
 					}),
@@ -479,15 +301,15 @@ class AutoClientAsync {
 										parseExpr = macro {trace('[AutoClientAsync] parse void response'); onSuccess();};
 									} else if (retName == "Int") {
 										parseExpr = macro {
-											trace('[AutoClientAsync] parse Int raw=' + d);
-											var parsed = Std.parseInt(d);
+											trace('[AutoClientAsync] parse Int raw=' + rawData);
+											var parsed = Std.parseInt(rawData);
 											onSuccess(parsed == null ? 0 : parsed);
 										};
 									} else if (retName == "Float") {
-										parseExpr = macro {trace('[AutoClientAsync] parse Float raw=' + d); onSuccess(Std.parseFloat(d));};
+										parseExpr = macro {trace('[AutoClientAsync] parse Float raw=' + rawData); onSuccess(Std.parseFloat(rawData));};
 									} else if (retName == "Bool") {
 										parseExpr = macro {
-											var s = d;
+											var s = rawData;
 											trace('[AutoClientAsync] parse Bool raw=' + s);
 											if (s == "true" || s == "1") {
 												onSuccess(true);
@@ -507,16 +329,16 @@ class AutoClientAsync {
 											}
 										};
 									} else if (retName == "String") {
-										parseExpr = macro {trace('[AutoClientAsync] pass String raw length=' + (d == null ? 0 : d.length)); onSuccess(d);};
+										parseExpr = macro {trace('[AutoClientAsync] pass String raw length=' + (rawData == null ? 0 : rawData.length)); onSuccess(rawData);};
 									} else {
 										parseExpr = macro {
-											if (d == null || d == "") {
+											if (rawData == null || rawData == "") {
 												trace('[AutoClientAsync] empty JSON body');
 												onSuccess(null);
 											} else {
 												try {
-													trace('[AutoClientAsync] parsing JSON length=' + d.length);
-													var raw = haxe.Json.parse(d);
+													trace('[AutoClientAsync] parsing JSON length=' + rawData.length);
+													var raw = haxe.Json.parse(rawData);
 													var converted = sidewinder.client.AutoClientAsync.normalizeDates(raw);
 													
 													// HashLink specific: verify array return if expected
@@ -540,7 +362,7 @@ class AutoClientAsync {
 											}
 										};
 									}
-									bodyExprs.push(macro doRequestAsync($v{httpMethod}, _p, $bodyExpr, function(d:String) $parseExpr,
+									bodyExprs.push(macro doRequestAsync($v{httpMethod}, _p, $bodyExpr, function(rawData:String) $parseExpr,
 										function(e:Dynamic) onFailure(e)));
 									var methodBody:Expr = {expr: EBlock(bodyExprs), pos: Context.currentPos()};
 									fields.push({
@@ -559,21 +381,19 @@ class AutoClientAsync {
 						default:
 					}
 				}
-				var ifaceTypePath:TypePath = {pack: cl.pack, name: cl.name};
+				var uniqueClassName = uniqueName;
 				var classDef:TypeDefinition = {
 					pack: ["sidewinder"],
-					name: uniqueName,
+					name: uniqueClassName,
 					pos: Context.currentPos(),
 					meta: [],
 					params: [],
 					isExtern: false,
-					// Do NOT implement the interface to avoid needing sync method bodies
 					kind: TDClass(null, [], false),
 					fields: fields
 				};
 				Context.defineType(classDef);
-				var typePath:TypePath = {pack: ["sidewinder"], name: uniqueName};
-				// If cookieJar parameter was provided, use it; otherwise use globalCookieJar
+				var typePath:TypePath = {pack: ["sidewinder"], name: uniqueClassName};
 				var jarExpr = cookieJar != null ? cookieJar : macro sidewinder.client.AutoClientAsync.globalCookieJar;
 				var apiKeyExpr = apiKey != null ? apiKey : macro null;
 				return {expr: ENew(typePath, [baseUrl, jarExpr, apiKeyExpr]), pos: Context.currentPos()};
