@@ -245,20 +245,11 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 
 			// If we couldn't get it from raw bytes, use hxReq.path but acknowledge it's already decoded
 			if (rawFullPath == "" && hxReq.path != null) {
-				var parts = hxReq.path.split("?");
-				if (parts.length > 1) {
-					var qstr = parts[1];
-					for (part in qstr.split("&")) {
-						var eqIndex = part.indexOf("=");
-						if (eqIndex != -1) {
-							var key = part.substring(0, eqIndex);
-							var val = part.substring(eqIndex + 1);
-							// Do NOT urlDecode again if it came from hxReq.path (already decoded by hxwell)
-							query.set(key, val);
-						}
-					}
-				}
-			} else if (rawFullPath != "") {
+				// If we don't have raw bytes, we can't reliably get the query from hxReq.path 
+				// as hxwell might have already stripped it. But we try one more fallback.
+			}
+			
+			if (rawFullPath != "") {
 				var parts = rawFullPath.split("?");
 				if (parts.length > 1) {
 					var qstr = parts[1];
@@ -267,8 +258,11 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 						if (eqIndex != -1) {
 							var key = part.substring(0, eqIndex);
 							var val = part.substring(eqIndex + 1);
-							var decodedVal = StringTools.urlDecode(val);
-							query.set(StringTools.urlDecode(key), decodedVal);
+							try {
+								query.set(StringTools.urlDecode(key), StringTools.urlDecode(val));
+							} catch(e:Dynamic) {
+								query.set(key, val);
+							}
 						}
 					}
 				}
@@ -346,7 +340,7 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 						headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
 					}
 					if (!headers.exists("Access-Control-Allow-Headers")) {
-						headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+						headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, X-Project-Key, X-API-Key, X-Hub-Signature-256");
 					}
 					if (!headers.exists("Access-Control-Allow-Credentials")) {
 						headers.set("Access-Control-Allow-Credentials", "true");
