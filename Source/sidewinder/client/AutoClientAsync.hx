@@ -284,6 +284,25 @@ class AutoClientAsync {
 												break;
 											}
 									}
+
+									// Determine query params (args that are not path params and not the body arg)
+									for (a in args) {
+										if (pathParamNames.indexOf(a.name) == -1) {
+											var renamedIdent = renamed.get(a.name);
+											if (httpMethod != "GET" && (bodyArg == renamedIdent))
+												continue;
+											if (requiresAuth && a.name == "userId")
+												continue;
+
+											var identExpr:Expr = {expr: EConst(CIdent(renamedIdent)), pos: Context.currentPos()};
+											bodyExprs.push(macro {
+												var __v:Dynamic = $identExpr;
+												if (__v != null) {
+													_p += (_p.indexOf("?") == -1 ? "?" : "&") + $v{a.name} + "=" + StringTools.urlEncode(Std.string(__v));
+												}
+											});
+										}
+									}
 									var bodyExpr:Expr = (bodyArg != null) ? macro $i{bodyArg} : macro null;
 									var followedRet = Context.follow(ret);
 									var retName = TypeTools.toString(followedRet);
