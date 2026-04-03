@@ -396,6 +396,7 @@ class AutoRouter {
 
 											__rtRes.sendResponse(sidewinder.routing.StatusHelper.getStatus(__statusInt));
 											__rtRes.setHeader("Content-Type", "application/json");
+											__rtRes.setHeader('Content-Length', Std.string(haxe.io.Bytes.ofString(json).length));
 
 											if (__cookies != null) {
 												for (__c in __cookies) { __rtRes.setCookie(__c.name, __c.value, __c.options); }
@@ -423,10 +424,15 @@ class AutoRouter {
 											else if (errStr.indexOf("UNIQUE constraint") != -1) __errStatusInt = 409;
 											else if (errStr.indexOf("signature") != -1 || errStr.indexOf("Signature") != -1) __errStatusInt = 400;
 											
+											var json = "";
+											if (__errStatusInt == 500) { json = haxe.Json.stringify({error: "Internal Server Error", message: errStr}); }
+											else { json = haxe.Json.stringify({error: errStr}); }
+											
 											__rtRes.sendError(sidewinder.routing.StatusHelper.getStatus(__errStatusInt));
+											__rtRes.setHeader("Content-Type", "application/json");
+											__rtRes.setHeader('Content-Length', Std.string(haxe.io.Bytes.ofString(json).length));
 											__rtRes.endHeaders();
-											if (__errStatusInt == 500) { __rtRes.write(haxe.Json.stringify({error: "Internal Server Error", message: errStr})); }
-											else { __rtRes.write(haxe.Json.stringify({error: errStr})); }
+											__rtRes.write(json);
 											__rtRes.end();
 										}
 									};

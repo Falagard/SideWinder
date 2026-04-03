@@ -119,6 +119,13 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 		};
 
 		try {
+			// Ensure client socket is in blocking mode for synchronous processing on HashLink.
+			// This prevents 'haxe.io.Error.Blocked' during RPC handlers or static file serving
+			// if the socket was left in non-blocking mode by a previous operation on the same connection.
+			#if sys
+			q.socket.setBlocking(true);
+			#end
+			
 			var swRes = createResponse(q.socket);
 			var swReq = convertRequest(q.hxRequest, q.socket);
 
