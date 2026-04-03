@@ -275,12 +275,11 @@ class AutoClientAsync {
 										bodyExprs.push(macro _p = StringTools.replace(_p, ":*" + $v{pp}, Std.string($identExpr)));
 										bodyExprs.push(macro _p = StringTools.replace(_p, ":" + $v{pp}, Std.string($identExpr)));
 									}
-									
 									// Determine body arg (first non-path param for POST/PUT)
 									var bodyArg:Null<String> = null;
 									if (httpMethod == "POST" || httpMethod == "PUT") {
 										for (a in args)
-											if (pathParamNames.indexOf(a.name) == -1 && (!requiresAuth || a.name != "userId")) {
+											if (pathParamNames.indexOf(a.name) == -1) {
 												bodyArg = renamed.get(a.name);
 												break;
 											}
@@ -288,9 +287,11 @@ class AutoClientAsync {
 
 									// Determine query params (args that are not path params and not the body arg)
 									for (a in args) {
-										if (pathParamNames.indexOf(a.name) == -1 && (!requiresAuth || a.name != "userId")) {
+										if (pathParamNames.indexOf(a.name) == -1) {
 											var renamedIdent = renamed.get(a.name);
 											if (httpMethod != "GET" && (bodyArg == renamedIdent))
+												continue;
+											if (requiresAuth && a.name == "userId")
 												continue;
 
 											var identExpr:Expr = {expr: EConst(CIdent(renamedIdent)), pos: Context.currentPos()};
