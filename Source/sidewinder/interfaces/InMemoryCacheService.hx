@@ -235,13 +235,26 @@ class InMemoryCacheService implements ICacheService {
     public function sweepExpired():Void {
         var now = Date.now().getTime();
         for (shard in shards) {
-            var it = shard.map.keys();
-            while (it.hasNext()) {
-                var key = it.next();
-                var e = shard.map.get(key);
-                if (e != null && e.expiresAt != null && e.expiresAt <= now) {
-                    removeEntry(shard, e);
+            shard.mutex.acquire();
+            try {
+                var it = shard.map.keys();
+                var toRemove = [];
+                while (it.hasNext()) {
+                    var key = it.next();
+                    var e = shard.map.get(key);
+                    if (e != null && e.expiresAt != null && e.expiresAt <= now) {
+                        toRemove.push(key);
+                    }
                 }
+                
+                for (key in toRemove) {
+                    var e = shard.map.get(key);
+                    if (e != null) removeEntry(shard, e);
+                }
+                
+                shard.mutex.release();
+            } catch(e:Dynamic) {
+                shard.mutex.release();
             }
         }
     }
