@@ -255,12 +255,7 @@ class SqliteDatabaseService implements IDatabaseService {
             c.request(finalSql);
             
             
-            // Critical for cross-process visibility in WAL mode
-            // Force checkpoint for ALL writes to ensure durability during server recycles
-            var upperSql = finalSql.toUpperCase();
-            if (upperSql.indexOf("INSERT") != -1 || upperSql.indexOf("UPDATE") != -1 || upperSql.indexOf("DELETE") != -1) {
-                try { c.request("PRAGMA wal_checkpoint(FULL);"); } catch(_) {}
-            }
+            // Comments removed as logic is removed.
         } catch (e:Dynamic) {
             var errStr = Std.string(e);
             HybridLogger.error('[SqliteDB] execute FATAL ERROR: $errStr | SQL: ' + StringTools.replace(finalSql, "\n", " "));
