@@ -122,10 +122,6 @@ class Router {
 	}
 
 	public function find(method:String, path:String):Null<RouteResult> {
-		if (sidewinder.logging.HybridLogger.getProviderCount() > 0) {
-			sidewinder.logging.HybridLogger.debug('[Router] Finding $method $path (Routes: ${routes.length})');
-		}
-
 		for (route in routes) {
 			if (route.method == method) {
 				var params = route.matches(path);

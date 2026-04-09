@@ -18,7 +18,6 @@ using haxe.macro.TypeTools;
 class AutoRouter {
 
 	public static macro function build(routerExpr:Expr, ifaceExpr:Expr, implExpr:Expr, ?cacheExpr:Expr):Expr {
-		trace('--- MACRO RUNNING FOR: ' + ifaceExpr.toString());
 		var router = routerExpr;
 		var routeExprs:Array<Expr> = [];
 
@@ -185,7 +184,6 @@ class AutoRouter {
 									var callArgNames:Array<Expr> = [];
 
 									var argNames = [for (a in args) a.name];
-									trace('[AutoRouter] Processing ' + field.name + ' with args: ' + argNames.join(", "));
 									for (i in 0...args.length) {
 										var arg = args[i];
 										var argName = arg.name;
@@ -241,27 +239,8 @@ class AutoRouter {
 
 									var methodName = field.name;
 
-									// Trace request metadata for debugging
-									var traceReq = macro {
-										var paramsStr = "";
-										if (__rtReq.params != null) {
-											var pKeys = [];
-											for (k in __rtReq.params.keys()) pKeys.push(k + " => " + __rtReq.params.get(k));
-											paramsStr = "[" + pKeys.join(", ") + "]";
-										}
-										var queryStr = "";
-										if (__rtReq.query != null) {
-											var qKeys = [];
-											for (k in __rtReq.query.keys()) qKeys.push(k + " => " + __rtReq.query.get(k));
-											queryStr = "[" + qKeys.join(", ") + "]";
-										}
-										var bodyStr = (__rtReq.jsonBody != null ? haxe.Json.stringify(__rtReq.jsonBody) : "null");
-										trace('[AutoRouter] ' + $v{methodName} + ' - Params: ' + paramsStr + ', Query: ' + queryStr + ', Body: ' + bodyStr);
-									};
-
 									// Build session extraction and auth check
 									var authRun:Expr = macro {
-										$traceReq;
 										// 1. Try to get from AuthenticationMiddleware (__rtReq.params)
 										if (__rtReq.params != null) {
 											if (__rtReq.params.exists("auth_user_json")) {
@@ -345,8 +324,6 @@ class AutoRouter {
 									// Flat injection of argument variables
 									for (v in argVars) handlerBody.push(v);
 
-									handlerBody.push(macro trace('[AutoRouter] Calling ' + $v{methodName} + ' with args: ' + Std.string([ $a{callArgNames} ])));
-
 									if (isVoid()) {
 										handlerBody.push(macro inst.$methodName($a{callArgNames}));
 										handlerBody.push(macro __rtRes.sendResponse(sidewinder.routing.StatusHelper.getStatus(200)));
@@ -363,7 +340,6 @@ class AutoRouter {
 										handlerBody.push(macro __rtRes.end());
 									} else {
 										handlerBody.push(macro var result = inst.$methodName($a{callArgNames}));
-										handlerBody.push(macro trace('[AutoRouter] ' + $v{methodName} + ' returned: ' + Std.string(result)));
 										handlerBody.push(macro {
 											var __statusInt:Int = 200;
 											var __cookies:Array<Dynamic> = null;
@@ -414,7 +390,6 @@ class AutoRouter {
 											$b{handlerBody}
 										} catch (e:Dynamic) {
 											var stack = haxe.CallStack.toString(haxe.CallStack.exceptionStack());
-											trace('[AutoRouter] Error in ' + $v{methodName} + ': ' + Std.string(e) + '\nStack: ' + stack);
 											sidewinder.logging.HybridLogger.error('[AutoRouter] Error in ' + $v{methodName} + ': ' + Std.string(e) + '\nStack: ' + stack);
 											var errStr = Std.string(e);
 											var __errStatusInt:Int = 500;
@@ -448,7 +423,6 @@ class AutoRouter {
 										};
 
 										if (addRoute != null) {
-											trace('[AutoRouter] REGISTERING ROUTE: ' + r.method.toUpperCase() + ' ' + r.path);
 											routeExprs.push(addRoute);
 										}
 									}

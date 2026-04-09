@@ -336,46 +336,27 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 
 	// Override copyFile to use chunked reading for large files to prevent blocking
 	override private function copyFile(src:haxe.io.Input, dst:haxe.io.Output):Void {
-		var startTime = Sys.time();
-		trace("Starting file copy at " + startTime);
-
 		// Set socket to blocking mode for file transfer
 		try {
 			request.setBlocking(true);
-			trace("Socket set to blocking mode");
 		} catch (e:Dynamic) {
-			trace("Could not set socket to blocking: " + e);
+			// Ignore blocking error if not supported/implemented
 		}
 
 		// Use writeInput which is typically optimized at the native level
 		try {
-			var beforeWrite = Sys.time();
-			trace("Starting writeInput at " + beforeWrite);
-
 			dst.writeInput(src);
-
-			var afterWrite = Sys.time();
-			trace("Finished writeInput at " + afterWrite + " (took " + (afterWrite - beforeWrite) + " seconds)");
-
 			dst.flush();
-
-			var afterFlush = Sys.time();
-			trace("Finished flush at " + afterFlush + " (took " + (afterFlush - afterWrite) + " seconds)");
 		} catch (e:Dynamic) {
-			trace("Error copying file: " + e);
 			throw e;
 		}
 
 		// Restore socket to non-blocking mode
 		try {
 			request.setBlocking(false);
-			trace("Socket restored to non-blocking mode");
 		} catch (e:Dynamic) {
-			trace("Could not restore socket to non-blocking: " + e);
+			// Ignore
 		}
-
-		var endTime = Sys.time();
-		trace("Finished file copy at " + endTime + " (total time: " + (endTime - startTime) + " seconds)");
 	}
 
 	override private function setup():Void {

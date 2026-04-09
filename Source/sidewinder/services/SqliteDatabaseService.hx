@@ -21,14 +21,12 @@ class SqliteDatabaseService implements IDatabaseService {
     private static var connections:Map<String, Connection> = new Map();
     private static var connectionMutexes:Map<String, Mutex> = new Map();
     private static var lastUsedAt:Map<String, Float> = new Map();
+    private static var globalDbPath:String = null;
     
     private static var mapMutex:Mutex = new Mutex();
     private static var statsMutex:Mutex = new Mutex();
 
     private var dbPath:String;
-    // NOTE: conn is cached for perf but refreshed via getConn() if closed
-    private var conn:Connection;
-    private var currentMutex:Mutex;
 
     public static function normalizePath(path:String):String {
         if (path == null) return null;
@@ -50,8 +48,20 @@ class SqliteDatabaseService implements IDatabaseService {
     }
 
     private function init(config:core.IServerConfig, dbPath:String) {
+        var rawPath = dbPath;
         this.dbPath = dbPath;
-        if (this.dbPath == null) this.dbPath = Sys.getEnv("DATABASE_PATH");
+        if (this.dbPath == null) {
+            if (globalDbPath == null) {
+                globalDbPath = Sys.getEnv("DATABASE_PATH");
+            }
+            this.dbPath = globalDbPath;
+        }
+        if (this.dbPath != null) {
+            // Aggressively trim anything suspicious
+            this.dbPath = StringTools.trim(this.dbPath);
+            var re = ~/[ \t\r\n\x00-\x1F]+$/;
+            this.dbPath = re.replace(this.dbPath, "");
+        }
         if (this.dbPath == null) {
             if (sys.FileSystem.exists("Export/hl/bin")) {
                 this.dbPath = "Export/hl/bin/data.db";
@@ -60,14 +70,19 @@ class SqliteDatabaseService implements IDatabaseService {
             }
         }
         
-        var tid = getThreadId();
+        // Normalize to absolute path to ensure connection sharing in the static map
+        try {
+            this.dbPath = sys.FileSystem.fullPath(this.dbPath);
+            // Convert to forward slashes for cross-platform map consistency
+            this.dbPath = StringTools.replace(this.dbPath, "\\", "/");
+        } catch(e:Dynamic) {}
+        
         var mapKey = normalizePath(this.dbPath);
         this.dbPath = mapKey;
         
         mapMutex.acquire();
         try {
             if (!connections.exists(mapKey)) {
-                HybridLogger.info('[$tid] CREATING NEW SHARED CONNECTION for $dbPath');
                 var dir = haxe.io.Path.directory(this.dbPath);
                 if (dir != "" && !sys.FileSystem.exists(dir)) {
                     sys.FileSystem.createDirectory(dir);
@@ -89,17 +104,14 @@ class SqliteDatabaseService implements IDatabaseService {
                 lastUsedAt.set(mapKey, Date.now().getTime());
                 statsMutex.release();
             } else {
-                HybridLogger.info('[$tid] USING EXISTING SHARED CONNECTION for $dbPath');
                 statsMutex.acquire();
                 lastUsedAt.set(mapKey, Date.now().getTime());
                 statsMutex.release();
             }
             
-            this.conn = connections.get(mapKey);
-            this.currentMutex = connectionMutexes.get(mapKey);
         } catch (e:Dynamic) {
             mapMutex.release();
-            HybridLogger.error('[$tid] init error for $dbPath: $e');
+            HybridLogger.error('SqliteDatabaseService init error for $dbPath: $e');
             throw e;
         }
         mapMutex.release();
@@ -147,7 +159,6 @@ class SqliteDatabaseService implements IDatabaseService {
 
     public static function closeByPath(path:String):Void {
         var mapKey = normalizePath(path);
-        HybridLogger.info('[closeByPath] Closing $path');
         mapMutex.acquire();
         try {
             if (connections.exists(mapKey)) {
@@ -164,11 +175,10 @@ class SqliteDatabaseService implements IDatabaseService {
             mapMutex.release();
         } catch (e:Dynamic) {
             mapMutex.release();
-            HybridLogger.error('[closeByPath] Error: $e');
         }
     }
 
-    public function acquire():Connection return conn;
+    public function acquire():Connection return getConn();
     public function release(conn:Connection):Void {}
 
     public function write(sql:String, ?params:Map<String, Dynamic>):ResultSet {
@@ -200,46 +210,79 @@ class SqliteDatabaseService implements IDatabaseService {
     private function getConn():Connection {
         var c = connections.get(dbPath);
         if (c == null) {
-            HybridLogger.info('[SqliteDB] Reopening closed connection for $dbPath');
-            c = sys.db.Sqlite.open(dbPath);
-            c.request("PRAGMA journal_mode=WAL;");
-            c.request("PRAGMA synchronous=NORMAL;");
-            c.request("PRAGMA busy_timeout=10000;");
-            c.request("PRAGMA foreign_keys=ON;");
-            connections.set(dbPath, c);
-            if (!connectionMutexes.exists(dbPath)) {
-                connectionMutexes.set(dbPath, this.currentMutex);
+            mapMutex.acquire();
+            try {
+                // Double check after acquiring lock
+                c = connections.get(dbPath);
+                if (c == null) {
+                    c = sys.db.Sqlite.open(dbPath);
+                    c.request("PRAGMA journal_mode=WAL;");
+                    c.request("PRAGMA synchronous=NORMAL;");
+                    c.request("PRAGMA busy_timeout=10000;");
+                    c.request("PRAGMA foreign_keys=ON;");
+                    connections.set(dbPath, c);
+                }
+                if (!connectionMutexes.exists(dbPath)) {
+                    connectionMutexes.set(dbPath, new Mutex());
+                }
+                mapMutex.release();
+            } catch (e:Dynamic) {
+                mapMutex.release();
+                throw e;
             }
         }
-        this.conn = c;
         return c;
+    }
+
+    private function getSharedMutex():Mutex {
+        mapMutex.acquire();
+        var m = connectionMutexes.get(dbPath);
+        if (m == null) {
+            m = new Mutex();
+            connectionMutexes.set(dbPath, m);
+        }
+        mapMutex.release();
+        return m;
     }
 
     public function execute(sql:String, ?params:Map<String, Dynamic>):Void {
         var finalSql = (params != null) ? buildSqlStatic(sql, params) : sql;
-        currentMutex.acquire();
+        var m = getSharedMutex();
+        var c = getConn();
+        
+        m.acquire();
         try {
-            getConn().request(finalSql);
-            currentMutex.release();
+            c.request(finalSql);
+            
+            
+            // Critical for cross-process visibility in WAL mode
+            // Force checkpoint for ALL writes to ensure durability during server recycles
+            var upperSql = finalSql.toUpperCase();
+            if (upperSql.indexOf("INSERT") != -1 || upperSql.indexOf("UPDATE") != -1 || upperSql.indexOf("DELETE") != -1) {
+                try { c.request("PRAGMA wal_checkpoint(FULL);"); } catch(_) {}
+            }
         } catch (e:Dynamic) {
-            currentMutex.release();
-            HybridLogger.error('[SqliteDB] execute ERROR: $e | SQL: $finalSql');
+            var errStr = Std.string(e);
+            HybridLogger.error('[SqliteDB] execute FATAL ERROR: $errStr | SQL: ' + StringTools.replace(finalSql, "\n", " "));
+            m.release();
             throw e;
         }
+        m.release();
     }
 
     public function executeAndGetId(sql:String, ?params:Map<String, Dynamic>):Int {
         var finalSql = (params != null) ? buildSqlStatic(sql, params) : sql;
-        currentMutex.acquire();
+        var m = getSharedMutex();
+        var c = getConn();
+        m.acquire();
         try {
-            var c = getConn();
             c.request(finalSql);
             var id = c.lastInsertId();
-            currentMutex.release();
+            m.release();
             return id;
         } catch (e:Dynamic) {
-            currentMutex.release();
             HybridLogger.error('[SqliteDB] executeAndGetId ERROR: $e | SQL: $finalSql');
+            m.release();
             throw e;
         }
     }
@@ -254,16 +297,18 @@ class SqliteDatabaseService implements IDatabaseService {
     }
 
     public function request(sql:String, ?params:Map<String, Dynamic>):ResultSet {
-        currentMutex.acquire();
+        var m = getSharedMutex();
+        var c = getConn();
+        m.acquire();
         try {
             var finalSql = (params != null) ? buildSqlStatic(sql, params) : sql;
-            var rs = getConn().request(finalSql);
+            var rs = c.request(finalSql);
             var result = new StaticResultSet(rs);
-            currentMutex.release();
+            m.release();
             return result;
         } catch (e:Dynamic) {
-            currentMutex.release();
             HybridLogger.error('[SqliteDB] request ERROR: $e | SQL: $sql');
+            m.release();
             throw e;
         }
     }
@@ -332,6 +377,15 @@ class SqliteDatabaseService implements IDatabaseService {
                 escapedVal = Std.string(time);
             } else if (Std.isOfType(val, sidewinder.interfaces.IDatabaseService.RawSql)) {
                 escapedVal = cast(val, sidewinder.interfaces.IDatabaseService.RawSql).value;
+            } else if (Std.isOfType(val, Float)) {
+                var s = Std.string(val);
+                if (s.indexOf("e") != -1 || s.indexOf("E") != -1) {
+                    // Manual formatting for large floats (timestamps) to avoid scientific notation
+                    // This is a common HashLink stringification quirk for large numbers.
+                    escapedVal = haxe.format.JsonPrinter.print(val);
+                } else {
+                    escapedVal = s;
+                }
             } else {
                 escapedVal = Std.string(val);
             }
