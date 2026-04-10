@@ -18,13 +18,37 @@ import core.IServerConfig;
  * locks with the API thread, causing 30-second busy_timeout waits.
  */
 class SqliteDatabaseService implements IDatabaseService {
-    private static var connections:Map<String, Connection> = new Map();
-    private static var connectionMutexes:Map<String, Mutex> = new Map();
-    private static var lastUsedAt:Map<String, Float> = new Map();
+    private static var _connections:Map<String, sys.db.Connection> = new Map();
+    private static var _connectionMutexes:Map<String, sys.thread.Mutex> = new Map();
+    private static var _lastUsedAt:Map<String, Float> = new Map();
     private static var globalDbPath:String = null;
+    private static var _mapMutex:sys.thread.Mutex = new sys.thread.Mutex();
+    private static var _statsMutex:sys.thread.Mutex = new sys.thread.Mutex();
     
-    private static var mapMutex:Mutex = new Mutex();
-    private static var statsMutex:Mutex = new Mutex();
+    private static function getConnectionsMap():Map<String, sys.db.Connection> {
+        return _connections;
+    }
+
+    private static function getConnectionMutexesMap():Map<String, sys.thread.Mutex> {
+        return _connectionMutexes;
+    }
+
+    private static function getLastUsedAtMap():Map<String, Float> {
+        return _lastUsedAt;
+    }
+
+    private static function getGlobalMapMutex():sys.thread.Mutex {
+        return _mapMutex;
+    }
+
+    private static function getGlobalStatsMutex():sys.thread.Mutex {
+        return _statsMutex;
+    }
+
+    private static function ensureMutexes() {
+        // No-op now as we use static initialization
+    }
+
 
     private var dbPath:String;
 
@@ -48,40 +72,65 @@ class SqliteDatabaseService implements IDatabaseService {
     }
 
     private function init(config:core.IServerConfig, dbPath:String) {
+        ensureMutexes();
         var rawPath = dbPath;
         this.dbPath = dbPath;
         if (this.dbPath == null) {
+            getGlobalMapMutex().acquire();
             if (globalDbPath == null) {
                 globalDbPath = Sys.getEnv("DATABASE_PATH");
+                if (globalDbPath == null) {
+                    // Final Linux fallback for containerized environments
+                    #if linux
+                    globalDbPath = "/app/data/data.db";
+                    #end
+                }
             }
             this.dbPath = globalDbPath;
+            getGlobalMapMutex().release();
         }
-        if (this.dbPath != null) {
-            // Aggressively trim anything suspicious
-            this.dbPath = StringTools.trim(this.dbPath);
-            var re = ~/[ \t\r\n\x00-\x1F]+$/;
-            this.dbPath = re.replace(this.dbPath, "");
+        
+        if (this.dbPath == null) {
+            this.dbPath = "data.db"; // Absolute last resort
         }
+        
         if (this.dbPath == null) {
             if (sys.FileSystem.exists("Export/hl/bin")) {
                 this.dbPath = "Export/hl/bin/data.db";
             } else {
                 this.dbPath = "data.db";
-            }
-        }
-        
-        // Normalize to absolute path to ensure connection sharing in the static map
-        try {
-            this.dbPath = sys.FileSystem.fullPath(this.dbPath);
-            // Convert to forward slashes for cross-platform map consistency
-            this.dbPath = StringTools.replace(this.dbPath, "\\", "/");
-        } catch(e:Dynamic) {}
+		}
+	}
+	
+	try {
+		if (this.dbPath != null) {
+			// Resolve directory path
+			var dir = haxe.io.Path.directory(this.dbPath);
+			if (dir != "" && dir != "." && !sys.FileSystem.exists(dir)) {
+				sys.FileSystem.createDirectory(dir);
+			}
+
+			var absolutePath = this.dbPath;
+			try {
+				absolutePath = sys.FileSystem.fullPath(this.dbPath);
+			} catch(e:Dynamic) {}
+
+			if (absolutePath != null) {
+				this.dbPath = absolutePath;
+			}
+			
+			// Convert to forward slashes for cross-platform map consistency
+			this.dbPath = StringTools.replace(this.dbPath, "\\", "/");
+		}
+	} catch(e:Dynamic) {
+	}
         
         var mapKey = normalizePath(this.dbPath);
         this.dbPath = mapKey;
         
-        mapMutex.acquire();
+        getGlobalMapMutex().acquire();
         try {
+            var connections = getConnectionsMap();
             if (!connections.exists(mapKey)) {
                 var dir = haxe.io.Path.directory(this.dbPath);
                 if (dir != "" && !sys.FileSystem.exists(dir)) {
@@ -89,6 +138,7 @@ class SqliteDatabaseService implements IDatabaseService {
                 }
                 
                 var newConn = sys.db.Sqlite.open(this.dbPath);
+                Sys.println("[SqliteDatabaseService] SQLite opened.");
                 // WAL mode: concurrent reads with a single writer
                 newConn.request("PRAGMA journal_mode=WAL;");
                 // NORMAL sync: good balance of safety and performance
@@ -97,47 +147,47 @@ class SqliteDatabaseService implements IDatabaseService {
                 newConn.request("PRAGMA busy_timeout=10000;");
                 newConn.request("PRAGMA foreign_keys=ON;");
                 
-                connections.set(mapKey, newConn);
-                connectionMutexes.set(mapKey, new Mutex());
+                getConnectionsMap().set(mapKey, newConn);
+                getConnectionMutexesMap().set(mapKey, new Mutex());
                 
-                statsMutex.acquire();
-                lastUsedAt.set(mapKey, Date.now().getTime());
-                statsMutex.release();
+                getGlobalStatsMutex().acquire();
+                getLastUsedAtMap().set(mapKey, Date.now().getTime());
+                getGlobalStatsMutex().release();
             } else {
-                statsMutex.acquire();
-                lastUsedAt.set(mapKey, Date.now().getTime());
-                statsMutex.release();
+                getGlobalStatsMutex().acquire();
+                getLastUsedAtMap().set(mapKey, Date.now().getTime());
+                getGlobalStatsMutex().release();
             }
             
         } catch (e:Dynamic) {
-            mapMutex.release();
-            HybridLogger.error('SqliteDatabaseService init error for $dbPath: $e');
+            getGlobalMapMutex().release();
+            HybridLogger.error('SqliteDatabaseService init error for ' + (this.dbPath != null ? this.dbPath : "null") + ': ' + e);
             throw e;
         }
-        mapMutex.release();
+        getGlobalMapMutex().release();
     }
 
     public static function hasOpenConnection(path:String):Bool {
         var mapKey = normalizePath(path);
-        mapMutex.acquire();
-        var exists = connections.exists(mapKey);
-        mapMutex.release();
+        getGlobalMapMutex().acquire();
+        var exists = getConnectionsMap().exists(mapKey);
+        getGlobalMapMutex().release();
         return exists;
     }
 
     public static function getOpenConnectionCount():Int {
-        mapMutex.acquire();
+        getGlobalMapMutex().acquire();
         var count = 0;
-        for (k in connections.keys()) count++;
-        mapMutex.release();
+        for (k in getConnectionsMap().keys()) count++;
+        getGlobalMapMutex().release();
         return count;
     }
 
     public static function touchByPath(path:String):Void {
         var mapKey = normalizePath(path);
-        statsMutex.acquire();
-        lastUsedAt.set(mapKey, Date.now().getTime());
-        statsMutex.release();
+        getGlobalStatsMutex().acquire();
+        getLastUsedAtMap().set(mapKey, Date.now().getTime());
+        getGlobalStatsMutex().release();
     }
 
     public function getThreadId():String {
@@ -151,30 +201,30 @@ class SqliteDatabaseService implements IDatabaseService {
 
     public static function getLastUsedAt(path:String):Float {
         var mapKey = normalizePath(path);
-        statsMutex.acquire();
-        var time = lastUsedAt.exists(mapKey) ? lastUsedAt.get(mapKey) : 0.0;
-        statsMutex.release();
+        getGlobalStatsMutex().acquire();
+        var time = getLastUsedAtMap().exists(mapKey) ? getLastUsedAtMap().get(mapKey) : 0.0;
+        getGlobalStatsMutex().release();
         return time;
     }
 
     public static function closeByPath(path:String):Void {
         var mapKey = normalizePath(path);
-        mapMutex.acquire();
+        getGlobalMapMutex().acquire();
         try {
-            if (connections.exists(mapKey)) {
-                var conn = connections.get(mapKey);
+            if (getConnectionsMap().exists(mapKey)) {
+                var conn = getConnectionsMap().get(mapKey);
                 if (conn != null) {
                     try { conn.close(); } catch (e:Dynamic) {}
                 }
-                connections.remove(mapKey);
-                connectionMutexes.remove(mapKey);
-                statsMutex.acquire();
-                lastUsedAt.remove(mapKey);
-                statsMutex.release();
+                getConnectionsMap().remove(mapKey);
+                getConnectionMutexesMap().remove(mapKey);
+                getGlobalStatsMutex().acquire();
+                getLastUsedAtMap().remove(mapKey);
+                getGlobalStatsMutex().release();
             }
-            mapMutex.release();
+            getGlobalMapMutex().release();
         } catch (e:Dynamic) {
-            mapMutex.release();
+            getGlobalMapMutex().release();
         }
     }
 
@@ -208,40 +258,36 @@ class SqliteDatabaseService implements IDatabaseService {
      * Must be called while holding currentMutex.
      */
     private function getConn():Connection {
-        var c = connections.get(dbPath);
-        if (c == null) {
-            mapMutex.acquire();
-            try {
-                // Double check after acquiring lock
-                c = connections.get(dbPath);
-                if (c == null) {
-                    c = sys.db.Sqlite.open(dbPath);
-                    c.request("PRAGMA journal_mode=WAL;");
-                    c.request("PRAGMA synchronous=NORMAL;");
-                    c.request("PRAGMA busy_timeout=10000;");
-                    c.request("PRAGMA foreign_keys=ON;");
-                    connections.set(dbPath, c);
-                }
-                if (!connectionMutexes.exists(dbPath)) {
-                    connectionMutexes.set(dbPath, new Mutex());
-                }
-                mapMutex.release();
-            } catch (e:Dynamic) {
-                mapMutex.release();
-                throw e;
+        getGlobalMapMutex().acquire();
+        try {
+            var c = getConnectionsMap().get(this.dbPath);
+            if (c == null) {
+                c = sys.db.Sqlite.open(this.dbPath);
+                c.request("PRAGMA journal_mode=WAL;");
+                c.request("PRAGMA synchronous=NORMAL;");
+                c.request("PRAGMA busy_timeout=10000;");
+                c.request("PRAGMA foreign_keys=ON;");
+                getConnectionsMap().set(this.dbPath, c);
             }
+            if (!getConnectionMutexesMap().exists(this.dbPath)) {
+                getConnectionMutexesMap().set(this.dbPath, new Mutex());
+            }
+            getGlobalMapMutex().release();
+            return c;
+        } catch (e:Dynamic) {
+            getGlobalMapMutex().release();
+            throw e;
         }
-        return c;
     }
 
     private function getSharedMutex():Mutex {
-        mapMutex.acquire();
-        var m = connectionMutexes.get(dbPath);
+        getGlobalMapMutex().acquire();
+        var m = getConnectionMutexesMap().get(dbPath);
         if (m == null) {
             m = new Mutex();
-            connectionMutexes.set(dbPath, m);
+            getConnectionMutexesMap().set(dbPath, m);
         }
-        mapMutex.release();
+        getGlobalMapMutex().release();
         return m;
     }
 
@@ -429,3 +475,5 @@ class StaticResultSet implements sys.db.ResultSet {
     public function getFloatResult(n:Int):Float return 0;
     public function getStringResult(n:Int):String return "";
 }
+
+
