@@ -297,7 +297,30 @@ class SqliteDatabaseService implements IDatabaseService {
         
         m.acquire();
         try {
-            c.request(finalSql);
+            var rs = c.request(finalSql);
+            if (rs != null) {
+                while (rs.hasNext()) rs.next();
+            }
+            
+            // Check for silent failure in mutations
+            var trimmedSql = StringTools.trim(finalSql);
+            var lowerSql = trimmedSql.toLowerCase();
+            if (StringTools.startsWith(lowerSql, "insert ") || StringTools.startsWith(lowerSql, "update ") || StringTools.startsWith(lowerSql, "delete ")) {
+                if (lowerSql.indexOf(" ignore ") == -1 && lowerSql.indexOf(" replace ") == -1) {
+                    var checkRs = c.request("SELECT changes() as changed");
+                    if (checkRs.hasNext()) {
+                        var changes = checkRs.next().changed;
+                        if (changes == 0) {
+                            // For INSERT, 0 rows affected without 'IGNORE' or 'REPLACE' is usually a failure that should have thrown,
+                            // unless it was an 'INSERT INTO ... SELECT ...' which can legitimately affect 0 rows if the source is empty.
+                            // We also include UPDATE here as per user request, though this will also catch legitimate 0-row updates.
+                            if ((StringTools.startsWith(lowerSql, "insert ") && lowerSql.indexOf(" select ") == -1) || StringTools.startsWith(lowerSql, "update ")) {
+                                throw "SQLite Mutation Error: 0 rows affected by Mutation. This suggests a silent constraint violation or unmatched row. SQL: " + finalSql;
+                            }
+                        }
+                    }
+                }
+            }
         } catch (e:Dynamic) {
             var errStr = Std.string(e);
             HybridLogger.error('[SqliteDB] execute FATAL ERROR: $errStr | SQL: ' + StringTools.replace(finalSql, "\n", " "));
@@ -313,7 +336,20 @@ class SqliteDatabaseService implements IDatabaseService {
         var c = getConn();
         m.acquire();
         try {
-            c.request(finalSql);
+            var rs = c.request(finalSql);
+            if (rs != null) {
+                while (rs.hasNext()) rs.next();
+            }
+
+            // Check if it actually worked
+            var checkRs = c.request("SELECT changes() as changed");
+            if (checkRs.hasNext() && checkRs.next().changed == 0) {
+                var lowerSql = finalSql.toLowerCase();
+                if (lowerSql.indexOf(" ignore ") == -1 && lowerSql.indexOf(" replace ") == -1) {
+                    throw "SQLite Mutation Error: 0 rows affected by executeAndGetId. SQL: " + finalSql;
+                }
+            }
+
             var id = c.lastInsertId();
             m.release();
             return id;
