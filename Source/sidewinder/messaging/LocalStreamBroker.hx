@@ -38,7 +38,6 @@ class LocalStreamBroker implements IStreamBroker {
 		_mutex.acquire();
 		this.instanceId = ++_globalInstanceCount;
 		_mutex.release();
-		Sys.println('[LocalStreamBroker] NEW INSTANCE CREATED: ID=$instanceId');
 	}
 
 	private static function initShared():Void {
@@ -49,9 +48,6 @@ class LocalStreamBroker implements IStreamBroker {
 			_consumerGroups = new StringMap<StringMap<ConsumerGroup>>();
 			_pendingMessages = new StringMap<Array<PendingMessage>>();
 			_messageSequence = new StringMap<Int>();
-			Sys.println('[LocalStreamBroker] SHARED STORE INITIALIZED by Thread-$tid');
-		} else {
-			Sys.println('[LocalStreamBroker] SHARED STORE already exists - Used by Thread-$tid');
 		}
 		_mutex.release();
 	}
@@ -88,8 +84,6 @@ class LocalStreamBroker implements IStreamBroker {
 			// Add to stream
 			var streamMessages = _streams.get(stream);
 			streamMessages.push(message);
-
-			Sys.println('[LocalStreamBroker #$instanceId] XADD success to $stream: $messageId');
 
 			_mutex.release();
 			return messageId;
@@ -249,9 +243,6 @@ class LocalStreamBroker implements IStreamBroker {
 
 				// If we got messages or not blocking, return
 				if (messages.length > 0 || blockMs == 0) {
-					if (messages.length > 0) {
-						Sys.println('[LocalStreamBroker #$instanceId] XREADGROUP found ${messages.length} messages for $stream:$group:$consumer');
-					}
 					_mutex.release();
 					return messages;
 				}

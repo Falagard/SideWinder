@@ -320,6 +320,15 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 					HybridLogger.error('[HxWellAdapter] Error in res.write: ' + e);
 				}
 			},
+			writeBytes: function(b:haxe.io.Bytes) {
+				if (!headersSent)
+					response.endHeaders();
+				try {
+					socket.output.writeBytes(b, 0, b.length);
+				} catch (e:Dynamic) {
+					HybridLogger.error('[HxWellAdapter] Error in res.writeBytes: ' + e);
+				}
+			},
 			setHeader: function(k:String, v:String) {
 				headers.set(k, v);
 			},

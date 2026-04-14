@@ -138,7 +138,6 @@ class SqliteDatabaseService implements IDatabaseService {
                 }
                 
                 var newConn = sys.db.Sqlite.open(this.dbPath);
-                Sys.println("[SqliteDatabaseService] SQLite opened.");
                 // WAL mode: concurrent reads with a single writer
                 newConn.request("PRAGMA journal_mode=WAL;");
                 // NORMAL sync: good balance of safety and performance
@@ -299,9 +298,6 @@ class SqliteDatabaseService implements IDatabaseService {
         m.acquire();
         try {
             c.request(finalSql);
-            
-            
-            // Comments removed as logic is removed.
         } catch (e:Dynamic) {
             var errStr = Std.string(e);
             HybridLogger.error('[SqliteDB] execute FATAL ERROR: $errStr | SQL: ' + StringTools.replace(finalSql, "\n", " "));
@@ -422,7 +418,6 @@ class SqliteDatabaseService implements IDatabaseService {
                 var s = Std.string(val);
                 if (s.indexOf("e") != -1 || s.indexOf("E") != -1) {
                     // Manual formatting for large floats (timestamps) to avoid scientific notation
-                    // This is a common HashLink stringification quirk for large numbers.
                     escapedVal = haxe.format.JsonPrinter.print(val);
                 } else {
                     escapedVal = s;
@@ -475,5 +470,3 @@ class StaticResultSet implements sys.db.ResultSet {
     public function getFloatResult(n:Int):Float return 0;
     public function getStringResult(n:Int):String return "";
 }
-
-

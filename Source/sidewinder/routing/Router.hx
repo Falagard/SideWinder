@@ -40,6 +40,7 @@ typedef AuthContext = {
 
 typedef Response = {
 	var write:(String) -> Void;
+	var writeBytes:(haxe.io.Bytes) -> Void;
 	var setHeader:(String, String) -> Void;
 	var sendError:(HTTPStatus) -> Void;
 	var sendResponse:(HTTPStatus) -> Void;

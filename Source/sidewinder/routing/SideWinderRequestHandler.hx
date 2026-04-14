@@ -252,6 +252,7 @@ class SideWinderRequestHandler extends SimpleHTTPRequestHandler {
 
 		var res:Response = {
 			write: (s) -> wfile.writeString(s),
+			writeBytes: (b) -> wfile.writeFullBytes(b, 0, b.length),
 			setHeader: (k, v) -> sendHeader(k, v),
 			sendError: (c) -> sendError(c),
 			sendResponse: (r) -> sendResponse(r),

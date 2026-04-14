@@ -28,6 +28,7 @@ class BufferedResponse {
 
 	// Function fields to match Router.Response typedef
 	public var write:(String) -> Void;
+	public var writeBytes:(haxe.io.Bytes) -> Void;
 	public var setHeader:(String, String) -> Void;
 	public var sendError:(snake.http.HTTPStatus) -> Void;
 	public var sendResponse:(snake.http.HTTPStatus) -> Void;
@@ -46,6 +47,10 @@ class BufferedResponse {
 
 		write = function(s:String):Void {
 			body.add(s);
+		};
+		
+		writeBytes = function(b:haxe.io.Bytes):Void {
+			body.add(b.toString());
 		};
 
 		setHeader = function(k:String, v:String):Void {
