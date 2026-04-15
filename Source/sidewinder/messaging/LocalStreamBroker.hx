@@ -502,11 +502,14 @@ class LocalStreamBroker implements IStreamBroker {
 					totalPending += consumer.pendingCount;
 				}
 
+				var lag = calculateLag(stream, group.lastDeliveredId);
+
 				result.push({
 					name: group.name,
 					consumers: consumers,
 					lastDeliveredId: group.lastDeliveredId,
-					totalPending: totalPending
+					totalPending: totalPending,
+					lag: lag
 				});
 			}
 
@@ -623,6 +626,45 @@ class LocalStreamBroker implements IStreamBroker {
 			}
 		}
 		return null;
+	}
+
+	public function getStreamGroupInfo(stream:String, groupName:String):Null<ConsumerGroupInfo> {
+		var infos = getGroupInfo(stream);
+		for (info in infos) {
+			if (info.name == groupName) return info;
+		}
+		return null;
+	}
+
+	private function calculateLag(stream:String, lastDeliveredId:String):Int {
+		_mutex.acquire();
+		try {
+			if (!_streams.exists(stream)) {
+				_mutex.release();
+				return 0;
+			}
+			var messages = _streams.get(stream);
+			if (messages.length == 0) {
+				_mutex.release();
+				return 0;
+			}
+			
+			var lag = 0;
+			for (i in 0...messages.length) {
+				var msg = messages[messages.length - 1 - i];
+				// Compare with lastDeliveredId
+				if (compareMessageIds(msg.id, lastDeliveredId) > 0) {
+					lag++;
+				} else {
+					break;
+				}
+			}
+			_mutex.release();
+			return lag;
+		} catch (e:Dynamic) {
+			_mutex.release();
+			return 0;
+		}
 	}
 }
 

@@ -59,8 +59,12 @@ typedef ConsumerGroupInfo = {
 	/** Last delivered message ID */
 	var lastDeliveredId:String;
 	
+	
 	/** Number of pending messages across all consumers */
 	var totalPending:Int;
+
+	/** Number of messages in stream that have not yet been delivered to this group */
+	var lag:Int;
 }
 
 /**
@@ -169,6 +173,15 @@ interface IStreamBroker extends Service {
 	 * @return Array of consumer group information
 	 */
 	public function getGroupInfo(stream:String):Array<ConsumerGroupInfo>;
+
+	/**
+	 * Get information about a specific consumer group for a stream.
+	 * 
+	 * @param stream Stream name
+	 * @param group Consumer group name
+	 * @return Consumer group information or null if not found
+	 */
+	public function getStreamGroupInfo(stream:String, group:String):Null<ConsumerGroupInfo>;
 	
 	/**
 	 * Delete a consumer from a consumer group.
