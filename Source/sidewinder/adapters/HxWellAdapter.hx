@@ -168,6 +168,9 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			cleanup();
 		} catch (e:Dynamic) {
 			HybridLogger.error('[HxWellAdapter] Error processing request: ' + e);
+			#if hl
+			HybridLogger.error(haxe.CallStack.toString(haxe.CallStack.exceptionStack()));
+			#end
 			try {
 				q.socket.shutdown(false, true);
 				q.socket.close();

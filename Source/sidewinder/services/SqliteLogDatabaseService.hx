@@ -32,6 +32,15 @@ class SqliteLogDatabaseService extends SqliteDatabaseService implements ILogData
                 }
             }
         }
+        
+        // Final sanity check/cleanup
+        if (this.dbPath != null) {
+            this.dbPath = StringTools.trim(this.dbPath);
+            // Defensive: remove any leading/trailing quotes that might be in the env var
+            if (StringTools.startsWith(this.dbPath, "\"")) this.dbPath = this.dbPath.substring(1);
+            if (StringTools.endsWith(this.dbPath, "\"")) this.dbPath = this.dbPath.substring(0, this.dbPath.length - 1);
+        }
+
         super(config);
         logDeque = new Deque();
         pendingMutex = new Mutex();

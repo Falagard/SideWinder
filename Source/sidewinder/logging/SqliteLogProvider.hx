@@ -42,7 +42,7 @@ class SqliteLogProvider implements ILogProvider {
 		}
 
 		conn = Sqlite.open('$logDir/logs.db');
-		conn.request('CREATE TABLE IF NOT EXISTS logs(time TEXT, level TEXT, message TEXT)');
+		conn.request('CREATE TABLE IF NOT EXISTS internal_logs(created_at REAL, level TEXT, message TEXT)');
 		lastFlushTime = Timer.stamp();
 	}
 
@@ -62,7 +62,8 @@ class SqliteLogProvider implements ILogProvider {
 		try {
 			conn.request("BEGIN TRANSACTION");
 			for (entry in batch) {
-				var sql = 'INSERT INTO logs VALUES (${quoteString(entry.time)}, ${quoteString(entry.level)}, ${quoteString(entry.message)})';
+				var ts = Date.now().getTime() / 1000.0;
+				var sql = 'INSERT INTO internal_logs (created_at, level, message) VALUES ($ts, ${quoteString(entry.level)}, ${quoteString(entry.message)})';
 				conn.request(sql);
 			}
 			conn.request("COMMIT");

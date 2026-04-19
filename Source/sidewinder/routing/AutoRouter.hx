@@ -397,6 +397,7 @@ class AutoRouter {
 											else if (errStr == "403") __errStatusInt = 403;
 											else if (errStr == "401") __errStatusInt = 401;
 											else if (errStr.indexOf("UNIQUE constraint") != -1) __errStatusInt = 409;
+											else if (errStr.indexOf("quota exceeded") != -1 || errStr.indexOf("QuotaExceeded") != -1) __errStatusInt = 400;
 											else if (errStr.indexOf("signature") != -1 || errStr.indexOf("Signature") != -1) __errStatusInt = 400;
 											
 											var json = "";
