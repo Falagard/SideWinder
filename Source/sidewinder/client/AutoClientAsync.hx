@@ -69,7 +69,7 @@ class AutoClientAsync {
 		return v;
 	}
 
-	public static macro function create(iface:Expr, baseUrl:Expr, ?cookieJar:Expr, ?apiKey:Expr):Expr {
+	public static macro function create(iface:Expr, baseUrl:Expr, ?cookieJar:Expr, ?apiKey:Expr, ?token:Expr):Expr {
 		var ifaceName = switch (iface.expr) {
 			case EConst(CIdent(s)): s;
 			default:
@@ -105,6 +105,13 @@ class AutoClientAsync {
 					kind: FVar(macro :String, null),
 					pos: Context.currentPos()
 				});
+				// token field (for Bearer Auth)
+				fields.push({
+					name: "token",
+					access: [APublic],
+					kind: FVar(macro :String, null),
+					pos: Context.currentPos()
+				});
 				// constructor
 				fields.push({
 					name: "new",
@@ -113,12 +120,14 @@ class AutoClientAsync {
 						args: [
 							{name: "baseUrl", type: macro :String},
 							{name: "cookieJar", type: macro :sidewinder.interfaces.ICookieJar},
-							{name: "apiKey", type: macro :String}
+							{name: "apiKey", type: macro :String},
+							{name: "token", type: macro :String}
 						],
 						expr: macro {
 							this.baseUrl = baseUrl;
 							this.cookieJar = cookieJar;
 							this.apiKey = apiKey;
+							this.token = token;
 						},
 						params: [],
 						ret: null
@@ -162,11 +171,19 @@ class AutoClientAsync {
 								if (apiKey != null && apiKey != "") {
 									h.setHeader("X-Project-Key", apiKey);
 								}
+								if (token != null && token != "") {
+									h.setHeader("Authorization", "Bearer " + token);
+								}
 								#if (sys && !js && !html5)
 								var cookieHeader = cookieJar.getCookieHeader(currentFull);
 								if (cookieHeader != "") h.setHeader("Cookie", cookieHeader);
-								for (c in cookieJar.getAllCookies()) {
-									if (c.name == "session_token") h.setHeader("Authorization", "Bearer " + c.value);
+								if (token == null || token == "") {
+									for (c in cookieJar.getAllCookies()) {
+										if (c.name == "platform_session_token" || c.name == "session_token") {
+											h.setHeader("Authorization", "Bearer " + c.value);
+											break;
+										}
+									}
 								}
 								#end
 								// Capture redirect location from response headers after request completes
@@ -415,7 +432,8 @@ class AutoClientAsync {
 				var typePath:TypePath = {pack: ["sidewinder"], name: uniqueClassName};
 				var jarExpr = cookieJar != null ? cookieJar : macro sidewinder.client.AutoClientAsync.globalCookieJar;
 				var apiKeyExpr = apiKey != null ? apiKey : macro null;
-				return {expr: ENew(typePath, [baseUrl, jarExpr, apiKeyExpr]), pos: Context.currentPos()};
+				var tokenExpr = token != null ? token : macro null;
+				return {expr: ENew(typePath, [baseUrl, jarExpr, apiKeyExpr, tokenExpr]), pos: Context.currentPos()};
 			case _:
 				Context.error("Expected interface type", iface.pos);
 				return macro null;
