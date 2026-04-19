@@ -1,12 +1,72 @@
 package sidewinder.client;
 
+#if (macro || display)
 import haxe.macro.Context;
 import haxe.macro.Expr;
 import haxe.macro.Type;
-import haxe.io.BytesOutput; // for customRequest output capture (PUT/DELETE)
+#end
+import haxe.io.BytesOutput;
 
+#if (macro || display)
 using haxe.macro.TypeTools;
 using haxe.macro.ExprTools;
+#end
+
+/**
+ * Auth modes supported by AutoClient.
+ */
+enum AutoClientAuthMode {
+    None;
+    ProjectSession;
+    NodeSession;
+    ControlPlaneService;
+}
+
+/**
+ * Result of an auth preparation or refresh operation.
+ */
+enum AutoClientAuthResult {
+    Success;
+    Failure(error:Dynamic);
+}
+
+/**
+ * Metadata for a pending request.
+ */
+typedef AutoClientRequest = {
+    var method:String;
+    var url:String;
+    var headers:Map<String,String>;
+    var body:Null<String>;
+    var authMode:AutoClientAuthMode;
+}
+
+/**
+ * Interface for pluggable auth providers.
+ * Providers handle token management, concurrency, and refresh logic.
+ */
+interface IAutoClientAuthProvider {
+    function prepareRequestAuth(request:AutoClientRequest, done:AutoClientAuthResult->Void):Void;
+    function refreshRequestAuth(request:AutoClientRequest, done:AutoClientAuthResult->Void):Void;
+}
+
+/**
+ * Registry to resolve auth providers based on auth mode.
+ */
+interface IAutoClientAuthProviderResolver {
+    function resolve(authMode:AutoClientAuthMode):Null<IAutoClientAuthProvider>;
+}
+
+/**
+ * Options for creating an AutoClient instance.
+ */
+typedef AutoClientOptions = {
+    var baseUrl:String;
+    @:optional var cookieJar:Dynamic;
+    @:optional var projectKey:String;
+    @:optional var token:String;
+    @:optional var authProviderResolver:IAutoClientAuthProviderResolver;
+}
 
 /**
  * Macro that generates an asynchronous client for a service interface annotated with @get/@post/@put/@delete.
@@ -20,10 +80,6 @@ class AutoClientAsync {
 
 	/**
 	 * Recursively walk dynamic JSON value and convert date-like strings to Date instances.
-	 * Supported patterns:
-	 *  - ISO: YYYY-MM-DDTHH:mm:ss(.fraction)?(Z|±HH:MM)
-	 *  - Space separated: YYYY-MM-DD HH:mm:ss(.fraction)?
-	 *  - Date only: YYYY-MM-DD
 	 */
 	public static function normalizeDates(v:Dynamic):Dynamic {
 		if (v == null)
@@ -70,6 +126,22 @@ class AutoClientAsync {
 	}
 
 	public static macro function create(iface:Expr, baseUrl:Expr, ?cookieJar:Expr, ?apiKey:Expr, ?token:Expr):Expr {
+		var options = macro {
+			baseUrl: $baseUrl,
+			cookieJar: $cookieJar,
+			projectKey: $apiKey,
+			token: $token,
+			authProviderResolver: null
+		};
+		return _generateClient(iface, options);
+	}
+
+	public static macro function createWithOptions(iface:Expr, options:Expr):Expr {
+		return _generateClient(iface, options);
+	}
+
+	#if (macro || display)
+	private static function _generateClient(iface:Expr, optionsExpr:Expr):Expr {
 		var ifaceName = switch (iface.expr) {
 			case EConst(CIdent(s)): s;
 			default:
@@ -84,56 +156,32 @@ class AutoClientAsync {
 					Context.error(cl.name + " is not an interface", iface.pos);
 				var uniqueName = cl.name + "_AutoClientAsync_" + Std.string(Std.random(999999));
 				var fields:Array<Field> = [];
-				// baseUrl field
+				
+				// options field
 				fields.push({
-					name: "baseUrl",
+					name: "options",
 					access: [APublic],
-					kind: FVar(macro :String, null),
+					kind: FVar(macro :sidewinder.client.AutoClientAsync.AutoClientOptions, null),
 					pos: Context.currentPos()
 				});
-				// cookieJar field
-				fields.push({
-					name: "cookieJar",
-					access: [APublic],
-					kind: FVar(macro :sidewinder.interfaces.ICookieJar, null),
-					pos: Context.currentPos()
-				});
-				// apiKey field
-				fields.push({
-					name: "apiKey",
-					access: [APublic],
-					kind: FVar(macro :String, null),
-					pos: Context.currentPos()
-				});
-				// token field (for Bearer Auth)
-				fields.push({
-					name: "token",
-					access: [APublic],
-					kind: FVar(macro :String, null),
-					pos: Context.currentPos()
-				});
+				
 				// constructor
 				fields.push({
 					name: "new",
 					access: [APublic],
 					kind: FFun({
 						args: [
-							{name: "baseUrl", type: macro :String},
-							{name: "cookieJar", type: macro :sidewinder.interfaces.ICookieJar},
-							{name: "apiKey", type: macro :String},
-							{name: "token", type: macro :String}
+							{name: "options", type: macro :sidewinder.client.AutoClientAsync.AutoClientOptions}
 						],
 						expr: macro {
-							this.baseUrl = baseUrl;
-							this.cookieJar = cookieJar;
-							this.apiKey = apiKey;
-							this.token = token;
+							this.options = options;
 						},
 						params: [],
 						ret: null
 					}),
 					pos: Context.currentPos()
 				});
+
 				// helper doRequestAsync
 				fields.push({
 					name: "doRequestAsync",
@@ -143,95 +191,129 @@ class AutoClientAsync {
 							{name: "method", type: macro :String},
 							{name: "path", type: macro :String},
 							{name: "body", type: macro :Dynamic},
+							{name: "authMode", type: macro :sidewinder.client.AutoClientAsync.AutoClientAuthMode},
 							{name: "onData", type: macro :String->Void},
 							{name: "onError", type: macro :Dynamic->Void}
 						],
 						params: [],
 						ret: macro :Void,
 						expr: macro {
-							trace('[AutoClientAsync] doRequestAsync begin method=' + method + ' path=' + path);
-							var full = baseUrl + path;
-							trace('[AutoClientAsync] full URL=' + full);
-							var jsonBody = (body != null) ? haxe.Json.stringify(body) : null;
-							if (jsonBody != null)
-								trace('[AutoClientAsync] jsonBody=' + jsonBody);
-							var isPost = method == "POST";
-							var maxRedirects = 5;
-							var redirectCount = 0;
-							var currentFull = full;
-
-							var executeRequest:Void->Void = null;
-							executeRequest = function() {
-								var h = new haxe.Http(currentFull);
+							var request:sidewinder.client.AutoClientAsync.AutoClientRequest = {
+								method: method,
+								url: options.baseUrl + path,
+								headers: new Map<String, String>(),
+								body: (body != null) ? haxe.Json.stringify(body) : null,
+								authMode: authMode
+							};
+							
+							var retryAttempted = false;
+							var executeHttp:Void->Void = null;
+							executeHttp = function() {
+								trace('[AutoClientAsync] request method=' + request.method + ' url=' + request.url);
+								
+								var h = new haxe.Http(request.url);
 								h.setHeader("Accept", "application/json");
-								if (jsonBody != null) {
+								if (request.body != null) {
 									h.setHeader("Content-Type", "application/json");
-									h.setPostData(jsonBody);
+									h.setPostData(request.body);
 								}
-								if (apiKey != null && apiKey != "") {
-									h.setHeader("X-Project-Key", apiKey);
+								
+								if (options.projectKey != null && options.projectKey != "") {
+									h.setHeader("X-Project-Key", options.projectKey);
 								}
-								if (token != null && token != "") {
-									h.setHeader("Authorization", "Bearer " + token);
+								
+								// Apply external headers from request.headers
+								for (key in request.headers.keys()) {
+									h.setHeader(key, request.headers.get(key));
 								}
+								
+								if (options.token != null && options.token != "" && !request.headers.exists("Authorization")) {
+									h.setHeader("Authorization", "Bearer " + options.token);
+								}
+								
 								#if (sys && !js && !html5)
-								var cookieHeader = cookieJar.getCookieHeader(currentFull);
-								if (cookieHeader != "") h.setHeader("Cookie", cookieHeader);
-								if (token == null || token == "") {
-									for (c in cookieJar.getAllCookies()) {
-										if (c.name == "platform_session_token" || c.name == "session_token") {
-											h.setHeader("Authorization", "Bearer " + c.value);
-											break;
+								var cookieJar:sidewinder.interfaces.ICookieJar = options.cookieJar;
+								if (cookieJar != null) {
+									var cookieHeader = cookieJar.getCookieHeader(request.url);
+									if (cookieHeader != "") h.setHeader("Cookie", cookieHeader);
+									if (!request.headers.exists("Authorization")) {
+										for (c in cookieJar.getAllCookies()) {
+											if (c.name == "platform_session_token" || c.name == "session_token") {
+												h.setHeader("Authorization", "Bearer " + c.value);
+												break;
+											}
 										}
 									}
 								}
 								#end
-								// Capture redirect location from response headers after request completes
-								var redirectLocation:String = null;
-								h.onStatus = function(status:Int) {
-									if ((status == 301 || status == 302 || status == 307 || status == 308) && redirectCount < maxRedirects) {
-										var loc = h.responseHeaders.get("Location");
-										if (loc != null && loc != "") {
-											if (loc.indexOf("://") == -1) {
-												var base = currentFull.split("/").slice(0, 3).join("/");
-												loc = base + loc;
-											}
-											redirectLocation = loc;
+
+								var status = 0;
+								h.onStatus = function(s:Int) status = s;
+								
+								h.onData = function(rawData:String) {
+									if (status == 401 && !retryAttempted && authMode != None && options.authProviderResolver != null) {
+										var provider = options.authProviderResolver.resolve(authMode);
+										if (provider != null) {
+											retryAttempted = true;
+											trace('[AutoClientAsync] 401 Unauthorized (data), attempting refresh...');
+											provider.refreshRequestAuth(request, function(result) {
+												switch (result) {
+													case Success:
+														executeHttp();
+													case Failure(err):
+														onError(err);
+												}
+											});
+											return;
 										}
 									}
+									onData(rawData);
 								};
-								h.onData = function(d:Dynamic) {
-									if (redirectLocation != null) {
-										// Redirect: fire next request after this response is done
-										redirectCount++;
-										currentFull = redirectLocation;
-										redirectLocation = null;
-										trace('[AutoClientAsync] Following redirect to: ' + currentFull);
-										executeRequest();
-										return;
+								
+								h.onError = function(err:Dynamic) {
+									if (status == 401 && !retryAttempted && authMode != None && options.authProviderResolver != null) {
+										var provider = options.authProviderResolver.resolve(authMode);
+										if (provider != null) {
+											retryAttempted = true;
+											trace('[AutoClientAsync] 401 Unauthorized (error), attempting refresh...');
+											provider.refreshRequestAuth(request, function(result) {
+												switch (result) {
+													case Success:
+														executeHttp();
+													case Failure(err):
+														onError(err);
+												}
+											});
+											return;
+										}
 									}
-									// Use Std.string which safely handles hl.Bytes on HashLink
-									onData(Std.string(d));
+									onError(err);
 								};
-								h.onError = function(e:Dynamic) {
-									if (redirectLocation != null) {
-										redirectCount++;
-										currentFull = redirectLocation;
-										redirectLocation = null;
-										trace('[AutoClientAsync] Following redirect (via error) to: ' + currentFull);
-										executeRequest();
-										return;
-									}
-									onError(e);
-								};
+								
 								try {
-									h.request(isPost);
+									h.request(request.method == "POST");
 								} catch (e:Dynamic) {
 									onError(e);
 								}
 							};
-							executeRequest();
-							trace('[AutoClientAsync] doRequestAsync exit method=' + method + ' path=' + path);
+
+							// Handle initial auth preparation
+							if (authMode != None && options.authProviderResolver != null) {
+								var provider = options.authProviderResolver.resolve(authMode);
+								if (provider != null) {
+									provider.prepareRequestAuth(request, function(result) {
+										switch (result) {
+											case Success:
+												executeHttp();
+											case Failure(err):
+												onError(err);
+										}
+									});
+									return;
+								}
+							}
+							
+							executeHttp();
 						}
 					}),
 					pos: Context.currentPos()
@@ -243,6 +325,8 @@ class AutoClientAsync {
 							var httpMethod = "";
 							var path = "";
 							var requiresAuth = false;
+							var authModeExpr = macro sidewinder.client.AutoClientAsync.AutoClientAuthMode.None;
+							
 							for (m in field.meta.get()) {
 								switch (m.name) {
 									case "get", "post", "put", "delete":
@@ -256,6 +340,16 @@ class AutoClientAsync {
 										}
 									case "requiresAuth":
 										requiresAuth = true;
+										authModeExpr = macro sidewinder.client.AutoClientAsync.AutoClientAuthMode.ProjectSession;
+									case "auth":
+										if (m.params.length > 0) {
+											var p = m.params[0];
+											switch (p.expr) {
+												case EConst(CIdent(s)):
+													authModeExpr = macro sidewinder.client.AutoClientAsync.AutoClientAuthMode.$s;
+												default: Context.error("Expected identifier in @auth", p.pos);
+											}
+										}
 									default:
 								}
 							}
@@ -398,7 +492,7 @@ class AutoClientAsync {
 											}
 										};
 									}
-									bodyExprs.push(macro doRequestAsync($v{httpMethod}, _p, $bodyExpr, function(rawData:String) $parseExpr,
+									bodyExprs.push(macro doRequestAsync($v{httpMethod}, _p, $bodyExpr, $authModeExpr, function(rawData:String) $parseExpr,
 										function(e:Dynamic) onFailure(e)));
 									var methodBody:Expr = {expr: EBlock(bodyExprs), pos: Context.currentPos()};
 									fields.push({
@@ -430,13 +524,11 @@ class AutoClientAsync {
 				};
 				Context.defineType(classDef);
 				var typePath:TypePath = {pack: ["sidewinder"], name: uniqueClassName};
-				var jarExpr = cookieJar != null ? cookieJar : macro sidewinder.client.AutoClientAsync.globalCookieJar;
-				var apiKeyExpr = apiKey != null ? apiKey : macro null;
-				var tokenExpr = token != null ? token : macro null;
-				return {expr: ENew(typePath, [baseUrl, jarExpr, apiKeyExpr, tokenExpr]), pos: Context.currentPos()};
+				return {expr: ENew(typePath, [optionsExpr]), pos: Context.currentPos()};
 			case _:
 				Context.error("Expected interface type", iface.pos);
 				return macro null;
 		}
 	}
+	#end
 }
