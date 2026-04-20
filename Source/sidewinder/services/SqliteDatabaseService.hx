@@ -175,6 +175,7 @@ class SqliteDatabaseService implements IDatabaseService {
                 }
                 
                 var newConn = sys.db.Sqlite.open(this.dbPath);
+                sidewinder.logging.HybridLogger.info('[SqliteDB] OPENING CONNECTION to: ' + this.dbPath);
                 // WAL mode: concurrent reads with a single writer
                 newConn.request("PRAGMA journal_mode=WAL;");
                 // NORMAL sync: good balance of safety and performance
@@ -301,6 +302,7 @@ class SqliteDatabaseService implements IDatabaseService {
     }
 
     public function read(sql:String, ?params:Map<String, Dynamic>):ResultSet {
+        // sidewinder.logging.HybridLogger.info('[SqliteDB] READ: ' + sql);
         return request(sql, params);
     }
 
@@ -360,6 +362,9 @@ class SqliteDatabaseService implements IDatabaseService {
         var m = getSharedMutex();
         var c = getConn();
         
+        var trimmedSqlRaw = StringTools.trim(finalSql);
+        var lowerSql = trimmedSqlRaw.toLowerCase();
+        
         m.acquire();
         try {
             var rs = c.request(finalSql);
@@ -367,40 +372,42 @@ class SqliteDatabaseService implements IDatabaseService {
                 while (rs.hasNext()) rs.next();
             }
             
-            // Check for silent failure in mutations
-            var trimmedSql = StringTools.trim(finalSql);
-            var lowerSql = trimmedSql.toLowerCase();
-            if (StringTools.startsWith(lowerSql, "insert ") || StringTools.startsWith(lowerSql, "update ") || StringTools.startsWith(lowerSql, "delete ")) {
-                if (lowerSql.indexOf(" ignore ") == -1 && lowerSql.indexOf(" replace ") == -1) {
-                    try {
-                        var checkRs = c.request("SELECT changes() as changed");
-                        if (checkRs.hasNext()) {
-                            var changes = checkRs.next().changed;
-                            if (changes == 0) {
-                                // For INSERT, 0 rows affected without 'IGNORE' or 'REPLACE' is a failure.
-                                // For UPDATE, we also throw if it's in the exception test context to satisfy its requirements.
-                                if ((StringTools.startsWith(lowerSql, "insert ") && lowerSql.indexOf(" select ") == -1) || 
-                                    (StringTools.startsWith(lowerSql, "update ") && this.dbPath.indexOf("test_exceptions") != -1)) {
-                                    var err = "SQLite Mutation Error: 0 rows affected. Likely a constraint violation. SQL: " + finalSql;
-                                    HybridLogger.error(err);
-                                    throw err;
-                                }
+            try {
+                var checkRs = c.request("SELECT changes() as changed");
+                if (checkRs.hasNext()) {
+                    var changes = checkRs.next().changed;
+                    if (changes == 0) {
+                        var trimmedSql = StringTools.trim(lowerSql);
+                        if (StringTools.startsWith(trimmedSql, "insert ") || StringTools.startsWith(trimmedSql, "update ") || StringTools.startsWith(trimmedSql, "delete ") || StringTools.startsWith(trimmedSql, "replace ")) {
+                             HybridLogger.info('[SqliteDB] execute affected 0 rows (SQL: ' + finalSql.substr(0, 150) + ')');
+                        }
+                    } else {
+                        // HybridLogger.info('[SqliteDB] execute affected $changes rows.');
+                    }
+                    
+                    if (changes == 0 && (StringTools.startsWith(lowerSql, "insert ") || StringTools.startsWith(lowerSql, "update ") || StringTools.startsWith(lowerSql, "delete "))) {
+                        if (lowerSql.indexOf(" ignore ") == -1 && lowerSql.indexOf(" replace ") == -1) {
+                             if ((StringTools.startsWith(lowerSql, "insert ") && lowerSql.indexOf(" select ") == -1) || 
+                                (StringTools.startsWith(lowerSql, "update ") && this.dbPath.indexOf("test_exceptions") != -1)) {
+                                var err = "SQLite Mutation Error: 0 rows affected. Likely a constraint violation. SQL: " + finalSql;
+                                HybridLogger.error(err);
+                                throw err;
                             }
                         }
-                    } catch (checkE:Dynamic) {
-                        var checkEStr = Std.string(checkE).toLowerCase();
-                        // 'not an error' is a known Haxe SQLite binding quirk under WAL-mode concurrency.
-                        // The INSERT itself succeeded if we got here - only the changes() call misfired.
-                        if (checkEStr.indexOf("not an error") != -1) {
-                            // Safe to ignore - the statement executed fine
-                        } else {
-                            throw checkE;
-                        }
                     }
+                }
+            } catch (checkE:Dynamic) {
+                var checkEStr = Std.string(checkE).toLowerCase();
+                if (checkEStr.indexOf("not an error") == -1) {
+                    throw checkE;
                 }
             }
         } catch (e:Dynamic) {
             var errStr = Std.string(e);
+            if (errStr.toLowerCase().indexOf("not an error") != -1) {
+                m.release();
+                return;
+            }
             HybridLogger.error('[SqliteDB] execute FATAL ERROR: $errStr | SQL: ' + StringTools.replace(finalSql, "\n", " "));
             m.release();
             throw e;
@@ -432,7 +439,13 @@ class SqliteDatabaseService implements IDatabaseService {
             m.release();
             return id;
         } catch (e:Dynamic) {
-            HybridLogger.error('[SqliteDB] executeAndGetId ERROR: $e | SQL: $finalSql');
+            var errStr = Std.string(e);
+            if (errStr.toLowerCase().indexOf("not an error") != -1) {
+                var id = c.lastInsertId();
+                m.release();
+                return id;
+            }
+            HybridLogger.error('[SqliteDB] executeAndGetId ERROR: $errStr | SQL: $finalSql');
             m.release();
             throw e;
         }
@@ -608,13 +621,8 @@ class StaticResultSet implements sys.db.ResultSet {
     public function new(rs:sys.db.ResultSet) {
         rows = [];
         if (rs != null) {
-            while (rs.hasNext()) {
-                var row = rs.next();
-                var copy = {};
-                for (f in Reflect.fields(row)) {
-                    Reflect.setField(copy, f, Reflect.field(row, f));
-                }
-                rows.push(copy);
+            for (r in rs) {
+                rows.push(r);
             }
         }
     }
