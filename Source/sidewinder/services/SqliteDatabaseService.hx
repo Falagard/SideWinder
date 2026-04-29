@@ -359,14 +359,15 @@ class SqliteDatabaseService implements IDatabaseService {
 
     public function execute(sql:String, ?params:Map<String, Dynamic>):Void {
         var finalSql = (params != null) ? buildSqlStatic(sql, params) : sql;
-        var m = getSharedMutex();
-        var c = getConn();
         
-        var trimmedSqlRaw = StringTools.trim(finalSql);
-        var lowerSql = trimmedSqlRaw.toLowerCase();
+        var mutex = getSharedMutex();
+        mutex.acquire();
         
-        m.acquire();
         try {
+            var c = getConn();
+            var trimmedSqlRaw = StringTools.trim(finalSql);
+            var lowerSql = trimmedSqlRaw.toLowerCase();
+            
             var rs = c.request(finalSql);
             if (rs != null) {
                 while (rs.hasNext()) rs.next();
@@ -379,10 +380,8 @@ class SqliteDatabaseService implements IDatabaseService {
                     if (changes == 0) {
                         var trimmedSql = StringTools.trim(lowerSql);
                         if (StringTools.startsWith(trimmedSql, "insert ") || StringTools.startsWith(trimmedSql, "update ") || StringTools.startsWith(trimmedSql, "delete ") || StringTools.startsWith(trimmedSql, "replace ")) {
-                             HybridLogger.info('[SqliteDB] execute affected 0 rows (SQL: ' + finalSql.substr(0, 150) + ')');
+                             // HybridLogger.info('[SqliteDB] execute affected 0 rows (SQL: ' + finalSql.substr(0, 150) + ')');
                         }
-                    } else {
-                        // HybridLogger.info('[SqliteDB] execute affected $changes rows.');
                     }
                     
                     if (changes == 0 && (StringTools.startsWith(lowerSql, "insert ") || StringTools.startsWith(lowerSql, "update ") || StringTools.startsWith(lowerSql, "delete "))) {
@@ -391,6 +390,7 @@ class SqliteDatabaseService implements IDatabaseService {
                                 (StringTools.startsWith(lowerSql, "update ") && this.dbPath.indexOf("test_exceptions") != -1)) {
                                 var err = "SQLite Mutation Error: 0 rows affected. Likely a constraint violation. SQL: " + finalSql;
                                 HybridLogger.error(err);
+                                mutex.release();
                                 throw err;
                             }
                         }
@@ -399,28 +399,28 @@ class SqliteDatabaseService implements IDatabaseService {
             } catch (checkE:Dynamic) {
                 var checkEStr = Std.string(checkE).toLowerCase();
                 if (checkEStr.indexOf("not an error") == -1) {
+                    mutex.release();
                     throw checkE;
                 }
             }
+            mutex.release();
         } catch (e:Dynamic) {
+            mutex.release();
             var errStr = Std.string(e);
             if (errStr.toLowerCase().indexOf("not an error") != -1) {
-                m.release();
                 return;
             }
             HybridLogger.error('[SqliteDB] execute FATAL ERROR: $errStr | SQL: ' + StringTools.replace(finalSql, "\n", " "));
-            m.release();
             throw e;
         }
-        m.release();
     }
 
     public function executeAndGetId(sql:String, ?params:Map<String, Dynamic>):Int {
         var finalSql = (params != null) ? buildSqlStatic(sql, params) : sql;
-        var m = getSharedMutex();
-        var c = getConn();
-        m.acquire();
+        var mutex = getSharedMutex();
+        mutex.acquire();
         try {
+            var c = getConn();
             var rs = c.request(finalSql);
             if (rs != null) {
                 while (rs.hasNext()) rs.next();
@@ -431,22 +431,21 @@ class SqliteDatabaseService implements IDatabaseService {
             if (checkRs.hasNext() && checkRs.next().changed == 0) {
                 var lowerSql = finalSql.toLowerCase();
                 if (lowerSql.indexOf(" ignore ") == -1 && lowerSql.indexOf(" replace ") == -1) {
+                    mutex.release();
                     throw "SQLite Mutation Error: 0 rows affected by executeAndGetId. SQL: " + finalSql;
                 }
             }
 
             var id = c.lastInsertId();
-            m.release();
+            mutex.release();
             return id;
         } catch (e:Dynamic) {
+            mutex.release();
             var errStr = Std.string(e);
             if (errStr.toLowerCase().indexOf("not an error") != -1) {
-                var id = c.lastInsertId();
-                m.release();
-                return id;
+                return 0; // Or lastInsertId if possible
             }
             HybridLogger.error('[SqliteDB] executeAndGetId ERROR: $errStr | SQL: $finalSql');
-            m.release();
             throw e;
         }
     }
@@ -461,18 +460,18 @@ class SqliteDatabaseService implements IDatabaseService {
     }
 
     public function request(sql:String, ?params:Map<String, Dynamic>):ResultSet {
-        var m = getSharedMutex();
-        var c = getConn();
-        m.acquire();
+        var mutex = getSharedMutex();
+        mutex.acquire();
         try {
+            var c = getConn();
             var finalSql = (params != null) ? buildSqlStatic(sql, params) : sql;
             var rs = c.request(finalSql);
             var result = new StaticResultSet(rs);
-            m.release();
+            mutex.release();
             return result;
         } catch (e:Dynamic) {
+            mutex.release();
             HybridLogger.error('[SqliteDB] request ERROR: $e | SQL: $sql');
-            m.release();
             throw e;
         }
     }
@@ -480,6 +479,7 @@ class SqliteDatabaseService implements IDatabaseService {
     public function beginTransaction():Void execute("BEGIN TRANSACTION;");
     public function commit():Void execute("COMMIT;");
     public function rollback():Void execute("ROLLBACK;");
+
 
     public function runMigrations():Void {
         var dir = Sys.getEnv("MIGRATIONS_DIR");

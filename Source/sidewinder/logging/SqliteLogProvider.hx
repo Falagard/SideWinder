@@ -42,6 +42,7 @@ class SqliteLogProvider implements ILogProvider {
 		}
 
 		conn = Sqlite.open('$logDir/logs.db');
+		conn.request('PRAGMA busy_timeout=5000');
 		conn.request('CREATE TABLE IF NOT EXISTS internal_logs(created_at REAL, level TEXT, message TEXT)');
 		lastFlushTime = Timer.stamp();
 	}
