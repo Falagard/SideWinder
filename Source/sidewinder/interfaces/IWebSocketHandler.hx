@@ -8,9 +8,10 @@ import sidewinder.interfaces.IWebSocketHandler.WebSocketOpcode;
 interface IWebSocketHandler {
     /**
      * Called when a new WebSocket connection is established
+     * @param req The original HTTP request that requested the upgrade
      * @return True to accept the connection, false to reject
      */
-    function onConnect():Bool;
+    function onConnect(req:sidewinder.routing.Router.Request):Bool;
     
     /**
      * Called when the WebSocket is ready to send/receive data

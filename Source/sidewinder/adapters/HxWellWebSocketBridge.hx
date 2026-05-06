@@ -9,13 +9,18 @@ import haxe.Exception;
 
 class HxWellWebSocketBridge extends HxAbstractWebSocketHandler {
 	private var adapter:HxWellAdapter;
+	private var initialRequest:hx.well.http.Request;
 
-	public function new(adapter:HxWellAdapter) {
+	public function new(adapter:HxWellAdapter, initialRequest:hx.well.http.Request) {
 		super();
 		this.adapter = adapter;
+		this.initialRequest = initialRequest;
 	}
 
 	public function onOpen(session:WebSocketSession):Void {
+		// Convert hxwell request to SideWinder request for context
+		var swReq = @:privateAccess adapter.convertRequest(initialRequest, null);
+		adapter.pushWebSocketEvent({type: Connect(session, swReq), session: session});
 		adapter.pushWebSocketEvent({type: Open(session), session: session});
 	}
 

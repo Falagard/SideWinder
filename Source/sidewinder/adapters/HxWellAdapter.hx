@@ -21,6 +21,9 @@ import sidewinder.interfaces.IWebServer;
 import sidewinder.interfaces.IWebSocketServer;
 import hx.well.websocket.WebSocketSession;
 import sidewinder.adapters.HxWellAdapterTypes;
+import app.util.RequestId;
+import app.services.ProjectContext;
+import core.IServerConfig;
 
 /**
  * Adapter for hxwell server.
@@ -35,6 +38,7 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 	var running:Bool = false;
 	var driver:sidewinder.adapters.CustomSocketDriver;
 	var islandManager:IslandManager;
+	var serverConfig:IServerConfig;
 
 	// Inject router to avoid circular dependency with SideWinderRequestHandler
 	public var router:Router = Router.instance;
@@ -50,6 +54,7 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 		this.port = port;
 		this.directory = directory;
 		this.numIslands = islandManager.getIslandCount();
+		this.serverConfig = DI.get(IServerConfig);
 
 		// Start a background thread to process WebSocket events if a handler is registered
 		// Using sys.thread.Thread.create for HashLink reliability over MainLoop.addThread
@@ -92,6 +97,11 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			for (evt in events) {
 				try {
 					switch (evt.type) {
+						case Connect(session, swReq):
+							if (!websocketHandler.onConnect(swReq)) {
+								HybridLogger.warn('[HxWellAdapter] WebSocket connection rejected by handler for session ${session.id}');
+								session.close();
+							}
 						case Open(session):
 							websocketHandler.onReady(session);
 						case Message(session, text):
@@ -110,8 +120,15 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 	}
 
 	public function processQueuedRequest(q:QueuedRequest):Void {
+		var requestId = RequestId.generate();
 		var scope = DI.createScope();
 		DI.setThreadProvider(scope);
+
+		var pctx = scope.getService(ProjectContext);
+		pctx.requestId = requestId;
+		pctx.nodeId = serverConfig.nodeId;
+
+		var swRes = createResponse(q.socket, requestId);
 
 		var cleanup = function() {
 			DI.resetThreadProvider();
@@ -126,8 +143,27 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			q.socket.setBlocking(true);
 			#end
 			
-			var swRes = createResponse(q.socket);
 			var swReq = convertRequest(q.hxRequest, q.socket);
+			pctx.ipAddress = swReq.ip;
+			pctx.userAgent = swReq.headers.get("user-agent");
+
+			// Enforce URL length limit
+			if (swReq.path.length > serverConfig.maxUrlLength) {
+				HybridLogger.warn('[HxWellAdapter] [$requestId] URL too long: ${swReq.path.length} > ${serverConfig.maxUrlLength}');
+				swRes.sendError(HTTPStatus.REQUEST_URI_TOO_LONG);
+				swRes.end();
+				cleanup();
+				return;
+			}
+
+			// Enforce request body size limit
+			if (swReq.rawBodyBytes != null && swReq.rawBodyBytes.length > serverConfig.maxRequestBodySize) {
+				HybridLogger.warn('[HxWellAdapter] [$requestId] Body too large: ${swReq.rawBodyBytes.length} > ${serverConfig.maxRequestBodySize}');
+				swRes.sendError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE);
+				swRes.end();
+				cleanup();
+				return;
+			}
 
 			// Handle session
 			var sessionId = swReq.cookies.get("session_id");
@@ -145,9 +181,9 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 				return;
 			}
 
-			HybridLogger.info('[HxWellAdapter] ${swReq.method} ${swReq.path}');
+			HybridLogger.info('[HxWellAdapter] [$requestId] ${swReq.method} ${swReq.path}');
             var headerSummary = [for (k in swReq.headers.keys()) '$k: ${swReq.headers.get(k)}'].join(", ");
-            HybridLogger.info('[HxWellAdapter] Request Headers: $headerSummary');
+            HybridLogger.debug('[HxWellAdapter] [$requestId] Request Headers: $headerSummary');
 
 			if (router != null) {
 				var match = router.find(swReq.method, swReq.path);
@@ -169,14 +205,28 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			}
 			cleanup();
 		} catch (e:Dynamic) {
-			HybridLogger.error('[HxWellAdapter] Error processing request: ' + e);
+			HybridLogger.error('[HxWellAdapter] [$requestId] Error processing request: ' + e);
 			#if hl
 			HybridLogger.error(haxe.CallStack.toString(haxe.CallStack.exceptionStack()));
 			#end
 			try {
-				q.socket.shutdown(false, true);
-				q.socket.close();
-			} catch (_) {}
+				if (!@:privateAccess (swRes:Dynamic).headersSent) {
+					swRes.sendResponse(HTTPStatus.INTERNAL_SERVER_ERROR);
+					swRes.write(haxe.Json.stringify({
+						success: false,
+						error: "Internal Server Error",
+						requestId: requestId
+					}));
+					swRes.end();
+				} else {
+					q.socket.shutdown(false, true);
+					q.socket.close();
+				}
+			} catch (_) {
+				try {
+					q.socket.close();
+				} catch (__) {}
+			}
 			cleanup();
 		}
 	}
@@ -313,11 +363,13 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 		return req;
 	}
 
-	private function createResponse(socket:Socket):Response {
+	private function createResponse(socket:Socket, requestId:String):Response {
 		var statusCode:Int = 200;
 		var headers = new Map<String, String>();
 		var headersSent = false;
 		var response:Response = null;
+
+		headers.set("X-Request-ID", requestId);
 
 		response = {
 			write: function(s:String) {

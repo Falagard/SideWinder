@@ -10,6 +10,8 @@ import hx.well.http.driver.socket.SocketWebSocketHandler;
 import hx.well.http.RequestStatic;
 import sys.net.Socket;
 import haxe.Http;
+import sidewinder.core.DI;
+import core.IServerConfig;
 
 @:access(hx.well.http.driver.socket.SocketDriver)
 class CustomSocketDriver extends SocketDriver {
@@ -38,11 +40,29 @@ class CustomSocketDriver extends SocketDriver {
 				}
 
 				var hxReq = hx.well.http.driver.socket.SocketRequestParser.parseFromSocket(socket);
+				var serverConfig = DI.get(IServerConfig);
+
+				// Enforce header size limit
+				var totalHeaderSize = 0;
+				for (k in hxReq.headers.keys()) {
+					totalHeaderSize += k.length + hxReq.headers.get(k).length + 4; // +4 for ": " and "\r\n"
+				}
+				if (totalHeaderSize > serverConfig.maxHeaderSize) {
+					HybridLogger.warn('[HxWellAdapter] Headers too large: $totalHeaderSize > ${serverConfig.maxHeaderSize}');
+					// We can't easily send a 431 Request Header Fields Too Large here because we already parsed part of the request
+					// but we can at least abort.
+					try {
+						socket.output.writeString("HTTP/1.1 431 Request Header Fields Too Large\r\nConnection: close\r\n\r\n");
+						socket.output.flush();
+						socket.close();
+					} catch (_) {}
+					return;
+				}
 
 				// Check for WebSocket upgrade
 				var upgrade = hxReq.header("Upgrade");
 				if (upgrade != null && upgrade.toLowerCase() == "websocket") {
-					var bridge = new HxWellWebSocketBridge(adapter);
+					var bridge = new HxWellWebSocketBridge(adapter, hxReq);
 					// This blocks the background thread and handles the message loop
 					hx.well.http.driver.socket.SocketWebSocketHandler.upgrade(socket, hxReq, bridge);
 					return;
@@ -56,6 +76,15 @@ class CustomSocketDriver extends SocketDriver {
 				
 				if (contentLen != null) {
 					var len = Std.parseInt(contentLen);
+					if (len > serverConfig.maxRequestBodySize) {
+						HybridLogger.warn('[HxWellAdapter] Content-Length too large: $len > ${serverConfig.maxRequestBodySize}');
+						try {
+							socket.output.writeString("HTTP/1.1 413 Payload Too Large\r\nConnection: close\r\n\r\n");
+							socket.output.flush();
+							socket.close();
+						} catch (_) {}
+						return;
+					}
 					if (len > 0) {
 						var input = new hx.well.http.driver.socket.SocketInput(socket);
 						input.length = len;

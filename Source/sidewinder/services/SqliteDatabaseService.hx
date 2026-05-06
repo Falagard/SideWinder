@@ -184,8 +184,11 @@ class SqliteDatabaseService implements IDatabaseService {
                 newConn.request("PRAGMA journal_mode=WAL;");
                 // NORMAL sync: good balance of safety and performance
                 newConn.request("PRAGMA synchronous=NORMAL;");
-                // 10 second busy timeout - fast failure, not silent hang
-                newConn.request("PRAGMA busy_timeout=10000;");
+                
+                // busy timeout from config - handle null config in tests
+                var timeout = (config != null) ? config.dbCommandTimeoutMs : 30000;
+                newConn.request('PRAGMA busy_timeout=$timeout;');
+                
                 newConn.request("PRAGMA foreign_keys=ON;");
                 
                 getConnectionsMap().set(mapKey, newConn);
@@ -335,7 +338,16 @@ class SqliteDatabaseService implements IDatabaseService {
                 c = sys.db.Sqlite.open(this.dbPath);
                 c.request("PRAGMA journal_mode=WAL;");
                 c.request("PRAGMA synchronous=NORMAL;");
-                c.request("PRAGMA busy_timeout=10000;");
+                
+                // Get config from DI since we don't have it passed in here
+                var config = null;
+                try {
+                    config = sidewinder.core.DI.get(core.IServerConfig);
+                } catch(e:Dynamic) {}
+                
+                var timeout = (config != null) ? config.dbCommandTimeoutMs : 30000;
+                c.request('PRAGMA busy_timeout=$timeout;');
+                
                 c.request("PRAGMA foreign_keys=ON;");
                 getConnectionsMap().set(this.dbPath, c);
             }
@@ -391,12 +403,12 @@ class SqliteDatabaseService implements IDatabaseService {
                     if (changes == 0 && (StringTools.startsWith(lowerSql, "insert ") || StringTools.startsWith(lowerSql, "update ") || StringTools.startsWith(lowerSql, "delete "))) {
                         if (lowerSql.indexOf(" ignore ") == -1 && lowerSql.indexOf(" replace ") == -1) {
                              if ((StringTools.startsWith(lowerSql, "insert ") && lowerSql.indexOf(" select ") == -1) || 
-                                (StringTools.startsWith(lowerSql, "update ") && this.dbPath.indexOf("test_exceptions") != -1)) {
-                                var err = "SQLite Mutation Error: 0 rows affected. Likely a constraint violation. SQL: " + finalSql;
-                                HybridLogger.error(err);
-                                mutex.release();
-                                throw err;
-                            }
+                                 (StringTools.startsWith(lowerSql, "update ") && this.dbPath.indexOf("test_exceptions") != -1)) {
+                                 var err = "SQLite Mutation Error: 0 rows affected. Likely a constraint violation. SQL: " + finalSql;
+                                 HybridLogger.error(err);
+                                 mutex.release();
+                                 throw err;
+                             }
                         }
                     }
                 }

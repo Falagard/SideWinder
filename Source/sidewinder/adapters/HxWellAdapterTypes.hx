@@ -10,6 +10,7 @@ typedef QueuedRequest = {
 }
 
 enum WebSocketEventData {
+	Connect(session:WebSocketSession, req:sidewinder.routing.Router.Request);
 	Open(session:WebSocketSession);
 	Message(session:WebSocketSession, text:String);
 	Binary(session:WebSocketSession, data:Bytes);

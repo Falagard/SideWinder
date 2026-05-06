@@ -199,7 +199,24 @@ class CivetWebAdapter implements IWebServer implements IWebSocketServer {
 				wsProcessed++;
 				try {
 					switch (evt.type) {
-						case 0: websocketHandler.onConnect();
+						case 0: 
+							// CivetWeb native doesn't currently expose the full handshake request in poll_websocket_event.
+							// Providing a minimal request object for compatibility.
+							var dummyReq:sidewinder.routing.Router.Request = {
+								method: "GET",
+								path: "/ws",
+								headers: new Map<String, String>(),
+								query: new Map<String, String>(),
+								params: new Map<String, String>(),
+								body: "",
+								rawBodyBytes: null,
+								jsonBody: null,
+								formBody: new Map<String, String>(),
+								cookies: new Map<String, String>(),
+								files: [],
+								ip: "0.0.0.0"
+							};
+							websocketHandler.onConnect(dummyReq);
 						case 1: websocketHandler.onReady(evt.conn);
 						case 2:
 							var dataBytes:hl.Bytes = evt.data;
