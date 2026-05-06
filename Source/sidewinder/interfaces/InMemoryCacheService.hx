@@ -65,27 +65,30 @@ private class Shard {
 
 class InMemoryCacheService implements ICacheService {
 
-    private var shards:Array<Shard>;
-    private var shardCount:Int;
-    private var maxEntriesPerShard:Int;
+    private static var shards:Array<Shard> = null;
+    private static var shardCount:Int = 16;
+    private static var maxEntriesPerShard:Int = 512;
+    private static var _staticMutex:Mutex = new Mutex();
 
     public function new() {
-        this.shardCount = 16;
-        this.maxEntriesPerShard = 512;
         init();
     }
 
     private function init():Void {
-        this.shards = [];
-        for (i in 0...shardCount)
-            shards.push(new Shard(maxEntriesPerShard));
+        _staticMutex.acquire();
+        if (shards == null) {
+            shards = [];
+            for (i in 0...shardCount)
+                shards.push(new Shard(maxEntriesPerShard));
 
-        Thread.create(() -> {
-            while (true) {
-                Sys.sleep(60);
-                sweepExpired();
-            }
-        });
+            Thread.create(() -> {
+                while (true) {
+                    Sys.sleep(60);
+                    sweepExpiredStatic();
+                }
+            });
+        }
+        _staticMutex.release();
     }
 
     private inline function shardFor(key:String):Shard {
@@ -233,6 +236,11 @@ class InMemoryCacheService implements ICacheService {
     }
 
     public function sweepExpired():Void {
+        InMemoryCacheService.sweepExpiredStatic();
+    }
+
+    public static function sweepExpiredStatic():Void {
+        if (shards == null) return;
         var now = Date.now().getTime();
         for (shard in shards) {
             shard.mutex.acquire();
@@ -249,7 +257,14 @@ class InMemoryCacheService implements ICacheService {
                 
                 for (key in toRemove) {
                     var e = shard.map.get(key);
-                    if (e != null) removeEntry(shard, e);
+                    if (e != null) {
+                        // Inlined removeEntry as it was not static
+                        shard.map.remove(e.key);
+                        if (e.prev != null) e.prev.next = e.next;
+                        if (e.next != null) e.next.prev = e.prev;
+                        if (shard.head == e) shard.head = e.next;
+                        if (shard.tail == e) shard.tail = e.prev;
+                    }
                 }
                 
                 shard.mutex.release();

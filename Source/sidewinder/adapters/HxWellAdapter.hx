@@ -146,6 +146,8 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			}
 
 			HybridLogger.info('[HxWellAdapter] ${swReq.method} ${swReq.path}');
+            var headerSummary = [for (k in swReq.headers.keys()) '$k: ${swReq.headers.get(k)}'].join(", ");
+            HybridLogger.info('[HxWellAdapter] Request Headers: $headerSummary');
 
 			if (router != null) {
 				var match = router.find(swReq.method, swReq.path);
@@ -182,9 +184,12 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 	private function convertRequest(hxReq:hx.well.http.Request, socket:Socket):Request {
 		var headers = new Map<String, String>();
 		@:privateAccess {
+            var keys = [];
 			for (k in hxReq.headers.keys()) {
 				headers.set(k, hxReq.headers.get(k));
+                keys.push(k);
 			}
+            HybridLogger.info('[HxWellAdapter] Incoming Header Keys: ' + keys.join(", "));
 		}
 
 		var body = hxReq.bodyBytes != null ? hxReq.bodyBytes.toString() : "";
@@ -292,6 +297,7 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			query: query,
 			params: new Map<String, String>(),
 			body: body,
+			rawBodyBytes: hxReq.bodyBytes,
 			jsonBody: jsonBody,
 			formBody: formBody,
 			cookies: cookies,
@@ -345,6 +351,7 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 				if (headersSent)
 					return;
 				try {
+					HybridLogger.info('[HxWellAdapter] Response: $statusCode ' + getStatusMessage(statusCode));
 					socket.output.writeString('HTTP/1.1 $statusCode ' + getStatusMessage(statusCode) + '\r\n');
 					if (!headers.exists("Content-Type")) {
 						headers.set("Content-Type", "text/html; charset=utf-8");

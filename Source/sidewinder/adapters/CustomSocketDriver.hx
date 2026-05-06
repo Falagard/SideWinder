@@ -49,6 +49,9 @@ class CustomSocketDriver extends SocketDriver {
 				}
 				
 				// Handle body parsing if Content-Length is present
+                var headersStr = "";
+                for (k in hxReq.headers.keys()) headersStr += k + ": " + hxReq.headers.get(k) + ", ";
+                HybridLogger.info('[HxWellAdapter] Request Headers: ' + headersStr);
 				var contentLen = hxReq.header("Content-Length");
 				
 				if (contentLen != null) {
@@ -60,7 +63,17 @@ class CustomSocketDriver extends SocketDriver {
 						// Set static context so hxwell internal parsers can find the request
 						hx.well.http.RequestStatic.set(hxReq);
 						try {
+                            HybridLogger.info('[HxWellAdapter] Parsing body: len=' + len + ' type=' + hxReq.header("Content-Type"));
 							hx.well.http.driver.socket.SocketRequestParser.parseBody(hxReq, input);
+                            
+                            // FALLBACK: If bodyBytes is still null after parseBody, read it manually
+                            if (hxReq.bodyBytes == null) {
+                                HybridLogger.info('[HxWellAdapter] parseBody did not set bodyBytes, reading manually...');
+                                hxReq.bodyBytes = input.read(len);
+                                HybridLogger.info('[HxWellAdapter] Manually read bodyBytes: ' + (hxReq.bodyBytes != null ? Std.string(hxReq.bodyBytes.length) : "NULL"));
+                            } else {
+                                HybridLogger.info('[HxWellAdapter] parseBody set bodyBytes: ' + Std.string(hxReq.bodyBytes.length));
+                            }
 						} catch (e:Dynamic) {
 							// If abort() was called or other parse error, we log it
 							if (Std.isOfType(e, haxe.io.Eof) || Std.string(e) == "Eof") {

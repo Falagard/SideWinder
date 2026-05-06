@@ -71,6 +71,10 @@ class SqliteDatabaseService implements IDatabaseService {
         init(config, null);
     }
 
+    public function getDbPath():String {
+        return dbPath;
+    }
+
     private function init(config:core.IServerConfig, dbPath:String) {
         ensureMutexes();
         var rawPath = dbPath;
