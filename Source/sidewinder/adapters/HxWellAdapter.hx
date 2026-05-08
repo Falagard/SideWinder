@@ -56,7 +56,9 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 		this.numIslands = islandManager.getIslandCount();
 		this.serverConfig = DI.get(IServerConfig);
 
-		// Start a background thread to process WebSocket events if a handler is registered
+		// Synchronize message size limit with the driver
+		hx.well.http.driver.socket.SocketWebSocketHandler.maxMessageSize = this.serverConfig.maxWebSocketMessageSize;
+
 		// Using sys.thread.Thread.create for HashLink reliability over MainLoop.addThread
 		sys.thread.Thread.create(processWebSocketEvents);
 	}
@@ -146,6 +148,19 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			var swReq = convertRequest(q.hxRequest, q.socket);
 			pctx.ipAddress = swReq.ip;
 			pctx.userAgent = swReq.headers.get("user-agent");
+
+			// Enforce Header Size Limit
+			var totalHeaderSize = 0;
+			for (k in swReq.headers.keys()) {
+				totalHeaderSize += k.length + swReq.headers.get(k).length + 4; // Approximation
+			}
+			if (totalHeaderSize > serverConfig.maxHeaderSize) {
+				HybridLogger.warn('[HxWellAdapter] [$requestId] Headers too large: $totalHeaderSize > ${serverConfig.maxHeaderSize}');
+				swRes.sendError(HTTPStatus.REQUEST_HEADER_FIELDS_TOO_LARGE);
+				swRes.end();
+				cleanup();
+				return;
+			}
 
 			// Enforce URL length limit
 			if (swReq.path.length > serverConfig.maxUrlLength) {
@@ -245,8 +260,10 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 		var body = hxReq.bodyBytes != null ? hxReq.bodyBytes.toString() : "";
 
 		if (hxReq.requestBytes != null) {
-			var firstLine = hxReq.requestBytes.toString().split("\r\n")[0];
+			var raw = hxReq.requestBytes.toString();
+			var firstLine = raw.split("\r\n")[0];
 			HybridLogger.debug('[HxWellAdapter] Raw Request Line: ' + firstLine);
+			HybridLogger.debug('[HxWellAdapter] Full Raw Headers:\n' + raw.split("\r\n\r\n")[0]);
 		}
 
 		HybridLogger.debug('[HxWellAdapter] hxReq fields: ' + Reflect.fields(hxReq).join(", "));

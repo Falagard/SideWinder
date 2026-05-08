@@ -4,8 +4,6 @@ import sidewinder.routing.Router.UploadedFile;
 import sidewinder.routing.Router.Request;
 import sidewinder.routing.Router.Response;
 import sidewinder.adapters.HxWellAdapter;
-import sidewinder.adapters.CivetWebAdapter;
-import sidewinder.adapters.CivetWebAdapter.SimpleResponse;
 import sidewinder.adapters.SnakeServerAdapter;
 import sidewinder.interfaces.IWebServer;
 import sidewinder.interfaces.IslandManager;
@@ -49,28 +47,7 @@ class WebServerFactory {
 				new SnakeServerAdapter(host, port, requestHandlerClass, directory, islandManager);
 
 			case CivetWeb:
-				// CivetWeb uses direct callback with SimpleResponse
-				// We bridge the async Router to sync CivetWeb response
-				var handler = function(req:Request):SimpleResponse {
-					var buffered = new BufferedResponse();
-					// Use SideWinderRequestHandler logic if possible, or direct router find/handle
-					var match = SideWinderRequestHandler.router.find(req.method, req.path);
-					if (match != null) {
-						// Important: Copy matched params to request
-						req.params = match.params;
-						// Note: This loses static file handling from SideWinderRequestHandler base class
-						// TODO: Replicate static file handling if needed for CivetWeb
-						try {
-							SideWinderRequestHandler.router.handle(req, buffered, cast match.route);
-						} catch (e:Dynamic) {
-							buffered.sendError(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR);
-						}
-					} else {
-						buffered.sendError(snake.http.HTTPStatus.NOT_FOUND);
-					}
-					return buffered.toSimpleResponse();
-				};
-				return new CivetWebAdapter(host, port, directory, handler, islandManager);
+				throw "CivetWeb support temporarily disabled";
 
 			case HxWell:
 				var adapter = new HxWellAdapter(host, port, directory, islandManager);
