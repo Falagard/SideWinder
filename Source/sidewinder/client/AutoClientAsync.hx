@@ -291,8 +291,22 @@ class AutoClientAsync {
 								};
 								
 								try {
-									h.request(request.method == "POST");
+									if (request.method == "GET" || request.method == "POST") {
+										h.request(request.method == "POST");
+									} else {
+										// Use reflection to call customRequest to support PUT/DELETE on platforms that have it (HL/Cpp/etc)
+										var customRequest = Reflect.field(h, "customRequest");
+										if (customRequest != null) {
+											var output = new haxe.io.BytesOutput();
+											Reflect.callMethod(h, customRequest, [request.method == "PUT" || request.method == "POST", output, null, request.method]);
+											h.onData(output.getBytes().toString());
+										} else {
+											h.request(request.method == "PUT" || request.method == "POST");
+										}
+									}
 								} catch (e:Dynamic) {
+									trace('[AutoClientAsync] Exception during request execution: ' + Std.string(e));
+									trace(haxe.CallStack.toString(haxe.CallStack.exceptionStack()));
 									onError(e);
 								}
 							};
@@ -482,6 +496,7 @@ class AutoClientAsync {
 															untyped onSuccess(converted);
 														} catch (err:Dynamic) {
 															trace('[AutoClientAsync] callback error ' + Std.string(err));
+															trace(haxe.CallStack.toString(haxe.CallStack.exceptionStack()));
 															onFailure(Std.string(err));
 														}
 													}
