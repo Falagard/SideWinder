@@ -510,16 +510,25 @@ class SqliteDatabaseService implements IDatabaseService {
         if (serr.indexOf("already exists") != -1) return true;
         if (serr.indexOf("duplicate column") != -1) return true;
         
-        // Shard-specific skips: skip statements targeting projects/sessions if they don't exist (e.g. in logs.db)
+        // Shard-specific skips: skip statements targeting core tables if they don't exist (e.g. in logs.db or tenant shards)
         if (serr.indexOf("no such table") != -1) {
             var lowerSql = sql.toLowerCase();
-            // Refined check: skip if it references core shards 'projects' or the SideWinder 'sessions' table,
-            // but NOT meta-tables like 'project_assignments' or application tables like 'media_upload_sessions'.
+            // Refined check: skip if it references core tables that might not exist in this database instance.
+            // We include SideWinder sessions, projects, users, roles, and other core metadata tables.
             var isSideWinderSessions = (lowerSql.indexOf(" sessions ") != -1 || lowerSql.indexOf("\"sessions\"") != -1 || StringTools.endsWith(lowerSql, " sessions"));
-            var isProjects = (lowerSql.indexOf("projects") != -1 && lowerSql.indexOf("assignments") == -1);
+            var isCoreAppTable = (
+                lowerSql.indexOf("projects") != -1 || 
+                lowerSql.indexOf("hs_users") != -1 || 
+                lowerSql.indexOf("roles") != -1 || 
+                lowerSql.indexOf("user_roles") != -1 || 
+                lowerSql.indexOf("hs_auth_tokens") != -1 || 
+                lowerSql.indexOf("hs_user_sessions") != -1 || 
+                lowerSql.indexOf("mail_templates") != -1 || 
+                lowerSql.indexOf("hs_email_messages") != -1
+            );
             
-            if (isProjects || (isSideWinderSessions && lowerSql.indexOf("media_") == -1)) {
-                HybridLogger.info('[SqliteDB] Safe skip (shard mismatch): $serr in $context (SQL: ${sql.substr(0, 50)}...)');
+            if (isCoreAppTable || (isSideWinderSessions && lowerSql.indexOf("media_") == -1)) {
+                HybridLogger.info('[SqliteDB] Safe skip (table mismatch): $serr in $context (SQL: ${sql.substr(0, 50)}...)');
                 return true;
             }
         }
