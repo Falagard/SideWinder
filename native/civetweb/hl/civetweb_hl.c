@@ -16,6 +16,12 @@
 #include <string.h>
 #include <stdio.h>
 
+#ifndef _WIN32
+#include <unistd.h>
+#include <strings.h>
+#define _stricmp strcasecmp
+#endif
+
 // Type definitions for HashLink
 typedef struct {
     struct mg_context *ctx;
@@ -265,7 +271,7 @@ static int is_static_file(const char *uri) {
 }
 
 // Request handler callback that queues requests for Haxe polling
-static int request_handler(struct mg_connection *conn, void *user_data) {
+static int request_handler(struct mg_connection *conn) {
     const struct mg_request_info *request_info = mg_get_request_info(conn);
     
     // Check for WebSocket upgrade - let CivetWeb handle it
@@ -538,7 +544,7 @@ HL_PRIM void HL_NAME(websocket_close)(vbyte *conn, int code, vbyte *reason) {
         close_len += reason_len;
     }
     
-    mg_websocket_write(conn, 0x8, close_data, close_len);  // 0x8 = close frame
+    mg_websocket_write((struct mg_connection*)conn, 0x8, close_data, close_len);  // 0x8 = close frame
 }
 
 // ============================================================================
