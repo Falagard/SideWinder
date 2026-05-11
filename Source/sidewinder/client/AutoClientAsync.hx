@@ -218,7 +218,7 @@ class AutoClientAsync {
 									h.setPostData(request.body);
 								}
 								
-								if (options.projectKey != null && options.projectKey != "") {
+								if (options.projectKey != null && options.projectKey != "" && request.url.indexOf("/v1/auth/") == -1) {
 									h.setHeader("X-Project-Key", options.projectKey);
 								}
 								
