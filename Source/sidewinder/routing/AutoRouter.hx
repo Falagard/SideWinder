@@ -309,6 +309,7 @@ class AutoRouter {
 											try { (cast inst).currentUser = __sessionData; } catch(e:Dynamic) {}
 											try { (cast inst).currentToken = __sessionToken; } catch(e:Dynamic) {}
 											try { (cast inst).userId = __userId; } catch(e:Dynamic) {}
+											try { (cast inst).headers = __rtReq.headers; } catch(e:Dynamic) {}
 										}
 									};
 
@@ -404,7 +405,7 @@ class AutoRouter {
 											if (__errStatusInt == 500) { json = haxe.Json.stringify({error: "Internal Server Error", message: errStr}); }
 											else { json = haxe.Json.stringify({error: errStr}); }
 											
-											__rtRes.sendError(sidewinder.routing.StatusHelper.getStatus(__errStatusInt));
+											__rtRes.sendResponse(sidewinder.routing.StatusHelper.getStatus(__errStatusInt));
 											__rtRes.setHeader("Content-Type", "application/json");
 											__rtRes.setHeader('Content-Length', Std.string(haxe.io.Bytes.ofString(json).length));
 											__rtRes.endHeaders();

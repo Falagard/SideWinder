@@ -7,6 +7,7 @@ import sys.db.Connection;
 import sys.db.ResultSet;
 import sys.db.Sqlite;
 import sys.thread.Mutex;
+import sys.thread.Thread;
 import sidewinder.interfaces.IDatabaseService;
 import sidewinder.logging.HybridLogger;
 import core.IServerConfig;
@@ -25,6 +26,9 @@ class SqliteDatabaseService implements IDatabaseService {
     private static var _mapMutex:sys.thread.Mutex = new sys.thread.Mutex();
     private static var _statsMutex:sys.thread.Mutex = new sys.thread.Mutex();
     
+    private static var lockOwners:Map<String, Thread> = new Map();
+    private static var lockCounts:Map<String, Int> = new Map();
+    
     private static function getConnectionsMap():Map<String, sys.db.Connection> {
         return _connections;
     }
@@ -37,7 +41,7 @@ class SqliteDatabaseService implements IDatabaseService {
         return _lastUsedAt;
     }
 
-    private static function getGlobalMapMutex():sys.thread.Mutex {
+    public static function getGlobalMapMutex():sys.thread.Mutex {
         return _mapMutex;
     }
 
@@ -56,9 +60,12 @@ class SqliteDatabaseService implements IDatabaseService {
         if (path == null) return null;
         var p = path;
         try {
-            p = sys.FileSystem.fullPath(p).split("\\").join("/");
+            if (sys.FileSystem.exists(p)) {
+                p = sys.FileSystem.fullPath(p);
+            }
+            p = p.split("\\").join("/");
         } catch (e:Dynamic) {}
-        return p.toLowerCase();
+        return p;
     }
 
     public static function createWithPath(config:core.IServerConfig, dbPath:String):SqliteDatabaseService {
@@ -118,6 +125,7 @@ class SqliteDatabaseService implements IDatabaseService {
 				var success = false;
 				for (i in 0...maxRetries) {
 					try {
+                        // Sys.println('[DIAG] [SqliteDB] init: about to createDirectory: ' + dir);
 						if (!sys.FileSystem.exists(dir)) sys.FileSystem.createDirectory(dir);
 						success = true;
 						break;
@@ -130,7 +138,6 @@ class SqliteDatabaseService implements IDatabaseService {
 
 			var absolutePath = this.dbPath;
 			try {
-				absolutePath = sys.FileSystem.fullPath(this.dbPath);
 			} catch(e:Dynamic) {}
 
 			if (absolutePath != null) {
@@ -140,81 +147,75 @@ class SqliteDatabaseService implements IDatabaseService {
 			// Convert to forward slashes for cross-platform map consistency
 			this.dbPath = StringTools.replace(this.dbPath, "\\", "/");
 		}
-	} catch(e:Dynamic) {
-	}
+    } catch(e:Dynamic) {
+        Sys.println('[SqliteDB] Path resolution error: ' + e + " (Path: " + this.dbPath + ")");
+    }
         
-        var mapKey = normalizePath(this.dbPath);
-        this.dbPath = mapKey;
-        
-        getGlobalMapMutex().acquire();
-        try {
-            var connections = getConnectionsMap();
-            if (!connections.exists(mapKey)) {
-                var dir = haxe.io.Path.directory(this.dbPath);
-                var validDir = (dir != null && StringTools.trim(dir) != "");
-                
-                if (validDir) {
-                    var needsCreation = false;
-                    try { needsCreation = !sys.FileSystem.exists(dir); } catch(e:Dynamic) {}
-                    
-                    if (needsCreation) {
-                        var maxRetries = 5;
-                        var success = false;
-                        for (i in 0...maxRetries) {
-                            try {
-                                if (!sys.FileSystem.exists(dir)) sys.FileSystem.createDirectory(dir);
-                                success = true;
-                                break;
-                            } catch (e:Dynamic) {
-                                Sys.sleep(0.05);
-                                try { if (sys.FileSystem.exists(dir)) { success = true; break; } } catch(e2:Dynamic) {}
-                            }
-                        }
-                        if (!success) {
-                             var finalCheck = false;
-                             try { finalCheck = sys.FileSystem.exists(dir); } catch(e:Dynamic) {}
-                             if (!finalCheck) throw 'Failed to create directory for SQLite database after retries: ' + dir;
-                        }
-                    }
-                }
-                
-                var newConn = sys.db.Sqlite.open(this.dbPath);
-                sidewinder.logging.HybridLogger.info('[SqliteDB] OPENING CONNECTION to: ' + this.dbPath);
-                // WAL mode: concurrent reads with a single writer
-                newConn.request("PRAGMA journal_mode=WAL;");
-                // NORMAL sync: good balance of safety and performance
-                newConn.request("PRAGMA synchronous=NORMAL;");
-                
-                // busy timeout from config - handle null config in tests
-                var timeout = (config != null) ? config.dbCommandTimeoutMs : 30000;
-                newConn.request('PRAGMA busy_timeout=$timeout;');
-                
-                newConn.request("PRAGMA foreign_keys=ON;");
-                
-                getConnectionsMap().set(mapKey, newConn);
+    var mapKey = normalizePath(this.dbPath);
+    this.dbPath = mapKey;
+    
+    // 1. Check if already exists (fast path)
+    getGlobalMapMutex().acquire();
+    var existing = getConnectionsMap().get(mapKey);
+    getGlobalMapMutex().release();
+    
+    if (existing != null) {
+        touchByPath(mapKey);
+        return;
+    }
+
+    // 2. Open connection (OUTSIDE of global mutex)
+    var newConn = sys.db.Sqlite.open(this.dbPath);
+    HybridLogger.info('[SqliteDB] OPENING CONNECTION to: ' + this.dbPath);
+    
+    // Set busy timeout EARLY to avoid hanging indefinitely on subsequent PRAGMA calls
+    var timeout = (config != null) ? config.dbCommandTimeoutMs : 30000;
+    Sys.println('[DIAG] [SqliteDB] init: setting busy_timeout to $timeout');
+    newConn.request('PRAGMA busy_timeout=$timeout;');
+    
+    var useWal = Sys.getEnv("SQLITE_DISABLE_WAL") != "true";
+    if (useWal) {
+        newConn.request("PRAGMA journal_mode=WAL;");
+    }
+    
+    newConn.request("PRAGMA synchronous=NORMAL;");
+    newConn.request("PRAGMA foreign_keys=ON;");
+    
+    // 3. Register in global map
+    getGlobalMapMutex().acquire();
+    try {
+        if (!getConnectionsMap().exists(mapKey)) {
+            getConnectionsMap().set(mapKey, newConn);
+            if (!getConnectionMutexesMap().exists(mapKey)) {
                 getConnectionMutexesMap().set(mapKey, new Mutex());
-                
-                getGlobalStatsMutex().acquire();
-                getLastUsedAtMap().set(mapKey, Date.now().getTime());
-                getGlobalStatsMutex().release();
-            } else {
-                getGlobalStatsMutex().acquire();
-                getLastUsedAtMap().set(mapKey, Date.now().getTime());
-                getGlobalStatsMutex().release();
             }
-            
-        } catch (e:Dynamic) {
-            getGlobalMapMutex().release();
-            HybridLogger.error('SqliteDatabaseService init error for ' + (this.dbPath != null ? this.dbPath : "null") + ': ' + e);
-            throw e;
+            getConnectionsMap().set(mapKey, newConn);
+        } else {
+            // Someone else opened it while we were busy. Close ours and use theirs.
+            newConn.close();
         }
+        
+        getGlobalStatsMutex().acquire();
+        try {
+            getLastUsedAtMap().set(mapKey, Date.now().getTime());
+        } catch(e:Dynamic) {}
+        getGlobalStatsMutex().release();
+        
         getGlobalMapMutex().release();
+    } catch (e:Dynamic) {
+        getGlobalMapMutex().release();
+        Sys.println('[SqliteDB] FATAL ERROR during registration: ' + e + " (Path: " + this.dbPath + ")");
+        throw e;
+    }
     }
 
     public static function hasOpenConnection(path:String):Bool {
         var mapKey = normalizePath(path);
         getGlobalMapMutex().acquire();
-        var exists = getConnectionsMap().exists(mapKey);
+        var exists = false;
+        try {
+            exists = getConnectionsMap().exists(mapKey);
+        } catch(e:Dynamic) {}
         getGlobalMapMutex().release();
         return exists;
     }
@@ -222,7 +223,9 @@ class SqliteDatabaseService implements IDatabaseService {
     public static function getOpenConnectionCount():Int {
         getGlobalMapMutex().acquire();
         var count = 0;
-        for (k in getConnectionsMap().keys()) count++;
+        try {
+            for (k in getConnectionsMap().keys()) count++;
+        } catch(e:Dynamic) {}
         getGlobalMapMutex().release();
         return count;
     }
@@ -230,7 +233,9 @@ class SqliteDatabaseService implements IDatabaseService {
     public static function touchByPath(path:String):Void {
         var mapKey = normalizePath(path);
         getGlobalStatsMutex().acquire();
-        getLastUsedAtMap().set(mapKey, Date.now().getTime());
+        try {
+            getLastUsedAtMap().set(mapKey, Date.now().getTime());
+        } catch(e:Dynamic) {}
         getGlobalStatsMutex().release();
     }
 
@@ -280,24 +285,41 @@ class SqliteDatabaseService implements IDatabaseService {
         getGlobalMapMutex().acquire();
         try {
             var connections = getConnectionsMap();
-            for (path in connections.keys()) {
+            var paths = [];
+            for (path in connections.keys()) paths.push(path);
+            Sys.println('[SqliteDB] resetAllConnections: starting... (Map size: ' + paths.length + ')');
+            
+            for (path in paths) {
                 var conn = connections.get(path);
                 if (conn != null) {
-                    try { conn.close(); } catch (e:Dynamic) {}
+                    try { 
+                        // Reverting WAL mode can help release -shm and -wal file locks on some OSs
+                        try { conn.request("PRAGMA journal_mode=DELETE;"); } catch(e:Dynamic) {}
+                        conn.close(); 
+                    } catch (e:Dynamic) {
+                        Sys.println('[SqliteDB] resetAllConnections: ERROR closing ' + path + ': ' + e);
+                    }
                 }
             }
             connections.clear();
             getConnectionMutexesMap().clear();
             
             getGlobalStatsMutex().acquire();
-            getLastUsedAtMap().clear();
+            try {
+                getLastUsedAtMap().clear();
+            } catch(e:Dynamic) {}
             getGlobalStatsMutex().release();
             
-            HybridLogger.info("[SqliteDatabaseService] All connections reset and pool cleared.");
-        } catch (e:Dynamic) {
-            HybridLogger.error("[SqliteDatabaseService] Error during resetAllConnections: " + e);
+            // Force a GC cycle to ensure HashLink/C-level handles are released
+            #if hl
+            // Sys.println('[DIAG] [SqliteDB] resetAllConnections: Triggering HL GC');
+            // hl.Gc.major(); 
+            #end
+        } catch(e:Dynamic) {
+            Sys.println('[DIAG] [SqliteDB] resetAllConnections: FATAL ERROR: ' + e);
         }
         getGlobalMapMutex().release();
+        Sys.println('[SqliteDB] resetAllConnections: finished.');
     }
 
     public function acquire():Connection return getConn();
@@ -331,53 +353,108 @@ class SqliteDatabaseService implements IDatabaseService {
      * Must be called while holding currentMutex.
      */
     private function getConn():Connection {
+        var c:Connection = null;
         getGlobalMapMutex().acquire();
         try {
-            var c = getConnectionsMap().get(this.dbPath);
-            if (c == null) {
-                c = sys.db.Sqlite.open(this.dbPath);
+            c = getConnectionsMap().get(this.dbPath);
+        } catch(e:Dynamic) {}
+        getGlobalMapMutex().release();
+
+        if (c == null) {
+            c = sys.db.Sqlite.open(this.dbPath);
+            
+            var config = null;
+            try { config = sidewinder.core.DI.get(core.IServerConfig); } catch(e:Dynamic) {}
+            
+            var timeout = (config != null) ? config.dbCommandTimeoutMs : 30000;
+            c.request('PRAGMA busy_timeout=$timeout;');
+            
+            var useWal = Sys.getEnv("SQLITE_DISABLE_WAL") != "true";
+            if (useWal) {
                 c.request("PRAGMA journal_mode=WAL;");
-                c.request("PRAGMA synchronous=NORMAL;");
-                
-                // Get config from DI since we don't have it passed in here
-                var config = null;
-                try {
-                    config = sidewinder.core.DI.get(core.IServerConfig);
-                } catch(e:Dynamic) {}
-                
-                var timeout = (config != null) ? config.dbCommandTimeoutMs : 30000;
-                c.request('PRAGMA busy_timeout=$timeout;');
-                
-                c.request("PRAGMA foreign_keys=ON;");
+            }
+            c.request("PRAGMA synchronous=NORMAL;");
+            c.request("PRAGMA foreign_keys=ON;");
+            
+            getGlobalMapMutex().acquire();
+            try {
                 getConnectionsMap().set(this.dbPath, c);
-            }
-            if (!getConnectionMutexesMap().exists(this.dbPath)) {
-                getConnectionMutexesMap().set(this.dbPath, new Mutex());
-            }
+                if (!getConnectionMutexesMap().exists(this.dbPath)) {
+                    getConnectionMutexesMap().set(this.dbPath, new Mutex());
+                }
+            } catch(e:Dynamic) {}
             getGlobalMapMutex().release();
-            return c;
-        } catch (e:Dynamic) {
-            getGlobalMapMutex().release();
-            throw e;
         }
+        return c;
     }
 
     private function getSharedMutex():Mutex {
         getGlobalMapMutex().acquire();
-        var m = getConnectionMutexesMap().get(dbPath);
-        if (m == null) {
-            m = new Mutex();
-            getConnectionMutexesMap().set(dbPath, m);
-        }
+        var m = null;
+        try {
+            m = getConnectionMutexesMap().get(dbPath);
+            if (m == null) {
+                m = new Mutex();
+                getConnectionMutexesMap().set(dbPath, m);
+            }
+        } catch(e:Dynamic) {}
         getGlobalMapMutex().release();
         return m;
+    }
+
+    private function acquireLock(dbPath:String):Void {
+        var tid = Thread.current();
+        var tidStr = Std.string(tid);
+        
+        getGlobalMapMutex().acquire();
+        if (lockOwners.get(dbPath) == tid) {
+            var count = lockCounts.get(dbPath);
+            lockCounts.set(dbPath, count + 1);
+            getGlobalMapMutex().release();
+            return;
+        }
+        getGlobalMapMutex().release();
+        
+        var mutex = getSharedMutex();
+        mutex.acquire();
+        
+        getGlobalMapMutex().acquire();
+        lockOwners.set(dbPath, tid);
+        lockCounts.set(dbPath, 1);
+        getGlobalMapMutex().release();
+        // Sys.println('[L+] [$tidStr] $dbPath');
+    }
+
+    private function releaseLock(dbPath:String):Void {
+        var tid = Thread.current();
+        var tidStr = Std.string(tid);
+        
+        getGlobalMapMutex().acquire();
+        if (lockOwners.get(dbPath) != tid) {
+            getGlobalMapMutex().release();
+            return;
+        }
+        
+        var count = lockCounts.get(dbPath);
+        if (count > 1) {
+            lockCounts.set(dbPath, count - 1);
+            getGlobalMapMutex().release();
+            return;
+        }
+        
+        lockOwners.remove(dbPath);
+        lockCounts.remove(dbPath);
+        getGlobalMapMutex().release();
+        
+        var mutex = getSharedMutex();
+        mutex.release();
+        // Sys.println('[L-] [$tidStr] $dbPath');
     }
 
     public function execute(sql:String, ?params:Map<String, Dynamic>):Void {
         var finalSql = (params != null) ? buildSqlStatic(sql, params) : sql;
         
-        var mutex = getSharedMutex();
-        mutex.acquire();
+        acquireLock(dbPath);
         
         try {
             var c = getConn();
@@ -386,27 +463,22 @@ class SqliteDatabaseService implements IDatabaseService {
             
             var rs = c.request(finalSql);
             if (rs != null) {
-                while (rs.hasNext()) rs.next();
+                while (rs.hasNext()) {
+                    rs.next();
+                }
             }
             
             try {
                 var checkRs = c.request("SELECT changes() as changed");
                 if (checkRs.hasNext()) {
                     var changes = checkRs.next().changed;
-                    if (changes == 0) {
-                        var trimmedSql = StringTools.trim(lowerSql);
-                        if (StringTools.startsWith(trimmedSql, "insert ") || StringTools.startsWith(trimmedSql, "update ") || StringTools.startsWith(trimmedSql, "delete ") || StringTools.startsWith(trimmedSql, "replace ")) {
-                             // HybridLogger.info('[SqliteDB] execute affected 0 rows (SQL: ' + finalSql.substr(0, 150) + ')');
-                        }
-                    }
-                    
                     if (changes == 0 && (StringTools.startsWith(lowerSql, "insert ") || StringTools.startsWith(lowerSql, "update ") || StringTools.startsWith(lowerSql, "delete "))) {
                         if (lowerSql.indexOf(" ignore ") == -1 && lowerSql.indexOf(" replace ") == -1) {
                              if ((StringTools.startsWith(lowerSql, "insert ") && lowerSql.indexOf(" select ") == -1) || 
                                  (StringTools.startsWith(lowerSql, "update ") && this.dbPath.indexOf("test_exceptions") != -1)) {
                                  var err = "SQLite Mutation Error: 0 rows affected. Likely a constraint violation. SQL: " + finalSql;
-                                 HybridLogger.error(err);
-                                 mutex.release();
+                                 Sys.println('[SqliteDB] Mutation Error: ' + err);
+                                 releaseLock(dbPath);
                                  throw err;
                              }
                         }
@@ -415,18 +487,24 @@ class SqliteDatabaseService implements IDatabaseService {
             } catch (checkE:Dynamic) {
                 var checkEStr = Std.string(checkE).toLowerCase();
                 if (checkEStr.indexOf("not an error") == -1) {
-                    mutex.release();
+                    releaseLock(dbPath);
                     throw checkE;
                 }
             }
-            mutex.release();
+            releaseLock(dbPath);
         } catch (e:Dynamic) {
-            mutex.release();
+            releaseLock(dbPath);
             var errStr = Std.string(e);
-            if (errStr.toLowerCase().indexOf("not an error") != -1) {
+            var lowerErr = errStr.toLowerCase();
+            if (lowerErr.indexOf("not an error") != -1) {
                 return;
             }
-            HybridLogger.error('[SqliteDB] execute FATAL ERROR: $errStr | SQL: ' + StringTools.replace(finalSql, "\n", " "));
+            
+            // Silence FATAL ERROR spam for things we handle/skip in migrations
+            var isExpectedMigrationError = (lowerErr.indexOf("already exists") != -1 || lowerErr.indexOf("duplicate column") != -1);
+            if (!isExpectedMigrationError) {
+                Sys.println('[SqliteDB] execute FATAL ERROR: $errStr | SQL: ' + StringTools.replace(finalSql, "\n", " "));
+            }
             throw e;
         }
     }
@@ -461,7 +539,7 @@ class SqliteDatabaseService implements IDatabaseService {
             if (errStr.toLowerCase().indexOf("not an error") != -1) {
                 return 0; // Or lastInsertId if possible
             }
-            HybridLogger.error('[SqliteDB] executeAndGetId ERROR: $errStr | SQL: $finalSql');
+            Sys.println('[SqliteDB] executeAndGetId ERROR: $errStr | SQL: $finalSql');
             throw e;
         }
     }
@@ -476,18 +554,17 @@ class SqliteDatabaseService implements IDatabaseService {
     }
 
     public function request(sql:String, ?params:Map<String, Dynamic>):ResultSet {
-        var mutex = getSharedMutex();
-        mutex.acquire();
+        acquireLock(dbPath);
         try {
             var c = getConn();
             var finalSql = (params != null) ? buildSqlStatic(sql, params) : sql;
             var rs = c.request(finalSql);
             var result = new StaticResultSet(rs);
-            mutex.release();
+            releaseLock(dbPath);
             return result;
         } catch (e:Dynamic) {
-            mutex.release();
-            HybridLogger.error('[SqliteDB] request ERROR: $e | SQL: $sql');
+            releaseLock(dbPath);
+            Sys.println('[SqliteDB] request ERROR: $e | SQL: $sql');
             throw e;
         }
     }
@@ -524,11 +601,14 @@ class SqliteDatabaseService implements IDatabaseService {
                 lowerSql.indexOf("hs_auth_tokens") != -1 || 
                 lowerSql.indexOf("hs_user_sessions") != -1 || 
                 lowerSql.indexOf("mail_templates") != -1 || 
-                lowerSql.indexOf("hs_email_messages") != -1
+                lowerSql.indexOf("hs_email_messages") != -1 ||
+                lowerSql.indexOf("email_messages") != -1 ||
+                lowerSql.indexOf("email_events") != -1 ||
+                lowerSql.indexOf("audit_events") != -1
             );
             
             if (isCoreAppTable || (isSideWinderSessions && lowerSql.indexOf("media_") == -1)) {
-                HybridLogger.info('[SqliteDB] Safe skip (table mismatch): $serr in $context (SQL: ${sql.substr(0, 50)}...)');
+                Sys.println('[SqliteDB] Safe skip (table mismatch): ' + serr + ' in ' + context + ' (SQL: ' + sql.substr(0, 50) + '...)');
                 return true;
             }
         }
@@ -540,8 +620,9 @@ class SqliteDatabaseService implements IDatabaseService {
         var normalized = dir.split("\\").join("/");
         var isHub = StringTools.endsWith(normalized, "migrations/sqlite");
         var table = isHub ? "migrations" : "_migrations";
-        HybridLogger.info('[SqliteDB] Running migrations from directory: $dir (Table: $table, isHub: $isHub)');
+        Sys.println('[SqliteDB] Running migrations from directory: ' + dir + ' (Table: ' + table + ', isHub: ' + isHub + ')');
         execute('CREATE TABLE IF NOT EXISTS $table (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TEXT DEFAULT CURRENT_TIMESTAMP);');
+        Sys.println('[DIAG] [SqliteDB] runMigrationsWithPath: Created/verified table: ' + table + ' in ' + this.dbPath);
 
         var rs = request('SELECT name FROM $table;');
         var applied = new Map<String, Bool>();
@@ -550,19 +631,19 @@ class SqliteDatabaseService implements IDatabaseService {
         }
 
         if (!sys.FileSystem.exists(dir)) {
-            HybridLogger.warn('[SqliteDB] Migration directory NOT FOUND: $dir');
+            Sys.println('[SqliteDB] Migration directory NOT FOUND: $dir');
             return;
         }
 
-        HybridLogger.info('[SqliteDB] DISCOVERING migrations in $dir...');
+        Sys.println('[SqliteDB] DISCOVERING migrations in $dir...');
         var files = sys.FileSystem.readDirectory(dir);
         var sqlFiles = files.filter(f -> StringTools.endsWith(f, ".sql"));
         sqlFiles.sort((a, b) -> Reflect.compare(a, b));
-        HybridLogger.info('[SqliteDB] Processing migrations in $dir: Found ${sqlFiles.length} files');
+        Sys.println('[SqliteDB] Processing migrations in $dir: Found ${sqlFiles.length} files');
 
         for (file in sqlFiles) {
             if (!applied.exists(file)) {
-                HybridLogger.info('[SqliteDB] Applying migration from: $file');
+                Sys.println('[SqliteDB] Applying migration from: ' + file);
                 var sql = sys.io.File.getContent(dir + "/" + file);
                 try {
                     var statements = sql.split(';');
@@ -570,11 +651,10 @@ class SqliteDatabaseService implements IDatabaseService {
                         stmt = StringTools.trim(stmt);
                         if (stmt.length == 0) continue;
                         try {
-                            HybridLogger.info('[SqliteDB] Executing migration statement: ' + stmt.substr(0, 50) + '...');
                             this.execute(stmt);
                         } catch (e:Dynamic) {
                             if (handleMigrationError(e, "statement", stmt)) continue;
-                            HybridLogger.error('[SqliteDB] Migration failed for ' + file + ': ' + e + ' | SQL: ' + stmt);
+                            Sys.println('[SqliteDB] Migration failed for ' + file + ': ' + e + ' | SQL: ' + stmt);
                             throw e;
                         }
                     }
@@ -589,7 +669,7 @@ class SqliteDatabaseService implements IDatabaseService {
                         }
                     }
                 } catch (e:Dynamic) {
-                    HybridLogger.error('[SqliteDB] Migration failed for ' + file + ': ' + e);
+                    Sys.println('[SqliteDB] Migration failed for ' + file + ': ' + e);
                     throw e;
                 }
             }
@@ -646,9 +726,12 @@ class StaticResultSet implements sys.db.ResultSet {
     public function new(rs:sys.db.ResultSet) {
         rows = [];
         if (rs != null) {
+            var count = 0;
             for (r in rs) {
                 rows.push(r);
+                count++;
             }
+            // Sys.println('[DIAG] [StaticResultSet] Iterated ' + count + ' rows');
         }
     }
     public var length(get, null):Int;

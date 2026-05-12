@@ -1,6 +1,7 @@
 package sidewinder.logging;
 
 import sidewinder.interfaces.ILogProvider.LogEntry;
+import sidewinder.logging.HybridLogger.LogLevel;
 
 import sidewinder.adapters.*;
 import sidewinder.services.*;
@@ -39,8 +40,10 @@ class FileLogProvider implements ILogProvider {
 	public function log(entry:LogEntry):Void {
 		rotateIfNeeded();
 		try {
-			var line = '[${entry.time}] ${entry.level.toUpperCase()} ${entry.message}\n';
+			var levelStr = entry.level != null ? entry.level.toUpperCase() : "INFO";
+			var line = '[${entry.time}] [${levelStr}] ${entry.message}\n';
 			logFile.writeString(line);
+			logFile.flush();
 		} catch (e:Dynamic) {
 			trace('FileLogProvider: Failed to write log: $e');
 		}

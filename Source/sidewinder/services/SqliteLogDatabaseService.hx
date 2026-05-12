@@ -20,8 +20,10 @@ class SqliteLogDatabaseService extends SqliteDatabaseService implements ILogData
     private var pendingCount:Int = 0;
     private var pendingMutex:Mutex;
     private var writerReady:Bool = false;
+    private var config:core.IServerConfig;
 
     public function new(config:core.IServerConfig) {
+        this.config = config;
         if (this.dbPath == null) {
             this.dbPath = Sys.getEnv("LOG_DATABASE_PATH");
             if (this.dbPath == null) {
@@ -44,20 +46,31 @@ class SqliteLogDatabaseService extends SqliteDatabaseService implements ILogData
         super(config);
         logDeque = new Deque();
         pendingMutex = new Mutex();
+    }
+
+    private function ensureWriterStarted():Void {
+        if (writerStarted) return;
+        writerStarted = true;
         startLogWriter();
     }
+
+    private var writerStarted:Bool = false;
 
     private function startLogWriter():Void {
         var path = this.dbPath;
         var deque = logDeque;
         var pMutex = pendingMutex;
+        var cfg = this.config;
         Thread.create(function() {
             var wConn:sys.db.Connection = null;
             try {
                 wConn = sys.db.Sqlite.open(path);
                 wConn.request("PRAGMA journal_mode=WAL;");
                 wConn.request("PRAGMA synchronous=NORMAL;");
-                wConn.request("PRAGMA busy_timeout=5000;");
+                
+                var timeout = 30000;
+                if (cfg != null) timeout = cfg.dbCommandTimeoutMs;
+                wConn.request('PRAGMA busy_timeout=$timeout;');
             } catch (e:Dynamic) {
                 HybridLogger.error('[LogDB Writer] Failed to open $path: $e');
                 return;
@@ -85,6 +98,7 @@ class SqliteLogDatabaseService extends SqliteDatabaseService implements ILogData
      * Non-blocking: queues the write and returns immediately.
      */
     override public function enqueue(sql:String, ?params:Map<String, Dynamic>):Void {
+        ensureWriterStarted();
         pendingMutex.acquire();
         pendingCount++;
         pendingMutex.release();

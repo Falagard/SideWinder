@@ -76,6 +76,7 @@ class HybridLogger {
 					trace('HybridLogger: Provider shutdown error: $e');
 				}
 			}
+			exitLock.release();
 		});
 	}
 
@@ -149,11 +150,20 @@ class HybridLogger {
 		});
 	}
 
+	static var exitLock = new sys.thread.Lock();
+	static var shutdownFinished = false;
+
 	public static function shutdown() {
+		if (shutdownFinished) return;
 		stopRequested = true;
 		queue.add(null);
+		
 		#if !html5
-		Sys.sleep(0.5);
+		// Wait for the worker thread to signal it's done
+		if (workerStarted) {
+			exitLock.wait(2.0); // Wait up to 2 seconds
+		}
 		#end
+		shutdownFinished = true;
 	}
 }

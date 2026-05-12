@@ -20,11 +20,10 @@ class DI {
 		#if (sys && !html5)
 		var thread = Thread.current();
 		_mutex.acquire();
-		var provider = _providers.get(thread);
-		if (provider != null) {
-			_mutex.release();
-			return;
-		}
+		var existing = _providers.get(thread);
+		_mutex.release();
+		
+		if (existing != null) return;
 		#else
 		if (_globalProvider != null) return;
 		#end
@@ -34,6 +33,7 @@ class DI {
 		var provider = collection.createProvider();
 		
 		#if (sys && !html5)
+		_mutex.acquire();
 		_providers.set(thread, provider);
 		#end
 		

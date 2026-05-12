@@ -41,9 +41,9 @@ class SqliteLogProvider implements ILogProvider {
 			FileSystem.createDirectory(logDir);
 		}
 
-		conn = Sqlite.open('$logDir/logs.db');
-		conn.request('PRAGMA busy_timeout=5000');
-		conn.request('CREATE TABLE IF NOT EXISTS internal_logs(created_at REAL, level TEXT, message TEXT)');
+		// Use SqliteDatabaseService to share the connection and ensure proper tracking/locking
+		var service = sidewinder.services.SqliteDatabaseService.createWithPath(null, '$logDir/logs.db');
+		conn = service.acquire();
 		lastFlushTime = Timer.stamp();
 	}
 
