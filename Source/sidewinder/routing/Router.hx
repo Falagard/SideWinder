@@ -146,4 +146,17 @@ class Router {
 			return route.handler(req, res);
 		}
 	}
+
+	public function dispatch(req:Request, res:Response) {
+		var result = find(req.method, req.path);
+		if (result != null) {
+			if (req.params == null) req.params = new Map();
+			for (k in result.params.keys()) req.params.set(k, result.params.get(k));
+			return handle(req, res, result.route);
+		} else {
+			res.sendResponse(HTTPStatus.NOT_FOUND);
+			res.endHeaders();
+			res.end();
+		}
+	}
 }
