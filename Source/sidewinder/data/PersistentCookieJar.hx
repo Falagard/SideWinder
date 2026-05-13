@@ -37,9 +37,14 @@ class PersistentCookieJar extends CookieJar {
 		super();
 		
 		if (storagePath == null) {
+			#if android
+			// On Android, use the official application storage directory
+			storagePath = lime.system.System.applicationStorageDirectory;
+			#else
 			// Use standard application data directory
 			var homeDir = Sys.getEnv("HOME") ?? Sys.getEnv("USERPROFILE") ?? ".";
 			storagePath = homeDir + "/.sidewinder";
+			#end
 		}
 		
 		this.storagePath = storagePath;
