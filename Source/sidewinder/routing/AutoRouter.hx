@@ -76,8 +76,9 @@ class AutoRouter {
 						$i{uniqueValName} = Reflect.field(__rtReq.jsonBody, __name);
 					} else {
 						// For complex types, if the name isn't found, try the root body
-						var typeStr = $v{typeStr};
-						if (typeStr != "String" && typeStr != "Int" && typeStr != "Float" && typeStr != "Bool") {
+						var checkType = $v{typeStr};
+						if (checkType.indexOf("Null<") == 0) checkType = checkType.substring(5, checkType.length - 1);
+						if (checkType != "String" && checkType != "Int" && checkType != "Float" && checkType != "Bool") {
 							$i{uniqueValName} = __rtReq.jsonBody;
 						}
 					}
