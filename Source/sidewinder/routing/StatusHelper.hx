@@ -16,6 +16,9 @@ class StatusHelper {
             case 409: HTTPStatus.CONFLICT;
             case 429: HTTPStatus.TOO_MANY_REQUESTS;
             case 500: HTTPStatus.INTERNAL_SERVER_ERROR;
+            case 502: HTTPStatus.BAD_GATEWAY;
+            case 503: HTTPStatus.SERVICE_UNAVAILABLE;
+            case 504: HTTPStatus.GATEWAY_TIMEOUT;
             default: HTTPStatus.INTERNAL_SERVER_ERROR;
         }
     }

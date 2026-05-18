@@ -103,4 +103,16 @@ class DI {
 		_mutex.release();
 		#end
 	}
+
+	/**
+		Completely clear all DI providers (global and thread-local).
+	**/
+	public static function resetGlobalProvider():Void {
+		_globalProvider = null;
+		#if (sys && !html5)
+		_mutex.acquire();
+		_providers = new ObjectMap();
+		_mutex.release();
+		#end
+	}
 }

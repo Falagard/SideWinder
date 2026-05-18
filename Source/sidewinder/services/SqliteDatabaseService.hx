@@ -29,6 +29,25 @@ class SqliteDatabaseService implements IDatabaseService {
     private static var lockOwners:Map<String, Thread> = new Map();
     private static var lockCounts:Map<String, Int> = new Map();
     
+    private static var _activeRequestCount:Int = 0;
+    private static var _resetMutex:sys.thread.Mutex = new sys.thread.Mutex();
+
+    public static function resetStaticState() {
+        _resetMutex.acquire();
+        getGlobalMapMutex().acquire();
+        for (conn in _connections) {
+            try { conn.close(); } catch(_) {}
+        }
+        _connections = new Map();
+        _connectionMutexes = new Map();
+        _lastUsedAt = new Map();
+        globalDbPath = null;
+        lockOwners = new Map();
+        lockCounts = new Map();
+        getGlobalMapMutex().release();
+        _resetMutex.release();
+    }
+    
     private static function getConnectionsMap():Map<String, sys.db.Connection> {
         return _connections;
     }
@@ -166,11 +185,10 @@ class SqliteDatabaseService implements IDatabaseService {
 
     // 2. Open connection (OUTSIDE of global mutex)
     var newConn = sys.db.Sqlite.open(this.dbPath);
-    HybridLogger.info('[SqliteDB] OPENING CONNECTION to: ' + this.dbPath);
+    HybridLogger.info('[SqliteDB] OPENED CONNECTION to: ' + this.dbPath);
     
     // Set busy timeout EARLY to avoid hanging indefinitely on subsequent PRAGMA calls
     var timeout = (config != null) ? config.dbCommandTimeoutMs : 30000;
-    Sys.println('[DIAG] [SqliteDB] init: setting busy_timeout to $timeout');
     newConn.request('PRAGMA busy_timeout=$timeout;');
     
     var useWal = Sys.getEnv("SQLITE_DISABLE_WAL") != "true";
@@ -283,23 +301,15 @@ class SqliteDatabaseService implements IDatabaseService {
      */
     public static function resetAllConnections():Void {
         getGlobalMapMutex().acquire();
+        var paths = [];
+        var connsToClose = [];
+        var mutexesToClose = [];
         try {
             var connections = getConnectionsMap();
-            var paths = [];
-            for (path in connections.keys()) paths.push(path);
-            Sys.println('[SqliteDB] resetAllConnections: starting... (Map size: ' + paths.length + ')');
-            
-            for (path in paths) {
-                var conn = connections.get(path);
-                if (conn != null) {
-                    try { 
-                        // Reverting WAL mode can help release -shm and -wal file locks on some OSs
-                        try { conn.request("PRAGMA journal_mode=DELETE;"); } catch(e:Dynamic) {}
-                        conn.close(); 
-                    } catch (e:Dynamic) {
-                        Sys.println('[SqliteDB] resetAllConnections: ERROR closing ' + path + ': ' + e);
-                    }
-                }
+            for (path in connections.keys()) {
+                paths.push(path);
+                connsToClose.push(connections.get(path));
+                mutexesToClose.push(getConnectionMutexesMap().get(path));
             }
             connections.clear();
             getConnectionMutexesMap().clear();
@@ -310,15 +320,35 @@ class SqliteDatabaseService implements IDatabaseService {
             } catch(e:Dynamic) {}
             getGlobalStatsMutex().release();
             
-            // Force a GC cycle to ensure HashLink/C-level handles are released
-            #if hl
-            // Sys.println('[DIAG] [SqliteDB] resetAllConnections: Triggering HL GC');
-            // hl.Gc.major(); 
-            #end
+            Sys.println('[SqliteDB] resetAllConnections: starting... (Map size: ' + paths.length + ')');
         } catch(e:Dynamic) {
-            Sys.println('[DIAG] [SqliteDB] resetAllConnections: FATAL ERROR: ' + e);
+            Sys.println('[DIAG] [SqliteDB] resetAllConnections copy error: ' + e);
         }
         getGlobalMapMutex().release();
+        
+        // Now close the connections OUTSIDE of the global map mutex!
+        for (i in 0...paths.length) {
+            var path = paths[i];
+            var conn = connsToClose[i];
+            var mtx = mutexesToClose[i];
+            if (conn != null) {
+                if (mtx != null) mtx.acquire();
+                try { 
+                    // Reverting WAL mode can help release -shm and -wal file locks on some OSs
+                    try { conn.request("PRAGMA journal_mode=DELETE;"); } catch(e:Dynamic) {}
+                    conn.close(); 
+                } catch (e:Dynamic) {
+                    Sys.println('[SqliteDB] resetAllConnections: ERROR closing ' + path + ': ' + e);
+                }
+                if (mtx != null) mtx.release();
+            }
+        }
+        
+        // Force a GC cycle to ensure HashLink/C-level handles are released
+        #if hl
+        // Sys.println('[DIAG] [SqliteDB] resetAllConnections: Triggering HL GC');
+        // hl.Gc.major(); 
+        #end
         Sys.println('[SqliteDB] resetAllConnections: finished.');
     }
 
@@ -454,6 +484,7 @@ class SqliteDatabaseService implements IDatabaseService {
     public function execute(sql:String, ?params:Map<String, Dynamic>):Void {
         var finalSql = (params != null) ? buildSqlStatic(sql, params) : sql;
         
+        _resetMutex.acquire();
         acquireLock(dbPath);
         
         try {
@@ -492,8 +523,10 @@ class SqliteDatabaseService implements IDatabaseService {
                 }
             }
             releaseLock(dbPath);
+            _resetMutex.release();
         } catch (e:Dynamic) {
             releaseLock(dbPath);
+            _resetMutex.release();
             var errStr = Std.string(e);
             var lowerErr = errStr.toLowerCase();
             if (lowerErr.indexOf("not an error") != -1) {
@@ -511,8 +544,10 @@ class SqliteDatabaseService implements IDatabaseService {
 
     public function executeAndGetId(sql:String, ?params:Map<String, Dynamic>):Int {
         var finalSql = (params != null) ? buildSqlStatic(sql, params) : sql;
-        var mutex = getSharedMutex();
-        mutex.acquire();
+        
+        _resetMutex.acquire();
+        acquireLock(dbPath);
+        
         try {
             var c = getConn();
             var rs = c.request(finalSql);
@@ -525,16 +560,19 @@ class SqliteDatabaseService implements IDatabaseService {
             if (checkRs.hasNext() && checkRs.next().changed == 0) {
                 var lowerSql = finalSql.toLowerCase();
                 if (lowerSql.indexOf(" ignore ") == -1 && lowerSql.indexOf(" replace ") == -1) {
-                    mutex.release();
+                    releaseLock(dbPath);
+                    _resetMutex.release();
                     throw "SQLite Mutation Error: 0 rows affected by executeAndGetId. SQL: " + finalSql;
                 }
             }
 
             var id = c.lastInsertId();
-            mutex.release();
+            releaseLock(dbPath);
+            _resetMutex.release();
             return id;
         } catch (e:Dynamic) {
-            mutex.release();
+            releaseLock(dbPath);
+            _resetMutex.release();
             var errStr = Std.string(e);
             if (errStr.toLowerCase().indexOf("not an error") != -1) {
                 return 0; // Or lastInsertId if possible
@@ -554,6 +592,7 @@ class SqliteDatabaseService implements IDatabaseService {
     }
 
     public function request(sql:String, ?params:Map<String, Dynamic>):ResultSet {
+        _resetMutex.acquire();
         acquireLock(dbPath);
         try {
             var c = getConn();
@@ -561,9 +600,11 @@ class SqliteDatabaseService implements IDatabaseService {
             var rs = c.request(finalSql);
             var result = new StaticResultSet(rs);
             releaseLock(dbPath);
+            _resetMutex.release();
             return result;
         } catch (e:Dynamic) {
             releaseLock(dbPath);
+            _resetMutex.release();
             Sys.println('[SqliteDB] request ERROR: $e | SQL: $sql');
             throw e;
         }
