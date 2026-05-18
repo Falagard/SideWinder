@@ -330,9 +330,7 @@ class SqliteDatabaseService implements IDatabaseService {
         for (i in 0...paths.length) {
             var path = paths[i];
             var conn = connsToClose[i];
-            var mtx = mutexesToClose[i];
             if (conn != null) {
-                if (mtx != null) mtx.acquire();
                 try { 
                     // Reverting WAL mode can help release -shm and -wal file locks on some OSs
                     try { conn.request("PRAGMA journal_mode=DELETE;"); } catch(e:Dynamic) {}
@@ -340,7 +338,6 @@ class SqliteDatabaseService implements IDatabaseService {
                 } catch (e:Dynamic) {
                     Sys.println('[SqliteDB] resetAllConnections: ERROR closing ' + path + ': ' + e);
                 }
-                if (mtx != null) mtx.release();
             }
         }
         
