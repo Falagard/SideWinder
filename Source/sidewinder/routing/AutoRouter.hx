@@ -35,6 +35,33 @@ class AutoRouter {
 				conversion = macro (__val != null ? (Std.string(__val).toLowerCase() == "true") : ($v{isOptional} ? null : false));
 			} else if (typeStr.indexOf("String") != -1) {
 				conversion = macro (__val != null ? Std.string(__val) : null);
+			} else if (typeStr.indexOf("ListQuery") != -1) {
+				conversion = macro {
+					var __page:Null<Int> = null;
+					var __pageSize:Null<Int> = null;
+					var __search:Null<String> = null;
+					var __sortBy:Null<String> = null;
+					var __sortDir:Null<String> = null;
+
+					if (__rtReq.query != null) {
+						if (__rtReq.query.exists("page")) __page = Std.parseInt(Std.string(__rtReq.query.get("page")));
+						if (__rtReq.query.exists("pageSize")) __pageSize = Std.parseInt(Std.string(__rtReq.query.get("pageSize")));
+						if (__rtReq.query.exists("search")) __search = Std.string(__rtReq.query.get("search"));
+						if (__rtReq.query.exists("sortBy")) __sortBy = Std.string(__rtReq.query.get("sortBy"));
+						if (__rtReq.query.exists("sortDir")) __sortDir = Std.string(__rtReq.query.get("sortDir"));
+					}
+
+					if (__rtReq.jsonBody != null && Std.isOfType(__rtReq.jsonBody, Dynamic)) {
+						var body:Dynamic = __rtReq.jsonBody;
+						if (Reflect.hasField(body, "page")) __page = Std.parseInt(Std.string(Reflect.field(body, "page")));
+						if (Reflect.hasField(body, "pageSize")) __pageSize = Std.parseInt(Std.string(Reflect.field(body, "pageSize")));
+						if (Reflect.hasField(body, "search")) __search = Std.string(Reflect.field(body, "search"));
+						if (Reflect.hasField(body, "sortBy")) __sortBy = Std.string(Reflect.field(body, "sortBy"));
+						if (Reflect.hasField(body, "sortDir")) __sortDir = Std.string(Reflect.field(body, "sortDir"));
+					}
+
+					new app.models.ListQuery(__page, __pageSize, __search, __sortBy, __sortDir);
+				};
 			} else {
 				// Complex type: parsing from body or JSON string
 				conversion = macro {

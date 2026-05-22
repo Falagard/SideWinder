@@ -267,34 +267,70 @@ class AutoClient {
                                         }
                                         e;
                                     };
-                                    var fullPathExpr = macro "/" + $joinExpr;
+                                    var bodyExprs:Array<Expr> = [];
+                                    bodyExprs.push(macro var _p = "/" + $joinExpr);
+                                    
+                                    // Determine body arg
                                     var bodyArg:Null<String> = null;
                                     if (httpMethod == "POST" || httpMethod == "PUT") {
                                         for (a in args) if (pathParamNames.indexOf(a.name) == -1) bodyArg = a.name;
                                     }
+                                    
+                                    // Determine query params
+                                    for (a in args) {
+                                        if (pathParamNames.indexOf(a.name) == -1) {
+                                            if (httpMethod != "GET" && (bodyArg == a.name))
+                                                continue;
+                                            if (requiresAuth && a.name == "userId")
+                                                continue;
+
+                                            var identExpr:Expr = {expr: EConst(CIdent(a.name)), pos: Context.currentPos()};
+                                            var argTypeStr = TypeTools.toString(a.t);
+                                            if (argTypeStr.indexOf("ListQuery") != -1) {
+                                                bodyExprs.push(macro {
+                                                    var __q:app.models.ListQuery = $identExpr;
+                                                    if (__q != null) {
+                                                        if (__q.page != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "page=" + __q.page;
+                                                        if (__q.pageSize != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "pageSize=" + __q.pageSize;
+                                                        if (__q.search != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "search=" + StringTools.urlEncode(__q.search);
+                                                        if (__q.sortBy != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "sortBy=" + StringTools.urlEncode(__q.sortBy);
+                                                        if (__q.sortDir != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "sortDir=" + StringTools.urlEncode(__q.sortDir);
+                                                    }
+                                                });
+                                            } else {
+                                                bodyExprs.push(macro {
+                                                    var __v:Dynamic = $identExpr;
+                                                    if (__v != null) {
+                                                        _p += (_p.indexOf("?") == -1 ? "?" : "&") + $v{a.name} + "=" + StringTools.urlEncode(Std.string(__v));
+                                                    }
+                                                });
+                                            }
+                                        }
+                                    }
                                     var bodyExpr:Expr = (bodyArg != null) ? macro $i{bodyArg} : macro null;
                                     var followedRet = Context.follow(ret);
                                     var retName = TypeTools.toString(followedRet);
-                                    var methodBody:Expr;
+                                    
+                                    var requestAndReturn:Expr;
                                     if (retName == "Void") {
-                                        methodBody = macro {
-                                            doRequest($v{httpMethod}, $fullPathExpr, $bodyExpr);
+                                        requestAndReturn = macro {
+                                            doRequest($v{httpMethod}, _p, $bodyExpr);
                                         };
                                     } else if (retName == "Int") {
-                                        methodBody = macro {
-                                            var resp:Dynamic = doRequest($v{httpMethod}, $fullPathExpr, $bodyExpr);
+                                        requestAndReturn = macro {
+                                            var resp:Dynamic = doRequest($v{httpMethod}, _p, $bodyExpr);
                                             if (resp == null) return 0;
                                             var parsed = Std.parseInt(Std.string(resp));
                                             return parsed == null ? 0 : parsed;
                                         };
                                     } else if (retName == "Float") {
-                                        methodBody = macro {
-                                            var resp:Dynamic = doRequest($v{httpMethod}, $fullPathExpr, $bodyExpr);
+                                        requestAndReturn = macro {
+                                            var resp:Dynamic = doRequest($v{httpMethod}, _p, $bodyExpr);
                                             return resp == null ? 0.0 : Std.parseFloat(Std.string(resp));
                                         };
                                     } else if (retName == "Bool") {
-                                        methodBody = macro {
-                                            var resp:Dynamic = doRequest($v{httpMethod}, $fullPathExpr, $bodyExpr);
+                                        requestAndReturn = macro {
+                                            var resp:Dynamic = doRequest($v{httpMethod}, _p, $bodyExpr);
                                             var s = Std.string(resp);
                                             if (s == "true" || s == "1") return true;
                                             if (s == "false" || s == "0" || s == null || s == "") return false;
@@ -307,13 +343,13 @@ class AutoClient {
                                             }
                                         };
                                     } else if (retName == "String") {
-                                        methodBody = macro {
-                                            var resp:Dynamic = doRequest($v{httpMethod}, $fullPathExpr, $bodyExpr);
+                                        requestAndReturn = macro {
+                                            var resp:Dynamic = doRequest($v{httpMethod}, _p, $bodyExpr);
                                             return resp == null ? null : Std.string(resp);
                                         };
                                     } else {
-                                        methodBody = macro {
-                                            var resp:Dynamic = doRequest($v{httpMethod}, $fullPathExpr, $bodyExpr);
+                                        requestAndReturn = macro {
+                                            var resp:Dynamic = doRequest($v{httpMethod}, _p, $bodyExpr);
                                             if (resp == null || Std.string(resp) == "") return null;
                                             try {
                                                 return haxe.Json.parse(Std.string(resp));
@@ -322,6 +358,8 @@ class AutoClient {
                                             }
                                         };
                                     }
+                                    bodyExprs.push(requestAndReturn);
+                                    var methodBody = {expr: EBlock(bodyExprs), pos: Context.currentPos()};
                                     fields.push({
                                         name: field.name,
                                         access: [APublic],

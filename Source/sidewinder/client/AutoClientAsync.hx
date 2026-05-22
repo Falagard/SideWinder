@@ -389,7 +389,7 @@ class AutoClientAsync {
 										}
 										var newName = pathParamNames.indexOf(a.name) != -1 ? '_' + a.name : a.name;
 										renamed.set(a.name, newName);
-										argDecls.push({name: newName, type: Context.toComplexType(a.t)});
+										argDecls.push({name: newName, type: Context.toComplexType(a.t), opt: a.opt});
 									}
 									// Runtime URL building: start from literal path, replace :param tokens using renamed args
 									var bodyExprs:Array<Expr> = [];
@@ -420,12 +420,26 @@ class AutoClientAsync {
 												continue;
 
 											var identExpr:Expr = {expr: EConst(CIdent(renamedIdent)), pos: Context.currentPos()};
-											bodyExprs.push(macro {
-												var __v:Dynamic = $identExpr;
-												if (__v != null) {
-													_p += (_p.indexOf("?") == -1 ? "?" : "&") + $v{a.name} + "=" + StringTools.urlEncode(Std.string(__v));
-												}
-											});
+											var argTypeStr = TypeTools.toString(a.t);
+											if (argTypeStr.indexOf("ListQuery") != -1) {
+												bodyExprs.push(macro {
+													var __q:app.models.ListQuery = $identExpr;
+													if (__q != null) {
+														if (__q.page != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "page=" + __q.page;
+														if (__q.pageSize != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "pageSize=" + __q.pageSize;
+														if (__q.search != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "search=" + StringTools.urlEncode(__q.search);
+														if (__q.sortBy != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "sortBy=" + StringTools.urlEncode(__q.sortBy);
+														if (__q.sortDir != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "sortDir=" + StringTools.urlEncode(__q.sortDir);
+													}
+												});
+											} else {
+												bodyExprs.push(macro {
+													var __v:Dynamic = $identExpr;
+													if (__v != null) {
+														_p += (_p.indexOf("?") == -1 ? "?" : "&") + $v{a.name} + "=" + StringTools.urlEncode(Std.string(__v));
+													}
+												});
+											}
 										}
 									}
 									var bodyExpr:Expr = (bodyArg != null) ? macro $i{bodyArg} : macro null;
@@ -440,6 +454,9 @@ class AutoClientAsync {
 										argDecls.push({name: "onSuccess", type: TFunction([Context.toComplexType(ret)], voidType)});
 									}
 									argDecls.push({name: "onFailure", type: macro :Dynamic->Void});
+									if (field.name == "listProjects") {
+										haxe.macro.Context.warning("GENERATING listProjectsAsync with args: " + [for (a in argDecls) a.name].join(", "), Context.currentPos());
+									}
 									var parseExpr:Expr;
 									if (retName == "Void") {
 										parseExpr = macro {trace('[AutoClientAsync] parse void response'); onSuccess();};
