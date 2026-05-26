@@ -597,19 +597,45 @@ class LocalStreamBroker implements IStreamBroker {
 	 * Returns: -1 if id1 < id2, 0 if equal, 1 if id1 > id2
 	 */
 	private function compareMessageIds(id1:String, id2:String):Int {
+		if (id1 == null && id2 == null) return 0;
+		if (id1 == null) return -1;
+		if (id2 == null) return 1;
+
 		var parts1 = id1.split('-');
 		var parts2 = id2.split('-');
 
-		var timestamp1 = Std.parseFloat(parts1[0]);
-		var timestamp2 = Std.parseFloat(parts2[0]);
+		var t1Str = parts1[0];
+		var t2Str = parts2[0];
+		if (t1Str == null) t1Str = "0";
+		if (t2Str == null) t2Str = "0";
+
+		var timestamp1 = Std.parseFloat(t1Str);
+		var timestamp2 = Std.parseFloat(t2Str);
+
+		var is1NaN = Math.isNaN(timestamp1);
+		var is2NaN = Math.isNaN(timestamp2);
+		if (is1NaN && is2NaN) {
+			return Reflect.compare(id1, id2);
+		}
+		if (is1NaN) return -1;
+		if (is2NaN) return 1;
 
 		if (timestamp1 < timestamp2)
 			return -1;
 		if (timestamp1 > timestamp2)
 			return 1;
 
-		var seq1 = Std.parseInt(parts1[1]);
-		var seq2 = Std.parseInt(parts2[1]);
+		var seq1Str = parts1.length > 1 ? parts1[1] : "0";
+		var seq2Str = parts2.length > 1 ? parts2[1] : "0";
+		if (seq1Str == null) seq1Str = "0";
+		if (seq2Str == null) seq2Str = "0";
+
+		var seq1 = Std.parseInt(seq1Str);
+		var seq2 = Std.parseInt(seq2Str);
+
+		if (seq1 == null && seq2 == null) return 0;
+		if (seq1 == null) return -1;
+		if (seq2 == null) return 1;
 
 		if (seq1 < seq2)
 			return -1;

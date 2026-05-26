@@ -206,6 +206,18 @@ class AutoClientAsync {
 								authMode: authMode
 							};
 							
+							var spanId:String = null;
+							var reqStartTime = haxe.Timer.stamp();
+							var recorderClass = Type.resolveClass("haxestack.diagnostics.UiTraceRecorder");
+							var recorderInstance:Dynamic = null;
+							if (recorderClass != null) {
+								recorderInstance = Reflect.getProperty(recorderClass, "instance");
+								if (recorderInstance != null) {
+									spanId = Reflect.getProperty(recorderInstance, "currentSpanId");
+									Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiRequest"), [method, request.url, null, spanId]);
+								}
+							}
+
 							var retryAttempted = false;
 							var executeHttp:Void->Void = null;
 							executeHttp = function() {
@@ -267,6 +279,14 @@ class AutoClientAsync {
 											return;
 										}
 									}
+									var elapsed = Math.round((haxe.Timer.stamp() - reqStartTime) * 1000);
+									if (recorderInstance != null) {
+										if (status >= 200 && status < 300) {
+											Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiResponse"), [method, request.url, status, null, elapsed, spanId]);
+										} else {
+											Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiError"), [method, request.url, status, rawData, null, elapsed, spanId]);
+										}
+									}
 									onData(rawData);
 								};
 								
@@ -286,6 +306,10 @@ class AutoClientAsync {
 											});
 											return;
 										}
+									}
+									var elapsed = Math.round((haxe.Timer.stamp() - reqStartTime) * 1000);
+									if (recorderInstance != null) {
+										Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiError"), [method, request.url, status, Std.string(err), null, elapsed, spanId]);
 									}
 									onError(err);
 								};
@@ -307,6 +331,10 @@ class AutoClientAsync {
 								} catch (e:Dynamic) {
 									trace('[AutoClientAsync] Exception during request execution: ' + Std.string(e));
 									trace(haxe.CallStack.toString(haxe.CallStack.exceptionStack()));
+									var elapsed = Math.round((haxe.Timer.stamp() - reqStartTime) * 1000);
+									if (recorderInstance != null) {
+										Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiError"), [method, request.url, null, "Exception: " + Std.string(e), null, elapsed, spanId]);
+									}
 									onError(e);
 								}
 							};
