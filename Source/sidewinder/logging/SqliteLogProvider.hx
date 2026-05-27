@@ -44,6 +44,11 @@ class SqliteLogProvider implements ILogProvider {
 		// Use SqliteDatabaseService to share the connection and ensure proper tracking/locking
 		var service = sidewinder.services.SqliteDatabaseService.createWithPath(null, '$logDir/logs.db');
 		conn = service.acquire();
+		try {
+			conn.request("CREATE TABLE IF NOT EXISTS internal_logs (created_at REAL, level TEXT, message TEXT)");
+		} catch (e:Dynamic) {
+			trace('SqliteLogProvider: Failed to ensure internal_logs table: $e');
+		}
 		lastFlushTime = Timer.stamp();
 	}
 

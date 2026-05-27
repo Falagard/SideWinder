@@ -746,6 +746,9 @@ class SqliteDatabaseService implements IDatabaseService {
             } else {
                 escapedVal = Std.string(val);
             }
+            if (escapedVal == null) {
+                escapedVal = "NULL";
+            }
             result = StringTools.replace(result, "@" + key, escapedVal);
         }
         return result;

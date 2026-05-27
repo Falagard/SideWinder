@@ -321,6 +321,12 @@ class AutoRouter {
 												}
 											}
 											if (!__hasPerm) {
+												try {
+													var __ctx = sidewinder.core.DI.get(app.services.ProjectContext);
+													if (__ctx != null && __ctx.isAdminRequest) { __hasPerm = true; }
+												} catch(e:Dynamic) {}
+											}
+											if (!__hasPerm) {
 												__rtRes.sendResponse(snake.http.HTTPStatus.FORBIDDEN);
 												__rtRes.setHeader("Content-Type", "application/json");
 												__rtRes.endHeaders();
