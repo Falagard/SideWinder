@@ -281,7 +281,7 @@ class AutoClientAsync {
 									}
 									try {
 										if (rawData != null && rawData != "") {
-											var errJson = Json.parse(rawData);
+											var errJson = haxe.Json.parse(rawData);
 											errorMsg = Reflect.field(errJson, "message") ?? errorMsg;
 										}
 									} catch (ex:Dynamic) {}
