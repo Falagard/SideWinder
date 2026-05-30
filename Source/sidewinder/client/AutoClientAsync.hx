@@ -273,7 +273,9 @@ class AutoClientAsync {
 													case Success:
 														executeHttp();
 													case Failure(err):
-														onError(err);
+														haxe.ui.Toolkit.callLater(function() {
+															onError(err);
+														});
 												}
 											});
 											return;
@@ -287,7 +289,9 @@ class AutoClientAsync {
 											Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiError"), [method, request.url, status, rawData, null, elapsed, spanId]);
 										}
 									}
-									onData(rawData);
+									haxe.ui.Toolkit.callLater(function() {
+										onData(rawData);
+									});
 								};
 								
 								h.onError = function(err:Dynamic) {
@@ -301,7 +305,9 @@ class AutoClientAsync {
 													case Success:
 														executeHttp();
 													case Failure(err):
-														onError(err);
+														haxe.ui.Toolkit.callLater(function() {
+															onError(err);
+														});
 												}
 											});
 											return;
@@ -311,32 +317,40 @@ class AutoClientAsync {
 									if (recorderInstance != null) {
 										Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiError"), [method, request.url, status, Std.string(err), null, elapsed, spanId]);
 									}
-									onError(err);
+									haxe.ui.Toolkit.callLater(function() {
+										onError(err);
+									});
 								};
 								
-								try {
-									if (request.method == "GET" || request.method == "POST") {
-										h.request(request.method == "POST");
-									} else {
-										// Use reflection to call customRequest to support PUT/DELETE on platforms that have it (HL/Cpp/etc)
-										var customRequest = Reflect.field(h, "customRequest");
-										if (customRequest != null) {
-											var output = new haxe.io.BytesOutput();
-											Reflect.callMethod(h, customRequest, [request.method == "PUT" || request.method == "POST", output, null, request.method]);
-											h.onData(output.getBytes().toString());
+								var runRequest = function() {
+									try {
+										if (request.method == "GET" || request.method == "POST") {
+											h.request(request.method == "POST");
 										} else {
-											h.request(request.method == "PUT" || request.method == "POST");
+											// Use reflection to call customRequest to support PUT/DELETE on platforms that have it (HL/Cpp/etc)
+											var customRequest = Reflect.field(h, "customRequest");
+											if (customRequest != null) {
+												var output = new haxe.io.BytesOutput();
+												Reflect.callMethod(h, customRequest, [request.method == "PUT" || request.method == "POST", output, null, request.method]);
+												h.onData(output.getBytes().toString());
+											} else {
+												h.request(request.method == "PUT" || request.method == "POST");
+											}
 										}
+									} catch (e:Dynamic) {
+										trace('[AutoClientAsync] Exception during request execution: ' + Std.string(e));
+										trace(haxe.CallStack.toString(haxe.CallStack.exceptionStack()));
+										var elapsed = Math.round((haxe.Timer.stamp() - reqStartTime) * 1000);
+										if (recorderInstance != null) {
+											Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiError"), [method, request.url, null, "Exception: " + Std.string(e), null, elapsed, spanId]);
+										}
+										haxe.ui.Toolkit.callLater(function() {
+											onError(e);
+										});
 									}
-								} catch (e:Dynamic) {
-									trace('[AutoClientAsync] Exception during request execution: ' + Std.string(e));
-									trace(haxe.CallStack.toString(haxe.CallStack.exceptionStack()));
-									var elapsed = Math.round((haxe.Timer.stamp() - reqStartTime) * 1000);
-									if (recorderInstance != null) {
-										Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiError"), [method, request.url, null, "Exception: " + Std.string(e), null, elapsed, spanId]);
-									}
-									onError(e);
-								}
+								};
+
+								runRequest();
 							};
 
 							// Handle initial auth preparation
