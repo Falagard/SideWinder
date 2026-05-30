@@ -269,7 +269,12 @@ class AutoClientAsync {
 									if (recorderInstance != null) {
 										Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiResponse"), [method, request.url, 200, null, elapsed, spanId]);
 									}
-									onData(rawData);
+									// Defer UI mutations to next frame to avoid re-entrant HaxeUI modifications
+									// during OpenFL URLLoader event dispatch / Cairo rendering pass (HashLink native).
+									var capturedData = rawData;
+									haxe.ui.Toolkit.callLater(function() {
+										onData(capturedData);
+									});
 								});
 								
 								loader.addEventListener(openfl.events.IOErrorEvent.IO_ERROR, function(e:openfl.events.IOErrorEvent) {
@@ -289,7 +294,11 @@ class AutoClientAsync {
 									if (recorderInstance != null) {
 										Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiError"), [method, request.url, 500, errorMsg, null, elapsed, spanId]);
 									}
-									onError(errorMsg);
+									// Defer UI mutations to next frame (same reason as COMPLETE handler above).
+									var capturedError = errorMsg;
+									haxe.ui.Toolkit.callLater(function() {
+										onError(capturedError);
+									});
 								});
 								
 								loader.load(req);
