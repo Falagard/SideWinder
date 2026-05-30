@@ -223,78 +223,6 @@ class AutoClientAsync {
 							executeHttp = function() {
 								trace('[AutoClientAsync] request method=' + request.method + ' url=' + request.url);
 								
-								#if (sys && !html5)
-								// Use openfl.net.URLLoader asynchronously to prevent UI freezing without GC deadlocks on desktop
-								var req = new openfl.net.URLRequest(request.url);
-								req.method = request.method;
-								req.requestHeaders.push(new openfl.net.URLRequestHeader("Accept", "application/json"));
-								if (request.body != null) {
-									req.requestHeaders.push(new openfl.net.URLRequestHeader("Content-Type", "application/json"));
-									req.data = request.body;
-								}
-								
-								if (options.projectKey != null && options.projectKey != "" && request.url.indexOf("/v1/auth/") == -1) {
-									req.requestHeaders.push(new openfl.net.URLRequestHeader("X-Project-Key", options.projectKey));
-								}
-								
-								// Apply external headers
-								for (key in request.headers.keys()) {
-									req.requestHeaders.push(new openfl.net.URLRequestHeader(key, request.headers.get(key)));
-								}
-								
-								if (options.token != null && options.token != "" && !request.headers.exists("Authorization")) {
-									req.requestHeaders.push(new openfl.net.URLRequestHeader("Authorization", "Bearer " + options.token));
-								}
-								
-								var cookieJar:sidewinder.interfaces.ICookieJar = options.cookieJar;
-								if (cookieJar != null) {
-									var cookieHeader = cookieJar.getCookieHeader(request.url);
-									if (cookieHeader != "") req.requestHeaders.push(new openfl.net.URLRequestHeader("Cookie", cookieHeader));
-									
-									if (!request.headers.exists("Authorization")) {
-										for (c in cookieJar.getAllCookies()) {
-											if (c.name == "platform_session_token" || c.name == "session_token") {
-												req.requestHeaders.push(new openfl.net.URLRequestHeader("Authorization", "Bearer " + c.value));
-												break;
-											}
-										}
-									}
-								}
-								
-								var loader = new openfl.net.URLLoader();
-								
-								loader.addEventListener(openfl.events.Event.COMPLETE, function(_) {
-									var rawData:String = Std.string(loader.data);
-									var elapsed = Math.round((haxe.Timer.stamp() - reqStartTime) * 1000);
-									if (recorderInstance != null) {
-										Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiResponse"), [method, request.url, 200, null, elapsed, spanId]);
-									}
-									onData(rawData);
-								});
-								
-								loader.addEventListener(openfl.events.IOErrorEvent.IO_ERROR, function(e:openfl.events.IOErrorEvent) {
-									var rawData:String = Std.string(loader.data);
-									var elapsed = Math.round((haxe.Timer.stamp() - reqStartTime) * 1000);
-									var errorMsg = e.text;
-									if (errorMsg == null || errorMsg == "") {
-										errorMsg = "HTTP request failed";
-									}
-									try {
-										if (rawData != null && rawData != "") {
-											var errJson = haxe.Json.parse(rawData);
-											errorMsg = Reflect.field(errJson, "message") ?? errorMsg;
-										}
-									} catch (ex:Dynamic) {}
-									
-									if (recorderInstance != null) {
-										Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiError"), [method, request.url, 500, errorMsg, null, elapsed, spanId]);
-									}
-									onError(errorMsg);
-								});
-								
-								loader.load(req);
-								#else
-								
 								var h = new haxe.Http(request.url);
 								h.setHeader("Accept", "application/json");
 								if (request.body != null) {
@@ -423,7 +351,6 @@ class AutoClientAsync {
 								};
 
 								runRequest();
-								#end
 							};
 
 							// Handle initial auth preparation
