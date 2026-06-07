@@ -667,6 +667,73 @@ class LocalStreamBroker implements IStreamBroker {
 		return null;
 	}
 
+	public function xrange(stream:String, minId:String, maxId:String, count:Int):Array<StreamMessage> {
+		_mutex.acquire();
+		try {
+			if (!_streams.exists(stream)) {
+				_mutex.release();
+				return [];
+			}
+			var messages = _streams.get(stream);
+			var result:Array<StreamMessage> = [];
+			for (msg in messages) {
+				var afterMin = (minId == "-") || compareMessageIds(msg.id, minId) >= 0;
+				var beforeMax = (maxId == "+") || compareMessageIds(msg.id, maxId) <= 0;
+				if (afterMin && beforeMax) {
+					result.push(msg);
+					if (result.length >= count) break;
+				}
+			}
+			_mutex.release();
+			return result;
+		} catch (e:Dynamic) {
+			_mutex.release();
+			throw e;
+		}
+	}
+
+	public function xdel(stream:String, ids:Array<String>):Int {
+		_mutex.acquire();
+		try {
+			if (!_streams.exists(stream)) {
+				_mutex.release();
+				return 0;
+			}
+			var messages = _streams.get(stream);
+			var before = messages.length;
+			_streams.set(stream, messages.filter(m -> ids.indexOf(m.id) == -1));
+			var removed = before - _streams.get(stream).length;
+			_mutex.release();
+			return removed;
+		} catch (e:Dynamic) {
+			_mutex.release();
+			throw e;
+		}
+	}
+
+	public function scanStreams(pattern:String):Array<String> {
+		_mutex.acquire();
+		try {
+			var result:Array<String> = [];
+			var hasPrefixWild = pattern.startsWith("*") && !StringTools.endsWith(pattern, "*");
+			var hasSuffixWild = StringTools.endsWith(pattern, "*") && !pattern.startsWith("*");
+			var suffix = hasPrefixWild ? pattern.substr(1) : null;
+			var prefix = hasSuffixWild ? pattern.substr(0, pattern.length - 1) : null;
+			for (key in _streams.keys()) {
+				var match = (pattern == "*")
+					|| (suffix != null && StringTools.endsWith(key, suffix))
+					|| (prefix != null && StringTools.startsWith(key, prefix))
+					|| (key == pattern);
+				if (match) result.push(key);
+			}
+			_mutex.release();
+			return result;
+		} catch (e:Dynamic) {
+			_mutex.release();
+			throw e;
+		}
+	}
+
 	private function calculateLag(stream:String, lastDeliveredId:String):Int {
 		_mutex.acquire();
 		try {

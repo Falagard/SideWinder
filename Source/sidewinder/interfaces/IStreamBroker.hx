@@ -201,12 +201,44 @@ interface IStreamBroker extends Service {
 	/**
 	 * Trim a stream to a maximum length (optional, for resource management).
 	 * Similar to Redis XTRIM.
-	 * 
+	 *
 	 * @param stream Stream name
 	 * @param maxLen Maximum number of messages to keep
 	 * @return Number of messages deleted
 	 */
 	public function xtrim(stream:String, maxLen:Int):Int;
+
+	/**
+	 * Read a range of messages from a stream by ID.
+	 * Similar to Redis XRANGE.
+	 *
+	 * @param stream Stream name
+	 * @param minId  Minimum message ID inclusive ("-" for the start of the stream)
+	 * @param maxId  Maximum message ID inclusive ("+" for the end of the stream)
+	 * @param count  Maximum number of messages to return
+	 * @return Array of messages in ascending ID order
+	 */
+	public function xrange(stream:String, minId:String, maxId:String, count:Int):Array<StreamMessage>;
+
+	/**
+	 * Delete one or more messages from a stream by ID.
+	 * Similar to Redis XDEL.
+	 *
+	 * @param stream Stream name
+	 * @param ids    Message IDs to delete
+	 * @return Number of entries actually removed
+	 */
+	public function xdel(stream:String, ids:Array<String>):Int;
+
+	/**
+	 * List stream names matching a glob pattern.
+	 * Pattern supports "*" wildcard (e.g. "*.dlq" returns all DLQ streams).
+	 * Returns logical stream names (without any internal prefix).
+	 *
+	 * @param pattern Glob pattern (only leading/trailing "*" is supported)
+	 * @return Array of matching stream names
+	 */
+	public function scanStreams(pattern:String):Array<String>;
 }
 
 
