@@ -407,7 +407,12 @@ class LocalStreamBroker implements IStreamBroker {
 						// Claim this message
 						var message = this.findMessageById(streamMessages, p.messageId);
 						if (message != null) {
-							claimed.push(message);
+							claimed.push({
+								id: message.id,
+								data: message.data,
+								timestamp: message.timestamp,
+								deliveryCount: p.deliveryCount + 1
+							});
 
 							// Add to new consumer's pending
 							var newKey = '$stream:$group:$consumer';

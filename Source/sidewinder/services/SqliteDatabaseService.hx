@@ -638,7 +638,9 @@ class SqliteDatabaseService implements IDatabaseService {
                 lowerSql.indexOf("user_roles") != -1 || 
                 lowerSql.indexOf("hs_auth_tokens") != -1 || 
                 lowerSql.indexOf("hs_user_sessions") != -1 || 
-                lowerSql.indexOf("mail_templates") != -1 || 
+                lowerSql.indexOf("mail_templates") != -1 ||
+                lowerSql.indexOf("pdf_templates") != -1 ||
+                lowerSql.indexOf("pdf_generations") != -1 ||
                 lowerSql.indexOf("hs_email_messages") != -1 ||
                 lowerSql.indexOf("email_messages") != -1 ||
                 lowerSql.indexOf("email_events") != -1 ||

@@ -24,12 +24,16 @@ import hx.injection.Service;
 typedef StreamMessage = {
 	/** Unique message ID (auto-generated, format: timestamp-sequence) */
 	var id:String;
-	
+
 	/** Message payload */
 	var data:Dynamic;
-	
+
 	/** Timestamp when message was added */
 	var timestamp:Float;
+
+	/** How many times this message has been delivered (1 = first read via xreadgroup).
+	    Populated by xautoclaim from the PEL delivery count. Null when not available. */
+	@:optional var deliveryCount:Int;
 }
 
 /**
