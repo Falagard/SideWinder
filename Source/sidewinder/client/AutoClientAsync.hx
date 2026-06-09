@@ -506,9 +506,13 @@ class AutoClientAsync {
 										}
 									var argDecls:Array<FunctionArg> = [];
 									var renamed = new Map<String, String>();
+									// A non-path `userId` param is always server-injected from the JWT.
+									// It must never appear in the generated client signature, be used as the POST body,
+									// or be serialised as a query param.  Path-param userId (e.g. /users/:userId) is
+									// legitimate and must be kept.
+									var userIdIsPathParam = pathParamNames.indexOf("userId") != -1;
 									for (a in args) {
-										// Skip userId parameter if @requiresAuth is set
-										if (requiresAuth && a.name == "userId") {
+										if (a.name == "userId" && !userIdIsPathParam) {
 											continue;
 										}
 										var newName = pathParamNames.indexOf(a.name) != -1 ? '_' + a.name : a.name;
@@ -524,14 +528,16 @@ class AutoClientAsync {
 										bodyExprs.push(macro _p = StringTools.replace(_p, ":*" + $v{pp}, Std.string($identExpr)));
 										bodyExprs.push(macro _p = StringTools.replace(_p, ":" + $v{pp}, Std.string($identExpr)));
 									}
-									// Determine body arg (first non-path param for POST/PUT)
+									// Determine body arg (first non-path param for POST/PUT, skipping non-path userId)
 									var bodyArg:Null<String> = null;
 									if (httpMethod == "POST" || httpMethod == "PUT") {
-										for (a in args)
+										for (a in args) {
+											if (a.name == "userId" && !userIdIsPathParam) continue;
 											if (pathParamNames.indexOf(a.name) == -1) {
 												bodyArg = renamed.get(a.name);
 												break;
 											}
+										}
 									}
 
 									// Determine query params (args that are not path params and not the body arg)
@@ -540,7 +546,7 @@ class AutoClientAsync {
 											var renamedIdent = renamed.get(a.name);
 											if (httpMethod != "GET" && (bodyArg == renamedIdent))
 												continue;
-											if (requiresAuth && a.name == "userId")
+											if (a.name == "userId" && !userIdIsPathParam)
 												continue;
 
 											var identExpr:Expr = {expr: EConst(CIdent(renamedIdent)), pos: Context.currentPos()};
