@@ -349,7 +349,10 @@ class SqliteDatabaseService implements IDatabaseService {
         Sys.println('[SqliteDB] resetAllConnections: finished.');
     }
 
-    public function acquire():Connection return getConn();
+    public function acquire():Connection {
+        sidewinder.logging.HybridLogger.warn('[SqliteDB] acquire() is deprecated and bypasses the connection mutex — use read()/execute() instead. Returning a SafeConnection wrapper.');
+        return new SafeConnection(this, getConn());
+    }
     public function release(conn:Connection):Void {}
 
     public function write(sql:String, ?params:Map<String, Dynamic>):ResultSet {
@@ -761,6 +764,42 @@ class SqliteDatabaseService implements IDatabaseService {
     public function quoteString(str:String):String return "'" + escapeString(str) + "'";
     public function sanitize(str:String):String return escapeString(StringTools.trim(str));
     public function raw(v:String):sidewinder.interfaces.IDatabaseService.RawSql return new sidewinder.interfaces.IDatabaseService.RawSql(v);
+}
+
+/**
+ * Safe wrapper returned by acquire(). Routes request() through the IDatabaseService
+ * mutex-protected read()/execute() methods so callers cannot bypass connection locking.
+ * Non-query methods delegate to the underlying connection (they don't touch statements).
+ */
+class SafeConnection implements sys.db.Connection {
+    var _db:sidewinder.interfaces.IDatabaseService;
+    var _conn:sys.db.Connection;
+
+    public function new(db:sidewinder.interfaces.IDatabaseService, conn:sys.db.Connection) {
+        _db = db;
+        _conn = conn;
+    }
+
+    public function request(sql:String):sys.db.ResultSet {
+        var upper = StringTools.ltrim(sql).toUpperCase();
+        if (StringTools.startsWith(upper, "SELECT") ||
+            StringTools.startsWith(upper, "PRAGMA") ||
+            StringTools.startsWith(upper, "WITH")) {
+            return _db.read(sql);
+        }
+        _db.execute(sql);
+        return null;
+    }
+
+    public function close():Void {}
+    public function escape(s:String):String return _conn.escape(s);
+    public function quote(s:String):String return _conn.quote(s);
+    public function addValue(s:StringBuf, v:Dynamic):Void _conn.addValue(s, v);
+    public function lastInsertId():Int return _conn.lastInsertId();
+    public function dbName():String return _conn.dbName();
+    public function startTransaction():Void _db.beginTransaction();
+    public function commit():Void _db.commit();
+    public function rollback():Void _db.rollback();
 }
 
 class StaticResultSet implements sys.db.ResultSet {
