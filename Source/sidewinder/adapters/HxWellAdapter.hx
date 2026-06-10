@@ -88,6 +88,7 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			if (websocketHandler == null)
 				continue;
 
+			#if hl hl.Gc.enable(false); #end
 			var events:Array<WebSocketEvent> = [];
 			wsMutex.acquire();
 			if (wsEventQueue.length > 0) {
@@ -95,6 +96,7 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 				wsEventQueue = [];
 			}
 			wsMutex.release();
+			#if hl hl.Gc.enable(true); #end
 
 			for (evt in events) {
 				try {
