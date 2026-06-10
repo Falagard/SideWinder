@@ -553,13 +553,27 @@ class AutoClientAsync {
 											var argTypeStr = TypeTools.toString(a.t);
 											if (argTypeStr.indexOf("ListQuery") != -1) {
 												bodyExprs.push(macro {
-													var __q:app.models.ListQuery = $identExpr;
+													// Accept both ListQuery instances and plain Dynamic objects.
+													// Typed cast (var __q:ListQuery) fails at runtime when a dynobj is passed.
+													var __q:Dynamic = $identExpr;
 													if (__q != null) {
-														if (__q.page != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "page=" + __q.page;
-														if (__q.pageSize != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "pageSize=" + __q.pageSize;
-														if (__q.search != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "search=" + StringTools.urlEncode(__q.search);
-														if (__q.sortBy != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "sortBy=" + StringTools.urlEncode(__q.sortBy);
-														if (__q.sortDir != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "sortDir=" + StringTools.urlEncode(__q.sortDir);
+														var __qPage:Dynamic = Reflect.field(__q, "page");
+														if (__qPage != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "page=" + __qPage;
+														var __qPs:Dynamic = Reflect.field(__q, "pageSize");
+														if (__qPs != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "pageSize=" + __qPs;
+														var __qS:Dynamic = Reflect.field(__q, "search");
+														if (__qS != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "search=" + StringTools.urlEncode(Std.string(__qS));
+														var __qSb:Dynamic = Reflect.field(__q, "sortBy");
+														if (__qSb != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "sortBy=" + StringTools.urlEncode(Std.string(__qSb));
+														var __qSd:Dynamic = Reflect.field(__q, "sortDir");
+														if (__qSd != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "sortDir=" + StringTools.urlEncode(Std.string(__qSd));
+														// Serialize any extra fields (e.g. tenantId override) not in the standard set
+														for (__qf in Reflect.fields(__q)) {
+															if (__qf != "page" && __qf != "pageSize" && __qf != "search" && __qf != "sortBy" && __qf != "sortDir") {
+																var __qfv:Dynamic = Reflect.field(__q, __qf);
+																_p += (_p.indexOf("?") == -1 ? "?" : "&") + StringTools.urlEncode(__qf) + "=" + StringTools.urlEncode(Std.string(__qfv != null ? __qfv : ""));
+															}
+														}
 													}
 												});
 											} else {
