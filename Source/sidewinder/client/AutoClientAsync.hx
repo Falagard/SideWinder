@@ -517,7 +517,13 @@ class AutoClientAsync {
 										}
 										var newName = pathParamNames.indexOf(a.name) != -1 ? '_' + a.name : a.name;
 										renamed.set(a.name, newName);
-										argDecls.push({name: newName, type: Context.toComplexType(a.t), opt: a.opt});
+										// ListQuery params use Dynamic in the signature so callers can pass plain
+										// dynobjs (e.g. from customDataLoader) without a runtime cast failure in HL.
+										var _argTypeStr = TypeTools.toString(a.t);
+										var _complexType:ComplexType = (_argTypeStr.indexOf("ListQuery") != -1)
+											? TPath({pack: [], name: "Dynamic", params: []})
+											: Context.toComplexType(a.t);
+										argDecls.push({name: newName, type: _complexType, opt: a.opt});
 									}
 									// Runtime URL building: start from literal path, replace :param tokens using renamed args
 									var bodyExprs:Array<Expr> = [];
