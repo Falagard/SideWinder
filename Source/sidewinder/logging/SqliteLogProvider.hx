@@ -74,10 +74,10 @@ class SqliteLogProvider implements ILogProvider {
 			conn.request("BEGIN TRANSACTION");
 			#if hl hl.Gc.enable(true); #end
 			for (entry in batch) {
-				var ts = Date.now().getTime() / 1000.0;
-				// GC-off covers string building (quoteString→StringTools.replace→String.split)
-				// as well as conn.request() to prevent SIGNAL 11 on any allocation in this block.
+				// GC-off covers Date.now() allocation, quoteString/StringTools.replace/String.split,
+				// and conn.request() to prevent SIGNAL 11 on any allocation in this block.
 				#if hl hl.Gc.enable(false); #end
+				var ts = Date.now().getTime() / 1000.0;
 				var sql = 'INSERT INTO internal_logs (created_at, level, message) VALUES ($ts, ${quoteString(entry.level)}, ${quoteString(entry.message)})';
 				conn.request(sql);
 				#if hl hl.Gc.enable(true); #end
