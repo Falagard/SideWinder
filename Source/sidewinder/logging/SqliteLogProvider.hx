@@ -66,19 +66,34 @@ class SqliteLogProvider implements ILogProvider {
 			return;
 
 		try {
+			// HL GC SIGNAL 11 fix: SqliteResultSet.hasNext() does List.push() during each
+			// conn.request() call; the GC running mid-allocation corrupts the list.
+			// Disable GC around each request() call (not the whole loop body, as string
+			// allocations in between are safe to collect).
+			#if hl hl.Gc.enable(false); #end
 			conn.request("BEGIN TRANSACTION");
+			#if hl hl.Gc.enable(true); #end
 			for (entry in batch) {
 				var ts = Date.now().getTime() / 1000.0;
 				var sql = 'INSERT INTO internal_logs (created_at, level, message) VALUES ($ts, ${quoteString(entry.level)}, ${quoteString(entry.message)})';
+				#if hl hl.Gc.enable(false); #end
 				conn.request(sql);
+				#if hl hl.Gc.enable(true); #end
 			}
+			#if hl hl.Gc.enable(false); #end
 			conn.request("COMMIT");
+			#if hl hl.Gc.enable(true); #end
 			batch = [];
 		} catch (e:Dynamic) {
+			#if hl hl.Gc.enable(true); #end
 			trace('SqliteLogProvider: Batch insert failed: $e');
 			try {
+				#if hl hl.Gc.enable(false); #end
 				conn.request("ROLLBACK");
-			} catch (err:Dynamic) {}
+				#if hl hl.Gc.enable(true); #end
+			} catch (err:Dynamic) {
+				#if hl hl.Gc.enable(true); #end
+			}
 		}
 	}
 
