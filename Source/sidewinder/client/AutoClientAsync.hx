@@ -779,10 +779,13 @@ class AutoClientAsync {
 									for (a in args) {
 										if (a.name == "userId" && !userIdIsPathParam) continue;
 										var newName = pathParamNames.indexOf(a.name) != -1 ? '_' + a.name : a.name;
-										// Use the concrete type (not Dynamic) so optional params like ?query:ListQuery
-										// are not accidentally matched by function arguments at call sites.
-										var ct:ComplexType = Context.toComplexType(a.t);
-										argDecls.push({name: newName, type: ct, opt: a.opt});
+										// Use Dynamic for all non-callback params. Concrete types in a TAnonymous
+										// structural type cause HL to insert coercions at the call boundary —
+										// passing an anonymous object for a struct-typedef param throws
+										// "Can't cast dynobj to X" at runtime. Dynamic avoids the coercion.
+										// Callers with optional params (e.g. ?query) must pass explicit null so
+										// Haxe doesn't confuse a callback with the query slot.
+										argDecls.push({name: newName, type: macro :Dynamic, opt: a.opt});
 									}
 									var voidType:ComplexType = TPath({pack: [], name: "Void", params: []});
 									var followedRet = Context.follow(ret);
