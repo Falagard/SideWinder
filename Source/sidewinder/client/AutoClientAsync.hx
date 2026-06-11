@@ -779,10 +779,9 @@ class AutoClientAsync {
 									for (a in args) {
 										if (a.name == "userId" && !userIdIsPathParam) continue;
 										var newName = pathParamNames.indexOf(a.name) != -1 ? '_' + a.name : a.name;
-										var argTypeStr = TypeTools.toString(a.t);
-										var ct:ComplexType = (argTypeStr.indexOf("ListQuery") != -1)
-											? TPath({pack: [], name: "Dynamic", params: []})
-											: Context.toComplexType(a.t);
+										// Use the concrete type (not Dynamic) so optional params like ?query:ListQuery
+										// are not accidentally matched by function arguments at call sites.
+										var ct:ComplexType = Context.toComplexType(a.t);
 										argDecls.push({name: newName, type: ct, opt: a.opt});
 									}
 									var voidType:ComplexType = TPath({pack: [], name: "Void", params: []});
