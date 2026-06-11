@@ -467,7 +467,7 @@ class AutoClientAsync {
 							
 							for (m in field.meta.get()) {
 								switch (m.name) {
-									case "get", "post", "put", "delete":
+									case "get", "post", "put", "patch", "delete":
 										httpMethod = m.name.toUpperCase();
 										if (m.params.length > 0) {
 											var p = m.params[0];
@@ -534,9 +534,9 @@ class AutoClientAsync {
 										bodyExprs.push(macro _p = StringTools.replace(_p, ":*" + $v{pp}, Std.string($identExpr)));
 										bodyExprs.push(macro _p = StringTools.replace(_p, ":" + $v{pp}, Std.string($identExpr)));
 									}
-									// Determine body arg (first non-path param for POST/PUT, skipping non-path userId)
+									// Determine body arg (first non-path param for POST/PUT/PATCH, skipping non-path userId)
 									var bodyArg:Null<String> = null;
-									if (httpMethod == "POST" || httpMethod == "PUT") {
+									if (httpMethod == "POST" || httpMethod == "PUT" || httpMethod == "PATCH") {
 										for (a in args) {
 											if (a.name == "userId" && !userIdIsPathParam) continue;
 											if (pathParamNames.indexOf(a.name) == -1) {
@@ -604,9 +604,7 @@ class AutoClientAsync {
 										argDecls.push({name: "onSuccess", type: TFunction([Context.toComplexType(ret)], voidType)});
 									}
 									argDecls.push({name: "onFailure", type: macro :Dynamic->Void});
-									if (field.name == "listProjects") {
-										haxe.macro.Context.warning("GENERATING listProjectsAsync with args: " + [for (a in argDecls) a.name].join(", "), Context.currentPos());
-									}
+
 									var parseExpr:Expr;
 									if (retName == "Void") {
 										parseExpr = macro {trace('[AutoClientAsync] parse void response'); onSuccess();};
@@ -712,5 +710,104 @@ class AutoClientAsync {
 				return macro null;
 		}
 	}
+
+	/**
+	 * Generates the structural type for AsyncClient<T> via @:genericBuild.
+	 * Returns TAnonymous so the impl class satisfies it via Haxe structural typing —
+	 * no unsafe casts or explicit implements needed.
+	 */
+	public static function buildAsyncClient():haxe.macro.ComplexType {
+		var ifaceType:haxe.macro.Type = null;
+		switch (Context.getLocalType()) {
+			case TInst(_, [t]): ifaceType = t;
+			default:
+				Context.error("AsyncClient requires exactly one interface type parameter", Context.currentPos());
+				return null;
+		}
+
+		var anonFields:Array<Field> = [];
+
+		// options field — exposes baseUrl/token reconfiguration without Dynamic casts
+		anonFields.push({
+			name: "options",
+			access: [],
+			kind: FVar(macro :sidewinder.client.AutoClientAsync.AutoClientOptions, null),
+			pos: Context.currentPos()
+		});
+
+		switch (Context.follow(ifaceType)) {
+			case TInst(clRef, _):
+				var cl = clRef.get();
+				if (!cl.isInterface) {
+					Context.error(cl.name + " is not an interface", Context.currentPos());
+					return null;
+				}
+				for (field in cl.fields.get()) {
+					switch (field.kind) {
+						case FMethod(_):
+							var httpMethod = "";
+							var path = "";
+							for (m in field.meta.get()) {
+								switch (m.name) {
+									case "get", "post", "put", "patch", "delete":
+										httpMethod = m.name.toUpperCase();
+										if (m.params.length > 0) {
+											switch (m.params[0].expr) {
+												case EConst(CString(s)): path = s;
+												default:
+											}
+										}
+									default:
+								}
+							}
+							if (httpMethod == "" || path == "") continue;
+							switch (field.type) {
+								case TFun(args, ret):
+									var pathParamNames:Array<String> = [];
+									for (segment in path.split("/")) {
+										if (StringTools.startsWith(segment, ":")) {
+											var paramName = segment.substr(1);
+											if (StringTools.startsWith(paramName, "*"))
+												paramName = paramName.substr(1);
+											pathParamNames.push(paramName);
+										}
+									}
+									var userIdIsPathParam = pathParamNames.indexOf("userId") != -1;
+									var argDecls:Array<FunctionArg> = [];
+									for (a in args) {
+										if (a.name == "userId" && !userIdIsPathParam) continue;
+										var newName = pathParamNames.indexOf(a.name) != -1 ? '_' + a.name : a.name;
+										var argTypeStr = TypeTools.toString(a.t);
+										var ct:ComplexType = (argTypeStr.indexOf("ListQuery") != -1)
+											? TPath({pack: [], name: "Dynamic", params: []})
+											: Context.toComplexType(a.t);
+										argDecls.push({name: newName, type: ct, opt: a.opt});
+									}
+									var voidType:ComplexType = TPath({pack: [], name: "Void", params: []});
+									var followedRet = Context.follow(ret);
+									var retName = TypeTools.toString(followedRet);
+									if (retName == "Void") {
+										argDecls.push({name: "onSuccess", type: TFunction([], voidType), opt: false});
+									} else {
+										argDecls.push({name: "onSuccess", type: TFunction([Context.toComplexType(ret)], voidType), opt: false});
+									}
+									argDecls.push({name: "onFailure", type: macro :Dynamic->Void, opt: false});
+									anonFields.push({
+										name: field.name + "Async",
+										access: [],
+										kind: FFun({args: argDecls, params: [], ret: macro :Void, expr: null}),
+										pos: field.pos
+									});
+								default:
+							}
+						default:
+					}
+				}
+			default:
+				Context.error("Expected interface type parameter", Context.currentPos());
+		}
+		return TAnonymous(anonFields);
+	}
 	#end
 }
+
