@@ -222,9 +222,11 @@ class AutoClientAsync {
 							var executeHttp:Void->Void = null;
 							executeHttp = function() {
 								trace('[AutoClientAsync] request method=' + request.method + ' url=' + request.url);
-								
-								#if (sys && !html5)
-								// Use openfl.net.URLLoader asynchronously to prevent UI freezing without GC deadlocks on desktop
+
+								#if openfl
+								// Use openfl.net.URLLoader for all OpenFL targets (desktop + html5).
+								// On desktop it prevents GC deadlocks; on html5 URLLoader wraps XHR and
+								// correctly handles all HTTP methods including PATCH/PUT/DELETE.
 								var req = new openfl.net.URLRequest(request.url);
 								req.method = request.method;
 								req.requestHeaders.push(new openfl.net.URLRequestHeader("Accept", "application/json"));
