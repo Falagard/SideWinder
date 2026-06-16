@@ -428,16 +428,22 @@ class AutoRouter {
 											sidewinder.logging.HybridLogger.error('[AutoRouter] Error in ' + $v{methodName} + ': ' + Std.string(e) + '\nStack: ' + stack);
 											var errStr = Std.string(e);
 											var __errStatusInt:Int = 500;
-											if (errStr == "404") __errStatusInt = 404;
+											// Object throws with a numeric `status` field (e.g. throw {status: 501, message: "..."})
+											if (Reflect.hasField(e, "status") && Std.isOfType(Reflect.field(e, "status"), Int)) {
+												__errStatusInt = cast Reflect.field(e, "status");
+											} else if (errStr == "404") __errStatusInt = 404;
 											else if (errStr == "403") __errStatusInt = 403;
 											else if (errStr == "401") __errStatusInt = 401;
 											else if (errStr.indexOf("UNIQUE constraint") != -1) __errStatusInt = 409;
 											else if (errStr.indexOf("quota exceeded") != -1 || errStr.indexOf("QuotaExceeded") != -1) __errStatusInt = 400;
 											else if (errStr.indexOf("signature") != -1 || errStr.indexOf("Signature") != -1) __errStatusInt = 400;
-											
+
 											var json = "";
 											if (__errStatusInt == 500) { json = haxe.Json.stringify({error: "Internal Server Error", message: errStr}); }
-											else { json = haxe.Json.stringify({error: errStr}); }
+											else {
+												var errMsg:String = Reflect.hasField(e, "message") ? Std.string(Reflect.field(e, "message")) : errStr;
+												json = haxe.Json.stringify({error: errMsg});
+											}
 											
 											__rtRes.sendResponse(sidewinder.routing.StatusHelper.getStatus(__errStatusInt));
 											__rtRes.setHeader("Content-Type", "application/json");
