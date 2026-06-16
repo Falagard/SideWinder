@@ -81,8 +81,8 @@ class SqliteLogProvider implements ILogProvider {
 			}
 			#if hl hl.Gc.enable(false); #end
 			try { conn.request("COMMIT"); } catch (e:Dynamic) { #if hl hl.Gc.enable(true); #end throw e; }
-			#if hl hl.Gc.enable(true); #end
 			batch = [];
+			#if hl hl.Gc.enable(true); #end
 		} catch (e:Dynamic) {
 			trace('SqliteLogProvider: Batch insert failed: $e');
 			try {
