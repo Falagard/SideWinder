@@ -143,7 +143,10 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			scope.destroy();
 		};
 
-		var swReq:Router.Request = null;
+		// Capture request context for crash reporting — populated after convertRequest succeeds.
+		var _crashMethod = q.hxRequest.method;
+		var _crashPath   = q.hxRequest.path;
+		var _crashPkey:Null<String> = q.hxRequest.header("X-Project-Key");
 		try {
 			// Ensure client socket is in blocking mode for synchronous processing on HashLink.
 			// This prevents 'haxe.io.Error.Blocked' during RPC handlers or static file serving
@@ -152,7 +155,10 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			q.socket.setBlocking(true);
 			#end
 
-			swReq = convertRequest(q.hxRequest, q.socket);
+			var swReq = convertRequest(q.hxRequest, q.socket);
+			_crashMethod = swReq.method;
+			_crashPath   = swReq.path;
+			_crashPkey   = swReq.headers.get("X-Project-Key");
 			pctx.ipAddress = swReq.ip;
 			pctx.userAgent = swReq.headers.get("user-agent");
 
@@ -235,10 +241,7 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			#end
 			if (onRequestError != null) {
 				try {
-					var method = swReq != null ? swReq.method : q.hxRequest.method;
-					var path   = swReq != null ? swReq.path   : q.hxRequest.path;
-					var pkey   = swReq != null ? swReq.headers.get("X-Project-Key") : q.hxRequest.header("X-Project-Key");
-					onRequestError(method, path, pkey, e, eStack);
+					onRequestError(_crashMethod, _crashPath, _crashPkey, e, eStack);
 				} catch (_:Dynamic) {}
 			}
 			try {
