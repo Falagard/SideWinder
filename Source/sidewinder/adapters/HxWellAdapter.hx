@@ -44,8 +44,8 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 	public var router:Router = Router.instance;
 
 	// Hook called when an unhandled exception escapes a request handler (500 errors).
-	// Receives: method, path, projectKey (from X-Project-Key header, may be null), exception, stack trace.
-	public static var onRequestError:Null<(method:String, path:String, projectKey:Null<String>, e:Dynamic, stack:String)->Void>;
+	// Receives: method, path, request headers, exception, stack trace.
+	public static var onRequestError:Null<(method:String, path:String, headers:Map<String,String>, e:Dynamic, stack:String)->Void>;
 
 	// WebSocket support
 	var websocketHandler:IWebSocketHandler;
@@ -144,9 +144,9 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 		};
 
 		// Capture request context for crash reporting — populated after convertRequest succeeds.
-		var _crashMethod = q.hxRequest.method;
-		var _crashPath   = q.hxRequest.path;
-		var _crashPkey:Null<String> = q.hxRequest.header("X-Project-Key");
+		var _crashMethod  = q.hxRequest.method;
+		var _crashPath    = q.hxRequest.path;
+		var _crashHeaders = new Map<String, String>();
 		try {
 			// Ensure client socket is in blocking mode for synchronous processing on HashLink.
 			// This prevents 'haxe.io.Error.Blocked' during RPC handlers or static file serving
@@ -156,9 +156,9 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			#end
 
 			var swReq = convertRequest(q.hxRequest, q.socket);
-			_crashMethod = swReq.method;
-			_crashPath   = swReq.path;
-			_crashPkey   = swReq.headers.get("X-Project-Key");
+			_crashMethod  = swReq.method;
+			_crashPath    = swReq.path;
+			_crashHeaders = swReq.headers;
 			pctx.ipAddress = swReq.ip;
 			pctx.userAgent = swReq.headers.get("user-agent");
 
@@ -241,7 +241,7 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			#end
 			if (onRequestError != null) {
 				try {
-					onRequestError(_crashMethod, _crashPath, _crashPkey, e, eStack);
+					onRequestError(_crashMethod, _crashPath, _crashHeaders, e, eStack);
 				} catch (_:Dynamic) {}
 			}
 			try {
