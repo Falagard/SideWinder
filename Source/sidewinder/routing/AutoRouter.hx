@@ -17,6 +17,10 @@ using haxe.macro.TypeTools;
  */
 class AutoRouter {
 
+	// Hook called when a handler throws an unhandled exception (after AutoRouter catches it).
+	// Receives: method, path, exception, stack trace string.
+	public static var onHandlerError:Null<(method:String, path:String, e:Dynamic, stack:String)->Void>;
+
 	public static macro function build(routerExpr:Expr, ifaceExpr:Expr, implExpr:Expr, ?cacheExpr:Expr):Expr {
 		var router = routerExpr;
 		var routeExprs:Array<Expr> = [];
@@ -426,6 +430,9 @@ class AutoRouter {
 										} catch (e:Dynamic) {
 											var stack = haxe.CallStack.toString(haxe.CallStack.exceptionStack());
 											sidewinder.logging.HybridLogger.error('[AutoRouter] Error in ' + $v{methodName} + ': ' + Std.string(e) + '\nStack: ' + stack);
+											if (sidewinder.routing.AutoRouter.onHandlerError != null) {
+												try { sidewinder.routing.AutoRouter.onHandlerError(__rtReq.method, __rtReq.path, e, stack); } catch (_:Dynamic) {}
+											}
 											var errStr = Std.string(e);
 											var __errStatusInt:Int = 500;
 											// Object throws with a numeric `status` field (e.g. throw {status: 501, message: "..."})
