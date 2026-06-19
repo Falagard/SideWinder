@@ -64,6 +64,7 @@ typedef AutoClientOptions = {
     var baseUrl:String;
     @:optional var cookieJar:Dynamic;
     @:optional var projectKey:String;
+    @:optional var projectId:String;
     @:optional var token:String;
     @:optional var authProviderResolver:IAutoClientAuthProviderResolver;
 }
@@ -238,7 +239,11 @@ class AutoClientAsync {
 								if (options.projectKey != null && options.projectKey != "" && request.url.indexOf("/v1/auth/") == -1) {
 									req.requestHeaders.push(new openfl.net.URLRequestHeader("X-Project-Key", options.projectKey));
 								}
-								
+
+								if (options.projectId != null && options.projectId != "" && request.url.indexOf("/v1/auth/") == -1) {
+									req.requestHeaders.push(new openfl.net.URLRequestHeader("X-Project-Id", options.projectId));
+								}
+
 								// Apply external headers
 								for (key in request.headers.keys()) {
 									req.requestHeaders.push(new openfl.net.URLRequestHeader(key, request.headers.get(key)));
@@ -316,7 +321,11 @@ class AutoClientAsync {
 								if (options.projectKey != null && options.projectKey != "" && request.url.indexOf("/v1/auth/") == -1) {
 									h.setHeader("X-Project-Key", options.projectKey);
 								}
-								
+
+								if (options.projectId != null && options.projectId != "" && request.url.indexOf("/v1/auth/") == -1) {
+									h.setHeader("X-Project-Id", options.projectId);
+								}
+
 								// Apply external headers from request.headers
 								for (key in request.headers.keys()) {
 									h.setHeader(key, request.headers.get(key));
