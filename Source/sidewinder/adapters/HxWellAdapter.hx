@@ -43,6 +43,10 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 	// Inject router to avoid circular dependency with SideWinderRequestHandler
 	public var router:Router = Router.instance;
 
+	// Hook called when an unhandled exception escapes a request handler (500 errors).
+	// Receives: method, path, projectKey (from X-Project-Key header, may be null), exception, stack trace.
+	public static var onRequestError:Null<(method:String, path:String, projectKey:Null<String>, e:Dynamic, stack:String)->Void>;
+
 	// WebSocket support
 	var websocketHandler:IWebSocketHandler;
 	var wsEventQueue:Array<WebSocketEvent> = [];
@@ -139,6 +143,7 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			scope.destroy();
 		};
 
+		var swReq:Router.Request = null;
 		try {
 			// Ensure client socket is in blocking mode for synchronous processing on HashLink.
 			// This prevents 'haxe.io.Error.Blocked' during RPC handlers or static file serving
@@ -146,8 +151,8 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			#if sys
 			q.socket.setBlocking(true);
 			#end
-			
-			var swReq = convertRequest(q.hxRequest, q.socket);
+
+			swReq = convertRequest(q.hxRequest, q.socket);
 			pctx.ipAddress = swReq.ip;
 			pctx.userAgent = swReq.headers.get("user-agent");
 
@@ -223,9 +228,19 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			cleanup();
 		} catch (e:Dynamic) {
 			HybridLogger.error('[HxWellAdapter] [$requestId] Error processing request: ' + e);
+			var eStack = "";
 			#if hl
-			HybridLogger.error(haxe.CallStack.toString(haxe.CallStack.exceptionStack()));
+			eStack = haxe.CallStack.toString(haxe.CallStack.exceptionStack());
+			HybridLogger.error(eStack);
 			#end
+			if (onRequestError != null) {
+				try {
+					var method = swReq != null ? swReq.method : q.hxRequest.method;
+					var path   = swReq != null ? swReq.path   : q.hxRequest.path;
+					var pkey   = swReq != null ? swReq.headers.get("X-Project-Key") : q.hxRequest.header("X-Project-Key");
+					onRequestError(method, path, pkey, e, eStack);
+				} catch (_:Dynamic) {}
+			}
 			try {
 				if (!@:privateAccess (swRes:Dynamic).headersSent) {
 					swRes.sendResponse(HTTPStatus.INTERNAL_SERVER_ERROR);
