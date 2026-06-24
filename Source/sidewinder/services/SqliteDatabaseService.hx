@@ -809,10 +809,20 @@ class StaticResultSet implements sys.db.ResultSet {
         rows = [];
         if (rs != null) {
             var count = 0;
-            for (r in rs) {
-                rows.push(r);
-                count++;
+            // HL GC SIGNAL 11 fix: SqliteResultSet.hasNext() calls List.push() to prefetch
+            // the next row. If the GC fires during that allocation the heap is corrupted.
+            // Disable GC for the entire iteration; each rs.next() row is small.
+            #if hl hl.Gc.enable(false); #end
+            try {
+                for (r in rs) {
+                    rows.push(r);
+                    count++;
+                }
+            } catch (e:Dynamic) {
+                #if hl hl.Gc.enable(true); #end
+                throw e;
             }
+            #if hl hl.Gc.enable(true); #end
             // Sys.println('[DIAG] [StaticResultSet] Iterated ' + count + ' rows');
         }
     }
