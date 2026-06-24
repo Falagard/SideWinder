@@ -135,6 +135,7 @@ class AutoRouter {
 							var routesToRegister = [];
 							var requiresAuth = false;
 							var requiredPermission:String = null;
+							var defaultStatusCode:Int = 200;
 							for (m in field.meta.get()) {
 								switch (m.name) {
 									case "get", "post", "put", "delete", "patch":
@@ -163,6 +164,16 @@ class AutoRouter {
 													requiredPermission = s;
 												default:
 													Context.error('Expected string literal in @requiresPermission', p.pos);
+											}
+										}
+									case "status":
+										if (m.params.length > 0) {
+											var p = m.params[0];
+											switch (p.expr) {
+												case EConst(CInt(s)):
+													defaultStatusCode = Std.parseInt(s);
+												default:
+													Context.error('Expected integer literal in @status', p.pos);
 											}
 										}
 									default:
@@ -365,12 +376,12 @@ class AutoRouter {
 
 									if (isVoid()) {
 										handlerBody.push(macro inst.$methodName($a{callArgNames}));
-										handlerBody.push(macro __rtRes.sendResponse(sidewinder.routing.StatusHelper.getStatus(200)));
+										handlerBody.push(macro __rtRes.sendResponse(sidewinder.routing.StatusHelper.getStatus($v{defaultStatusCode})));
 										handlerBody.push(macro __rtRes.endHeaders());
 										handlerBody.push(macro __rtRes.end());
 									} else if (isPrimitive()) {
 										handlerBody.push(macro var result = inst.$methodName($a{callArgNames}));
-										handlerBody.push(macro __rtRes.sendResponse(sidewinder.routing.StatusHelper.getStatus(200)));
+										handlerBody.push(macro __rtRes.sendResponse(sidewinder.routing.StatusHelper.getStatus($v{defaultStatusCode})));
 										handlerBody.push(macro __rtRes.setHeader("Content-Type", "application/json"));
 										handlerBody.push(macro var json = haxe.Json.stringify(result));
 										handlerBody.push(macro __rtRes.setHeader('Content-Length', Std.string(haxe.io.Bytes.ofString(json).length)));
@@ -380,7 +391,7 @@ class AutoRouter {
 									} else {
 										handlerBody.push(macro var result = inst.$methodName($a{callArgNames}));
 										handlerBody.push(macro {
-											var __statusInt:Int = 200;
+											var __statusInt:Int = $v{defaultStatusCode};
 											var __cookies:Array<Dynamic> = null;
 
 											if (result != null) {
