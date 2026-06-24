@@ -494,15 +494,20 @@ class SqliteDatabaseService implements IDatabaseService {
             
             var rs = c.request(finalSql);
             if (rs != null) {
-                while (rs.hasNext()) {
-                    rs.next();
-                }
+                // HL GC SIGNAL 11 fix: drain raw ResultSet with GC disabled
+                #if hl hl.Gc.enable(false); #end
+                try { while (rs.hasNext()) rs.next(); } catch (drainE:Dynamic) { #if hl hl.Gc.enable(true); #end throw drainE; }
+                #if hl hl.Gc.enable(true); #end
             }
-            
+
             try {
                 var checkRs = c.request("SELECT changes() as changed");
-                if (checkRs.hasNext()) {
-                    var changes = checkRs.next().changed;
+                // HL GC SIGNAL 11 fix: protect hasNext/next on raw ResultSet
+                #if hl hl.Gc.enable(false); #end
+                var hasChk = checkRs.hasNext();
+                var changes:Dynamic = hasChk ? checkRs.next().changed : 0;
+                #if hl hl.Gc.enable(true); #end
+                if (hasChk && changes == 0) {
                     if (changes == 0 && (StringTools.startsWith(lowerSql, "insert ") || StringTools.startsWith(lowerSql, "update ") || StringTools.startsWith(lowerSql, "delete "))) {
                         if (lowerSql.indexOf(" ignore ") == -1 && lowerSql.indexOf(" replace ") == -1) {
                              if ((StringTools.startsWith(lowerSql, "insert ") && lowerSql.indexOf(" select ") == -1) || 
@@ -552,12 +557,20 @@ class SqliteDatabaseService implements IDatabaseService {
             var c = getConn();
             var rs = c.request(finalSql);
             if (rs != null) {
-                while (rs.hasNext()) rs.next();
+                // HL GC SIGNAL 11 fix: drain raw ResultSet with GC disabled
+                #if hl hl.Gc.enable(false); #end
+                try { while (rs.hasNext()) rs.next(); } catch (drainE:Dynamic) { #if hl hl.Gc.enable(true); #end throw drainE; }
+                #if hl hl.Gc.enable(true); #end
             }
 
             // Check if it actually worked
             var checkRs = c.request("SELECT changes() as changed");
-            if (checkRs.hasNext() && checkRs.next().changed == 0) {
+            // HL GC SIGNAL 11 fix: protect hasNext/next on raw ResultSet
+            #if hl hl.Gc.enable(false); #end
+            var hasChkId = checkRs.hasNext();
+            var changedId:Dynamic = hasChkId ? checkRs.next().changed : -1;
+            #if hl hl.Gc.enable(true); #end
+            if (hasChkId && changedId == 0) {
                 var lowerSql = finalSql.toLowerCase();
                 if (lowerSql.indexOf(" ignore ") == -1 && lowerSql.indexOf(" replace ") == -1) {
                     releaseLock(dbPath);
