@@ -12,7 +12,7 @@ using haxe.macro.TypeTools;
 using haxe.macro.ExprTools;
 
 class AutoClient {
-    public static macro function create(iface:Expr, baseUrl:Expr, ?cookieJar:Expr, ?projectKey:Expr):Expr {
+    public static macro function create(iface:Expr, baseUrl:Expr, ?cookieJar:Expr, ?projectKey:Expr, ?headers:Expr):Expr {
         var ifaceName = switch (iface.expr) {
             case EConst(CIdent(s)): s;
             default: Context.error("Expected interface identifier", iface.pos); "";
@@ -44,18 +44,26 @@ class AutoClient {
                     pos: Context.currentPos()
                 });
                 fields.push({
+                    name: "headers",
+                    access: [APrivate],
+                    kind: FVar(macro:Map<String,String>, null),
+                    pos: Context.currentPos()
+                });
+                fields.push({
                     name: "new",
                     access: [APublic],
                     kind: FFun({
-                        args: [ 
+                        args: [
                             { name: "baseUrl", type: macro:String },
                             { name: "cookieJar", type: macro:sidewinder.data.CookieJar, opt: true },
-                            { name: "projectKey", type: macro:String, opt: true }
+                            { name: "projectKey", type: macro:String, opt: true },
+                            { name: "headers", type: macro:Map<String,String>, opt: true }
                         ],
                         expr: macro {
                             this.baseUrl = baseUrl;
                             this.cookieJar = (cookieJar != null) ? cookieJar : new sidewinder.data.CookieJar();
                             this.projectKey = projectKey;
+                            this.headers = headers;
                         },
                         params: [],
                         ret: null
@@ -102,6 +110,9 @@ class AutoClient {
                                 }
                                 #end
 
+                                if (this.headers != null) {
+                                    for (__hk in this.headers.keys()) curlHeaders.push(__hk + ": " + this.headers.get(__hk));
+                                }
                                 curl.setOption(lime.net.curl.CURLOption.HTTPHEADER, curlHeaders);
 
                                 var responseBuffer = new haxe.io.BytesBuffer();
@@ -143,6 +154,9 @@ class AutoClient {
                                 if (jsonBody != null) {
                                     h.setHeader("Content-Type", "application/json");
                                     h.setPostData(jsonBody);
+                                }
+                                if (this.headers != null) {
+                                    for (__hk in this.headers.keys()) h.setHeader(__hk, this.headers.get(__hk));
                                 }
                                 // Add cookies for sys targets
                                 #if sys
@@ -398,7 +412,7 @@ class AutoClient {
                 var typePath:TypePath = { pack: ["sidewinder"], name: uniqueName };
                 // Return the new instance, strictly typed as the interface
                 var ifaceType = Context.toComplexType(t);
-                return macro (cast (new $typePath($e{baseUrl}, $e{cookieJar}, $e{projectKey}) : $ifaceType));
+                return macro (cast (new $typePath($e{baseUrl}, $e{cookieJar}, $e{projectKey}, $e{headers}) : $ifaceType));
             case _: Context.error("Expected interface type", iface.pos); return macro null;
         }
     }
