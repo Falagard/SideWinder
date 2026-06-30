@@ -1,0 +1,13 @@
+{
+  "name": "sidewinder-client",
+  "url": "https://github.com/Falagard/SideWinder/",
+  "license": "Public",
+  "tags": ["http", "client", "sys", "web"],
+  "description": "Standalone typed HTTP client (AutoClient) extracted from SideWinder",
+  "version": "0.1.0",
+  "classPath": "Source",
+  "main": "",
+  "dependencies": {},
+  "contributors": ["Falagard"],
+  "releasenote": "Initial extraction of AutoClient from SideWinder."
+}
