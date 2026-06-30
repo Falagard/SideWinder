@@ -288,13 +288,20 @@ class AutoClient {
                                             var argTypeStr = TypeTools.toString(a.t);
                                             if (argTypeStr.indexOf("ListQuery") != -1) {
                                                 bodyExprs.push(macro {
-                                                    var __q:app.models.ListQuery = $identExpr;
+                                                    // Accept both ListQuery instances and plain Dynamic objects (HL-safe:
+                                                    // a typed cast throws "Can't cast dynobj" when a dynobj is passed).
+                                                    var __q:Dynamic = $identExpr;
                                                     if (__q != null) {
-                                                        if (__q.page != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "page=" + __q.page;
-                                                        if (__q.pageSize != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "pageSize=" + __q.pageSize;
-                                                        if (__q.search != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "search=" + StringTools.urlEncode(__q.search);
-                                                        if (__q.sortBy != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "sortBy=" + StringTools.urlEncode(__q.sortBy);
-                                                        if (__q.sortDir != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "sortDir=" + StringTools.urlEncode(__q.sortDir);
+                                                        var __qPage:Dynamic = Reflect.field(__q, "page");
+                                                        if (__qPage != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "page=" + __qPage;
+                                                        var __qPs:Dynamic = Reflect.field(__q, "pageSize");
+                                                        if (__qPs != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "pageSize=" + __qPs;
+                                                        var __qS:Dynamic = Reflect.field(__q, "search");
+                                                        if (__qS != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "search=" + StringTools.urlEncode(Std.string(__qS));
+                                                        var __qSb:Dynamic = Reflect.field(__q, "sortBy");
+                                                        if (__qSb != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "sortBy=" + StringTools.urlEncode(Std.string(__qSb));
+                                                        var __qSd:Dynamic = Reflect.field(__q, "sortDir");
+                                                        if (__qSd != null) _p += (_p.indexOf("?") == -1 ? "?" : "&") + "sortDir=" + StringTools.urlEncode(Std.string(__qSd));
                                                     }
                                                 });
                                             } else {
