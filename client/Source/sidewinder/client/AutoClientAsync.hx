@@ -199,6 +199,13 @@ class AutoClientAsync {
 						params: [],
 						ret: macro :Void,
 						expr: macro {
+							var _dispatch = function(fn:Void->Void) {
+								#if (openfl || haxeui)
+								haxe.ui.Toolkit.callLater(fn);
+								#else
+								fn();
+								#end
+							};
 							var request:sidewinder.client.AutoClientAsync.AutoClientRequest = {
 								method: method,
 								url: options.baseUrl + path,
@@ -279,7 +286,7 @@ class AutoClientAsync {
 									// Defer UI mutations to next frame to avoid re-entrant HaxeUI modifications
 									// during OpenFL URLLoader event dispatch / Cairo rendering pass (HashLink native).
 									var capturedData = rawData;
-									haxe.ui.Toolkit.callLater(function() {
+									_dispatch(function() {
 										onData(capturedData);
 									});
 								});
@@ -303,7 +310,7 @@ class AutoClientAsync {
 									}
 									// Defer UI mutations to next frame (same reason as COMPLETE handler above).
 									var capturedError = errorMsg;
-									haxe.ui.Toolkit.callLater(function() {
+									_dispatch(function() {
 										onError(capturedError);
 									});
 								});
@@ -365,7 +372,7 @@ class AutoClientAsync {
 													case Success:
 														executeHttp();
 													case Failure(err):
-														haxe.ui.Toolkit.callLater(function() {
+														_dispatch(function() {
 															onError(err);
 														});
 												}
@@ -381,7 +388,7 @@ class AutoClientAsync {
 											Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiError"), [method, request.url, status, rawData, null, elapsed, spanId]);
 										}
 									}
-									haxe.ui.Toolkit.callLater(function() {
+									_dispatch(function() {
 										onData(rawData);
 									});
 								};
@@ -397,7 +404,7 @@ class AutoClientAsync {
 													case Success:
 														executeHttp();
 													case Failure(err):
-														haxe.ui.Toolkit.callLater(function() {
+														_dispatch(function() {
 															onError(err);
 														});
 												}
@@ -409,7 +416,7 @@ class AutoClientAsync {
 									if (recorderInstance != null) {
 										Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiError"), [method, request.url, status, Std.string(err), null, elapsed, spanId]);
 									}
-									haxe.ui.Toolkit.callLater(function() {
+									_dispatch(function() {
 										onError(err);
 									});
 								};
@@ -436,7 +443,7 @@ class AutoClientAsync {
 										if (recorderInstance != null) {
 											Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiError"), [method, request.url, null, "Exception: " + Std.string(e), null, elapsed, spanId]);
 										}
-										haxe.ui.Toolkit.callLater(function() {
+										_dispatch(function() {
 											onError(e);
 										});
 									}
