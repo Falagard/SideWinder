@@ -491,8 +491,14 @@ class SqliteDatabaseService implements IDatabaseService {
             var c = getConn();
             var trimmedSqlRaw = StringTools.trim(finalSql);
             var lowerSql = trimmedSqlRaw.toLowerCase();
-            
-            var rs = c.request(finalSql);
+
+            // Use trimmedSqlRaw instead of finalSql so that SQL strings loaded from files
+            // (e.g. migration files ending with ";\n") do not leave content after the first
+            // statement's terminating semicolon.  sqlite3_prepare16_v2 sets *tl (tail pointer)
+            // to whatever follows the first statement; if *tl != 0 the SideWinder sqlite.c
+            // throws "Cannot execute several SQL requests at the same time".  Trimming removes
+            // the trailing newline so tl points to the null terminator (*tl == 0).
+            var rs = c.request(trimmedSqlRaw);
             if (rs != null) {
                 // HL GC SIGNAL 11 fix: drain raw ResultSet with GC disabled
                 #if hl hl.Gc.enable(false); #end
@@ -500,12 +506,22 @@ class SqliteDatabaseService implements IDatabaseService {
                 #if hl hl.Gc.enable(true); #end
             }
 
-            try {
+            // Only run the changes() check for DML (INSERT / UPDATE / DELETE).
+            // DDL (CREATE, DROP, ALTER, PRAGMA) and transaction control (BEGIN, COMMIT,
+            // ROLLBACK) never change rows.  Running `SELECT changes()` after DDL or
+            // transaction control leaves a dangling prepared statement on the connection
+            // because the HL SQLite driver does not finalize statements until GC — this
+            // causes "Cannot execute several SQL requests at the same time" on back-to-back
+            // execute() calls (e.g. in ApplicationMigrationExecutor.runScopedMigrations).
+            var isDml = StringTools.startsWith(lowerSql, "insert ") || StringTools.startsWith(lowerSql, "update ") || StringTools.startsWith(lowerSql, "delete ");
+            if (isDml) try {
                 var checkRs = c.request("SELECT changes() as changed");
                 // HL GC SIGNAL 11 fix: protect hasNext/next on raw ResultSet
                 #if hl hl.Gc.enable(false); #end
                 var hasChk = checkRs.hasNext();
                 var changes:Dynamic = hasChk ? checkRs.next().changed : 0;
+                // Drain checkRs fully so the SQLite prepared statement is finalized.
+                if (hasChk) checkRs.hasNext();
                 #if hl hl.Gc.enable(true); #end
                 if (hasChk && changes == 0) {
                     if (changes == 0 && (StringTools.startsWith(lowerSql, "insert ") || StringTools.startsWith(lowerSql, "update ") || StringTools.startsWith(lowerSql, "delete "))) {
@@ -555,7 +571,8 @@ class SqliteDatabaseService implements IDatabaseService {
         
         try {
             var c = getConn();
-            var rs = c.request(finalSql);
+            var trimmedForId = StringTools.trim(finalSql);
+            var rs = c.request(trimmedForId);
             if (rs != null) {
                 // HL GC SIGNAL 11 fix: drain raw ResultSet with GC disabled
                 #if hl hl.Gc.enable(false); #end

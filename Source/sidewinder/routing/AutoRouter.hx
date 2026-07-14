@@ -337,8 +337,10 @@ class AutoRouter {
 											}
 											if (!__hasPerm) {
 												try {
+													#if haxestack_platform_server
 													var __ctx = sidewinder.core.DI.get(app.services.ProjectContext);
 													if (__ctx != null && __ctx.isAdminRequest) { __hasPerm = true; }
+													#end
 												} catch(e:Dynamic) {}
 											}
 											if (!__hasPerm) {
