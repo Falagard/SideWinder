@@ -21,9 +21,11 @@ import sidewinder.interfaces.IWebServer;
 import sidewinder.interfaces.IWebSocketServer;
 import hx.well.websocket.WebSocketSession;
 import sidewinder.adapters.HxWellAdapterTypes;
+#if haxestack_platform_server
 import app.util.RequestId;
 import app.services.ProjectContext;
 import core.IServerConfig;
+#end
 
 /**
  * Adapter for hxwell server.
@@ -38,7 +40,19 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 	var running:Bool = false;
 	var driver:sidewinder.adapters.CustomSocketDriver;
 	var islandManager:IslandManager;
+	#if haxestack_platform_server
 	var serverConfig:IServerConfig;
+	#else
+	private static inline var DEFAULT_MAX_HEADER_SIZE = 32768;
+	private static inline var DEFAULT_MAX_URL_LENGTH = 8192;
+	private static inline var DEFAULT_MAX_REQUEST_BODY_SIZE = 10485760;  // 10 MB
+	private static inline var DEFAULT_MAX_WS_MESSAGE_SIZE = 65536;  // 64 KB
+	#end
+
+	// Hook invoked after a request is converted, so a host application can set up
+	// per-request scoped services (e.g. tenant context). Present in both platform
+	// and standalone (generated app) builds — must NOT be wrapped in #if.
+	public static var onScopeSetup:Null<(scope:Dynamic, request:Dynamic)->Void> = null;
 
 	// Inject router to avoid circular dependency with SideWinderRequestHandler
 	public var router:Router = Router.instance;
@@ -58,10 +72,14 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 		this.port = port;
 		this.directory = directory;
 		this.numIslands = islandManager.getIslandCount();
+		#if haxestack_platform_server
 		this.serverConfig = DI.get(IServerConfig);
 
 		// Synchronize message size limit with the driver
 		hx.well.http.driver.socket.SocketWebSocketHandler.maxMessageSize = this.serverConfig.maxWebSocketMessageSize;
+		#else
+		hx.well.http.driver.socket.SocketWebSocketHandler.maxMessageSize = DEFAULT_MAX_WS_MESSAGE_SIZE;
+		#end
 
 		// Using sys.thread.Thread.create for HashLink reliability over MainLoop.addThread
 		sys.thread.Thread.create(processWebSocketEvents);
@@ -128,13 +146,27 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 	}
 
 	public function processQueuedRequest(q:QueuedRequest):Void {
+		#if haxestack_platform_server
 		var requestId = RequestId.generate();
+		#else
+		var requestId = Std.string(Date.now().getTime()) + "_" + Std.string(Std.int(Math.random() * 1000000));
+		#end
 		var scope = DI.createScope();
 		DI.setThreadProvider(scope);
 
+		#if haxestack_platform_server
 		var pctx = scope.getService(ProjectContext);
 		pctx.requestId = requestId;
 		pctx.nodeId = serverConfig.nodeId;
+
+		var maxHeaderSize = serverConfig.maxHeaderSize;
+		var maxUrlLength = serverConfig.maxUrlLength;
+		var maxRequestBodySize = serverConfig.maxRequestBodySize;
+		#else
+		var maxHeaderSize = DEFAULT_MAX_HEADER_SIZE;
+		var maxUrlLength = DEFAULT_MAX_URL_LENGTH;
+		var maxRequestBodySize = DEFAULT_MAX_REQUEST_BODY_SIZE;
+		#end
 
 		var swRes = createResponse(q.socket, requestId);
 
@@ -159,16 +191,21 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			_crashMethod  = swReq.method;
 			_crashPath    = swReq.path;
 			_crashHeaders = swReq.headers;
+			#if haxestack_platform_server
 			pctx.ipAddress = swReq.ip;
 			pctx.userAgent = swReq.headers.get("user-agent");
+			#end
+
+			// Per-request scope setup hook (both platform and standalone builds).
+			if (onScopeSetup != null) onScopeSetup(scope, swReq);
 
 			// Enforce Header Size Limit
 			var totalHeaderSize = 0;
 			for (k in swReq.headers.keys()) {
 				totalHeaderSize += k.length + swReq.headers.get(k).length + 4; // Approximation
 			}
-			if (totalHeaderSize > serverConfig.maxHeaderSize) {
-				HybridLogger.warn('[HxWellAdapter] [$requestId] Headers too large: $totalHeaderSize > ${serverConfig.maxHeaderSize}');
+			if (totalHeaderSize > maxHeaderSize) {
+				HybridLogger.warn('[HxWellAdapter] [$requestId] Headers too large: $totalHeaderSize > ${maxHeaderSize}');
 				swRes.sendError(HTTPStatus.REQUEST_HEADER_FIELDS_TOO_LARGE);
 				swRes.end();
 				cleanup();
@@ -176,8 +213,8 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			}
 
 			// Enforce URL length limit
-			if (swReq.path.length > serverConfig.maxUrlLength) {
-				HybridLogger.warn('[HxWellAdapter] [$requestId] URL too long: ${swReq.path.length} > ${serverConfig.maxUrlLength}');
+			if (swReq.path.length > maxUrlLength) {
+				HybridLogger.warn('[HxWellAdapter] [$requestId] URL too long: ${swReq.path.length} > ${maxUrlLength}');
 				swRes.sendError(HTTPStatus.REQUEST_URI_TOO_LONG);
 				swRes.end();
 				cleanup();
@@ -185,8 +222,8 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			}
 
 			// Enforce request body size limit
-			if (swReq.rawBodyBytes != null && swReq.rawBodyBytes.length > serverConfig.maxRequestBodySize) {
-				HybridLogger.warn('[HxWellAdapter] [$requestId] Body too large: ${swReq.rawBodyBytes.length} > ${serverConfig.maxRequestBodySize}');
+			if (swReq.rawBodyBytes != null && swReq.rawBodyBytes.length > maxRequestBodySize) {
+				HybridLogger.warn('[HxWellAdapter] [$requestId] Body too large: ${swReq.rawBodyBytes.length} > ${maxRequestBodySize}');
 				swRes.sendError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE);
 				swRes.end();
 				cleanup();
