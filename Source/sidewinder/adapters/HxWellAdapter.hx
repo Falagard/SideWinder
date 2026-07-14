@@ -61,6 +61,10 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 	// Receives: method, path, request headers, exception, stack trace.
 	public static var onRequestError:Null<(method:String, path:String, headers:Map<String,String>, e:Dynamic, stack:String)->Void>;
 
+	// Optional hook to classify thrown exceptions and override the HTTP response status.
+	// Return a non-null HTTPStatus to use instead of 500. Called before writing the response.
+	public static var onClassifyRequestError:Null<(e:Dynamic)->Null<snake.http.HTTPStatus>> = null;
+
 	// WebSocket support
 	var websocketHandler:IWebSocketHandler;
 	var wsEventQueue:Array<WebSocketEvent> = [];
@@ -283,10 +287,15 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			}
 			try {
 				if (!@:privateAccess (swRes:Dynamic).headersSent) {
-					swRes.sendResponse(HTTPStatus.INTERNAL_SERVER_ERROR);
+					var errorStatus = HTTPStatus.INTERNAL_SERVER_ERROR;
+					if (onClassifyRequestError != null) {
+						var classified = onClassifyRequestError(e);
+						if (classified != null) errorStatus = classified;
+					}
+					swRes.sendResponse(errorStatus);
 					swRes.write(haxe.Json.stringify({
 						success: false,
-						error: "Internal Server Error",
+						error: "Request failed",
 						requestId: requestId
 					}));
 					swRes.end();
