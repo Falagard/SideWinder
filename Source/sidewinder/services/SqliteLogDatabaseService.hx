@@ -80,8 +80,18 @@ class SqliteLogDatabaseService extends SqliteDatabaseService implements ILogData
                 var task = deque.pop(true); // blocking wait
                 if (task == null) break;    // null = stop signal
                 try {
-                    var sql = SqliteDatabaseService.buildSqlStatic(task.sql, task.params);
-                    wConn.request(sql);
+                    // HL GC SIGNAL 11 fix: buildSqlStatic chains String.__add__ / StringTools.replace
+                    // in a background thread → GC fires at function-entry safepoints → SIGSEGV.
+                    #if hl hl.Gc.enable(false); #end
+                    var sql:String;
+                    try { sql = SqliteDatabaseService.buildSqlStatic(task.sql, task.params); }
+                    catch (buildE:Dynamic) { #if hl hl.Gc.enable(true); #end throw buildE; }
+                    #if hl hl.Gc.enable(true); #end
+                    // wConn.request also drives SQLite ResultSet iteration in background — protect it too.
+                    #if hl hl.Gc.enable(false); #end
+                    try { wConn.request(sql); }
+                    catch (reqE:Dynamic) { #if hl hl.Gc.enable(true); #end throw reqE; }
+                    #if hl hl.Gc.enable(true); #end
                 } catch (e:Dynamic) {
                     HybridLogger.error('[LogDB Writer] Write error: $e | SQL: ${task.sql}');
                 }

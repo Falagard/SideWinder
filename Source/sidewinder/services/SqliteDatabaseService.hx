@@ -482,8 +482,16 @@ class SqliteDatabaseService implements IDatabaseService {
     }
 
     public function execute(sql:String, ?params:Map<String, Dynamic>):Void {
-        var finalSql = (params != null) ? buildSqlStatic(sql, params) : sql;
-        
+        // HL GC SIGNAL 11 fix: buildSqlStatic chains many String.__add__ / StringTools.replace
+        // calls.  In HL background threads (request workers) the GC fires at function-entry
+        // safepoints mid-concatenation and corrupts the string heap → SIGSEGV.
+        // Disable GC for the SQL-building step only; re-enable before acquiring any mutex.
+        #if hl hl.Gc.enable(false); #end
+        var finalSql:String;
+        try { finalSql = (params != null) ? buildSqlStatic(sql, params) : sql; }
+        catch (e:Dynamic) { #if hl hl.Gc.enable(true); #end throw e; }
+        #if hl hl.Gc.enable(true); #end
+
         _resetMutex.acquire();
         acquireLock(dbPath);
         
@@ -564,8 +572,13 @@ class SqliteDatabaseService implements IDatabaseService {
     }
 
     public function executeAndGetId(sql:String, ?params:Map<String, Dynamic>):Int {
-        var finalSql = (params != null) ? buildSqlStatic(sql, params) : sql;
-        
+        // HL GC SIGNAL 11 fix: same as execute() — protect buildSqlStatic string ops
+        #if hl hl.Gc.enable(false); #end
+        var finalSql:String;
+        try { finalSql = (params != null) ? buildSqlStatic(sql, params) : sql; }
+        catch (e:Dynamic) { #if hl hl.Gc.enable(true); #end throw e; }
+        #if hl hl.Gc.enable(true); #end
+
         _resetMutex.acquire();
         acquireLock(dbPath);
         
@@ -622,11 +635,18 @@ class SqliteDatabaseService implements IDatabaseService {
     }
 
     public function request(sql:String, ?params:Map<String, Dynamic>):ResultSet {
+        // HL GC SIGNAL 11 fix: same as execute() — protect buildSqlStatic string ops
+        #if hl hl.Gc.enable(false); #end
+        var finalSql2:String;
+        try { finalSql2 = (params != null) ? buildSqlStatic(sql, params) : sql; }
+        catch (e:Dynamic) { #if hl hl.Gc.enable(true); #end throw e; }
+        #if hl hl.Gc.enable(true); #end
+
         _resetMutex.acquire();
         acquireLock(dbPath);
         try {
             var c = getConn();
-            var finalSql = (params != null) ? buildSqlStatic(sql, params) : sql;
+            var finalSql = finalSql2;
             var rs = c.request(finalSql);
             var result = new StaticResultSet(rs);
             releaseLock(dbPath);
