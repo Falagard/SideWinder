@@ -612,6 +612,52 @@ class SqliteDatabaseService implements IDatabaseService {
         }
     }
 
+    /**
+     * Execute a DML statement (UPDATE/DELETE) and atomically return the number of rows it
+     * affected. The statement and the `SELECT changes()` check are performed while holding the
+     * SAME acquireLock(dbPath)/releaseLock(dbPath) span, so — unlike calling execute() followed
+     * by a separate read("SELECT changes()...") — no other thread can acquire the connection
+     * lock and run its own statement in between, which would otherwise corrupt the
+     * connection-scoped changes() count. See execute() above for the lock discipline this
+     * mirrors.
+     */
+    public function executeAndGetChanges(sql:String, ?params:Map<String, Dynamic>):Int {
+        var finalSql = (params != null) ? buildSqlStatic(sql, params) : sql;
+
+        _resetMutex.acquire();
+        acquireLock(dbPath);
+
+        try {
+            var c = getConn();
+            var trimmedSql = StringTools.trim(finalSql);
+            var rs = c.request(trimmedSql);
+            if (rs != null) {
+                #if hl hl.Gc.enable(false); #end
+                try { while (rs.hasNext()) rs.next(); } catch (drainE:Dynamic) { #if hl hl.Gc.enable(true); #end throw drainE; }
+                #if hl hl.Gc.enable(true); #end
+            }
+
+            var checkRs = c.request("SELECT changes() as changed");
+            #if hl hl.Gc.enable(false); #end
+            var hasChk = checkRs.hasNext();
+            var changed:Int = hasChk ? (checkRs.next().changed : Int) : 0;
+            #if hl hl.Gc.enable(true); #end
+
+            releaseLock(dbPath);
+            _resetMutex.release();
+            return changed;
+        } catch (e:Dynamic) {
+            releaseLock(dbPath);
+            _resetMutex.release();
+            var errStr = Std.string(e);
+            if (errStr.toLowerCase().indexOf("not an error") != -1) {
+                return 0;
+            }
+            Sys.println('[SqliteDB] executeAndGetChanges ERROR: $errStr | SQL: $finalSql');
+            throw e;
+        }
+    }
+
     // enqueue/flush: now synchronous (no separate writer thread)
     public function enqueue(sql:String, ?params:Map<String, Dynamic>):Void {
         execute(sql, params);

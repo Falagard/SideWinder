@@ -60,6 +60,17 @@ interface IDatabaseService extends Service {
 	public function executeAndGetId(sql:String, ?params:Map<String, Dynamic>):Int;
 
 	/**
+	 * Execute a non-query DML statement (typically UPDATE/DELETE) and atomically return the
+	 * number of rows it affected. Unlike calling execute() followed by a separate read() of
+	 * changes()/row-count, the statement and the affected-row count are obtained under a single
+	 * connection-lock acquisition, so no other thread can interleave a statement on this
+	 * connection between the write and the count. Use this for compare-and-swap style updates
+	 * (e.g. `UPDATE ... WHERE row_version = @expected`) where the caller needs to know
+	 * definitively whether the predicate matched, without racing concurrent callers.
+	 */
+	public function executeAndGetChanges(sql:String, ?params:Map<String, Dynamic>):Int;
+
+	/**
 	 * Enqueue a non-query (INSERT/UPDATE/DELETE) for asynchronous execution.
 	 * This is "fire-and-forget" and should only be used for non-critical 
 	 * operations where immediate feedback or consistency is not required.
