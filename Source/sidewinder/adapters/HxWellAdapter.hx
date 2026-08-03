@@ -65,6 +65,13 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 	// Return a non-null HTTPStatus to use instead of 500. Called before writing the response.
 	public static var onClassifyRequestError:Null<(e:Dynamic)->Null<snake.http.HTTPStatus>> = null;
 
+	// Invoked once, synchronously, from inside start() — after the listening socket is
+	// bound and set to listen, before the blocking accept loop begins. This is the
+	// correct readiness signal: start() itself never returns for this driver (it runs
+	// an unconditional accept loop), so a caller waiting on start() to return for
+	// readiness will wait forever. SERVER-HEADLESS-BOOT-S1 (D-8).
+	public var onStarted:Null<Void->Void> = null;
+
 	// WebSocket support
 	var websocketHandler:IWebSocketHandler;
 	var wsEventQueue:Array<WebSocketEvent> = [];
@@ -96,6 +103,9 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 		config.host = host;
 		config.port = port;
 		config.maxConnections = 512;
+		config.onStart = () -> {
+			if (onStarted != null) onStarted();
+		};
 
 		driver = new sidewinder.adapters.CustomSocketDriver(config, this);
 
