@@ -32,6 +32,6 @@ class ClientErrorInfoParser {
             }
         }
 
-        return {status: status, code: code, message: message};
+        return ClientErrorInfo.build(status, code, message);
     }
 }

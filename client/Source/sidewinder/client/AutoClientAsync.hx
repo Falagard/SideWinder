@@ -331,7 +331,7 @@ class AutoClientAsync {
 									// a synthetic status of 0.
 									var capturedError:sidewinder.client.ClientErrorInfo = (httpStatus != 0)
 										? sidewinder.client.ClientErrorInfoParser.parse(httpStatus, rawData)
-										: {status: 0, code: null, message: errorMsg};
+										: sidewinder.client.ClientErrorInfo.build(0, null, errorMsg);
 									_dispatch(function() {
 										onError(capturedError);
 									});
@@ -444,12 +444,12 @@ class AutoClientAsync {
 									if (recorderInstance != null) {
 										Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiError"), [method, request.url, status, Std.string(err), null, elapsed, spanId]);
 									}
-									var errInfo:sidewinder.client.ClientErrorInfo = {status: 0, code: null, message: Std.string(err)};
+									var errInfo:sidewinder.client.ClientErrorInfo = sidewinder.client.ClientErrorInfo.build(0, null, Std.string(err));
 									_dispatch(function() {
 										onError(errInfo);
 									});
 								};
-								
+
 								var runRequest = function() {
 									try {
 										if (request.method == "GET" || request.method == "POST") {
