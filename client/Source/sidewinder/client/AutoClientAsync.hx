@@ -276,12 +276,27 @@ class AutoClientAsync {
 								}
 								
 								var loader = new openfl.net.URLLoader();
-								
+
+								var httpStatus = 0;
+								loader.addEventListener(openfl.events.HTTPStatusEvent.HTTP_STATUS, function(e:openfl.events.HTTPStatusEvent) {
+									httpStatus = e.status;
+								});
+
 								loader.addEventListener(openfl.events.Event.COMPLETE, function(_) {
 									var rawData:String = Std.string(loader.data);
 									var elapsed = Math.round((haxe.Timer.stamp() - reqStartTime) * 1000);
+									if (httpStatus != 0 && (httpStatus < 200 || httpStatus >= 300)) {
+										if (recorderInstance != null) {
+											Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiError"), [method, request.url, httpStatus, rawData, null, elapsed, spanId]);
+										}
+										var errInfo = sidewinder.client.ClientErrorInfoParser.parse(httpStatus, rawData);
+										_dispatch(function() {
+											onError(errInfo);
+										});
+										return;
+									}
 									if (recorderInstance != null) {
-										Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiResponse"), [method, request.url, 200, null, elapsed, spanId]);
+										Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiResponse"), [method, request.url, httpStatus == 0 ? 200 : httpStatus, null, elapsed, spanId]);
 									}
 									// Defer UI mutations to next frame to avoid re-entrant HaxeUI modifications
 									// during OpenFL URLLoader event dispatch / Cairo rendering pass (HashLink native).
@@ -290,7 +305,7 @@ class AutoClientAsync {
 										onData(capturedData);
 									});
 								});
-								
+
 								loader.addEventListener(openfl.events.IOErrorEvent.IO_ERROR, function(e:openfl.events.IOErrorEvent) {
 									var rawData:String = Std.string(loader.data);
 									var elapsed = Math.round((haxe.Timer.stamp() - reqStartTime) * 1000);
@@ -309,7 +324,7 @@ class AutoClientAsync {
 										Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiError"), [method, request.url, 500, errorMsg, null, elapsed, spanId]);
 									}
 									// Defer UI mutations to next frame (same reason as COMPLETE handler above).
-									var capturedError = errorMsg;
+									var capturedError:sidewinder.client.ClientErrorInfo = {status: 0, code: null, message: errorMsg};
 									_dispatch(function() {
 										onError(capturedError);
 									});
@@ -381,12 +396,18 @@ class AutoClientAsync {
 										}
 									}
 									var elapsed = Math.round((haxe.Timer.stamp() - reqStartTime) * 1000);
-									if (recorderInstance != null) {
-										if (status >= 200 && status < 300) {
-											Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiResponse"), [method, request.url, status, null, elapsed, spanId]);
-										} else {
+									if (status != 0 && (status < 200 || status >= 300)) {
+										if (recorderInstance != null) {
 											Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiError"), [method, request.url, status, rawData, null, elapsed, spanId]);
 										}
+										var errInfo = sidewinder.client.ClientErrorInfoParser.parse(status, rawData);
+										_dispatch(function() {
+											onError(errInfo);
+										});
+										return;
+									}
+									if (recorderInstance != null) {
+										Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiResponse"), [method, request.url, status, null, elapsed, spanId]);
 									}
 									_dispatch(function() {
 										onData(rawData);
@@ -416,8 +437,9 @@ class AutoClientAsync {
 									if (recorderInstance != null) {
 										Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiError"), [method, request.url, status, Std.string(err), null, elapsed, spanId]);
 									}
+									var errInfo:sidewinder.client.ClientErrorInfo = {status: 0, code: null, message: Std.string(err)};
 									_dispatch(function() {
-										onError(err);
+										onError(errInfo);
 									});
 								};
 								
