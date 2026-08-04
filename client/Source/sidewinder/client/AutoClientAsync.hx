@@ -321,10 +321,17 @@ class AutoClientAsync {
 									} catch (ex:Dynamic) {}
 									
 									if (recorderInstance != null) {
-										Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiError"), [method, request.url, 500, errorMsg, null, elapsed, spanId]);
+										Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiError"), [method, request.url, httpStatus != 0 ? httpStatus : 500, errorMsg, null, elapsed, spanId]);
 									}
 									// Defer UI mutations to next frame (same reason as COMPLETE handler above).
-									var capturedError:sidewinder.client.ClientErrorInfo = {status: 0, code: null, message: errorMsg};
+									// openfl's URLLoader dispatches IO_ERROR (not COMPLETE) for many non-2xx
+									// responses (mirrors Flash semantics) -- if HTTP_STATUS already delivered a
+									// real status by the time IO_ERROR fires, parse it the same structured way
+									// as the COMPLETE-handler non-2xx branch above, instead of always reporting
+									// a synthetic status of 0.
+									var capturedError:sidewinder.client.ClientErrorInfo = (httpStatus != 0)
+										? sidewinder.client.ClientErrorInfoParser.parse(httpStatus, rawData)
+										: {status: 0, code: null, message: errorMsg};
 									_dispatch(function() {
 										onError(capturedError);
 									});
