@@ -444,7 +444,9 @@ class AutoClientAsync {
 									if (recorderInstance != null) {
 										Reflect.callMethod(recorderInstance, Reflect.field(recorderInstance, "recordApiError"), [method, request.url, status, Std.string(err), null, elapsed, spanId]);
 									}
-									var errInfo:sidewinder.client.ClientErrorInfo = sidewinder.client.ClientErrorInfo.build(0, null, Std.string(err));
+									var errInfo:sidewinder.client.ClientErrorInfo = status != 0
+										? sidewinder.client.ClientErrorInfoParser.parse(status, Std.string(err))
+										: sidewinder.client.ClientErrorInfo.build(0, null, Std.string(err));
 									_dispatch(function() {
 										onError(errInfo);
 									});
