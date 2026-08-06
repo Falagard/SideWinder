@@ -104,6 +104,27 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 		config.port = port;
 		config.maxConnections = 512;
 		config.onStart = () -> {
+			// FOOTNOTE-MEDIA-WORKER-S1 Task 11 (Failure B fix): mark every
+			// currently-open file descriptor (including the listening socket
+			// that was just bound+listen()'d inside SocketDriver.start(),
+			// strictly before this callback fires) close-on-exec, so no
+			// spawned child process (sys.io.Process — worker executables,
+			// ffmpeg/ffprobe, installers, command runners, etc.) inherits
+			// this server's listening socket. Without this, an orphaned
+			// descendant of a killed child can keep the port bound after a
+			// hard restart, causing the restarted server's own bind() to
+			// fail. See sidewinder.native.FdUtilNative and the consuming
+			// project's native/fdutil/fdutil_hl.c for the full writeup.
+			// This runs for every server built on HxWellAdapter, not just
+			// FootNote's companion mode.
+			#if (hl && !macro)
+			try {
+				var marked = sidewinder.native.FdUtilNative.setCloexecOnOpenFds(3);
+				HybridLogger.info('[HxWellAdapter] FD_CLOEXEC swept on $marked open file descriptor(s) after listener bind (fd 3+).');
+			} catch (e:Dynamic) {
+				HybridLogger.warn('[HxWellAdapter] FD_CLOEXEC sweep failed (fdutil.hdll missing or unsupported platform?): $e');
+			}
+			#end
 			if (onStarted != null) onStarted();
 		};
 
