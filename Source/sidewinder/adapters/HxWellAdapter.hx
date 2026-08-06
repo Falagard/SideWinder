@@ -120,7 +120,11 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			#if (hl && !macro)
 			try {
 				var marked = sidewinder.native.FdUtilNative.setCloexecOnOpenFds(3);
-				HybridLogger.info('[HxWellAdapter] FD_CLOEXEC swept on $marked open file descriptor(s) after listener bind (fd 3+).');
+				if (marked == sidewinder.native.FdUtilNative.NOT_APPLIED) {
+					HybridLogger.info('[HxWellAdapter] FD_CLOEXEC sweep skipped: this build was not compiled with -D sidewinder_fdutil (no matching fdutil.hdll for this platform) -- spawned child processes may inherit the listening socket.');
+				} else {
+					HybridLogger.info('[HxWellAdapter] FD_CLOEXEC swept on $marked open file descriptor(s) after listener bind (fd 3+).');
+				}
 			} catch (e:Dynamic) {
 				HybridLogger.warn('[HxWellAdapter] FD_CLOEXEC sweep failed (fdutil.hdll missing or unsupported platform?): $e');
 			}
