@@ -19,9 +19,23 @@ package sidewinder.native;
  */
 #if (hl && !macro)
 class FdUtilNative {
+	#if mac
 	@:hlNative("fdutil", "set_cloexec_on_open_fds")
 	public static function setCloexecOnOpenFds(minFd:Int):Int {
 		return 0;
 	}
+	#else
+	/** No-op stub: fdutil.hdll is currently only built for macOS. Windows/Linux native
+	    builds of the FD_CLOEXEC fix are a real, tracked follow-up -- not silently dropped,
+	    just not buildable in this dev environment (macOS only, no cross-compilation
+	    toolchain available). Referencing the native symbol unconditionally here would be a
+	    fatal HL module-load failure on those platforms (confirmed empirically: HashLink
+	    resolves @:hlNative bindings eagerly at module load, before any Haxe try/catch can
+	    run) -- so this MUST stay a genuine no-op, not a @:hlNative declaration, until real
+	    Windows/Linux fdutil.hdll builds exist. */
+	public static function setCloexecOnOpenFds(minFd:Int):Int {
+		return -1;
+	}
+	#end
 }
 #end
