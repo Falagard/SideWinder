@@ -32,18 +32,49 @@ class SqliteDatabaseService implements IDatabaseService {
     private static var _activeRequestCount:Int = 0;
     private static var _resetMutex:sys.thread.Mutex = new sys.thread.Mutex();
 
+    /**
+     * Test-only helper: fully resets ALL static state (connections, mutexes, bookkeeping).
+     * Unlike resetAllConnections(), this is safe to fully clear the mutex map afterward because
+     * -- following the same acquire/release discipline as resetAllConnections()'s fix (see its
+     * doc comment) -- each path's own Mutex is acquired via the same identity captured under the
+     * global map mutex BEFORE closing its Connection, and the mutex map itself is only cleared
+     * AFTER every captured mutex has been acquired-and-released, so no other thread can ever
+     * observe a cleared map while this method still holds a reference the map no longer does.
+     */
     public static function resetStaticState() {
         _resetMutex.acquire();
         getGlobalMapMutex().acquire();
-        for (conn in _connections) {
-            try { conn.close(); } catch(_) {}
+        var paths = [];
+        var connsToClose = [];
+        var mutexesToClose = [];
+        for (path in _connections.keys()) {
+            paths.push(path);
+            connsToClose.push(_connections.get(path));
+            mutexesToClose.push(_connectionMutexes.get(path));
         }
         _connections = new Map();
-        _connectionMutexes = new Map();
         _lastUsedAt = new Map();
         globalDbPath = null;
         lockOwners = new Map();
         lockCounts = new Map();
+        getGlobalMapMutex().release();
+
+        for (i in 0...paths.length) {
+            var conn = connsToClose[i];
+            if (conn == null) continue;
+            var mutex = mutexesToClose[i];
+            if (mutex == null) mutex = new Mutex();
+            mutex.acquire();
+            try {
+                conn.close();
+                mutex.release();
+            } catch (e:Dynamic) {
+                mutex.release();
+            }
+        }
+
+        getGlobalMapMutex().acquire();
+        _connectionMutexes = new Map();
         getGlobalMapMutex().release();
         _resetMutex.release();
     }
@@ -334,7 +365,18 @@ class SqliteDatabaseService implements IDatabaseService {
                 mutexesToClose.push(getConnectionMutexesMap().get(path));
             }
             connections.clear();
-            getConnectionMutexesMap().clear();
+            // NOTE: deliberately NOT clearing getConnectionMutexesMap() here (see
+            // FOOTNOTE-LOCAL-S1 Slice 4C final-review fix below). Clearing it would make the
+            // per-path Mutex objects captured into `mutexesToClose` above unreachable from the
+            // map *before* this method acquires them; a concurrent thread still mid-query under
+            // acquireLock()/releaseLock() would then, on releaseLock(), call getSharedMutex()
+            // again -- which, finding the map cleared, allocates and stores a brand-new Mutex for
+            // dbPath and releases THAT one instead of the one this method is waiting to acquire,
+            // deadlocking this method forever. Per-path mutexes are cheap to keep alive, and
+            // getConn() already guards `if (!getConnectionMutexesMap().exists(dbPath))` before
+            // creating a new one, so retaining old (now-idle) Mutex entries after their
+            // connections are closed is safe and correctly reused by any future getConn()/
+            // acquireLock() call for the same dbPath.
 
             getGlobalStatsMutex().acquire();
             try {
