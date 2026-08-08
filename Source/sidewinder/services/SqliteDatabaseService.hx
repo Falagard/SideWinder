@@ -368,8 +368,13 @@ class SqliteDatabaseService implements IDatabaseService {
                     conn.close();
                     mutex.release();
                 } catch (e:Dynamic) {
-                    Sys.println('[SqliteDB] resetAllConnections: ERROR closing ' + path + ': ' + e);
+                    // Release the mutex BEFORE logging: if Sys.println itself throws (e.g. the
+                    // companion's stdout pipe was already closed by its parent), a release-after-
+                    // log ordering would skip the release entirely, leaving the mutex permanently
+                    // held -- the exact class of bug this method's own fix (see doc comment above)
+                    // exists to prevent, reintroduced narrowly via the catch path.
                     mutex.release();
+                    Sys.println('[SqliteDB] resetAllConnections: ERROR closing ' + path + ': ' + e);
                 }
             }
         }
