@@ -298,6 +298,28 @@ class SqliteDatabaseService implements IDatabaseService {
     /**
      * Closes all active connections and clears the connection pool.
      * Primarily used for integration test isolation.
+     *
+     * ROOT CAUSE FIX (FOOTNOTE-LOCAL-S1 Slice 4C shutdown-hang investigation): every normal
+     * query path (execute()/read(), via acquireLock()/releaseLock()) serializes access to a
+     * given dbPath's Connection through that path's own per-dbPath Mutex (getSharedMutex() /
+     * getConnectionMutexesMap()) before ever calling conn.request(). This method collected
+     * those same per-path mutexes into `mutexesToClose` but NEVER acquired them before calling
+     * conn.request("PRAGMA journal_mode=DELETE;")/conn.close() directly on the raw Connection --
+     * so if another thread (e.g. EnvironmentReconciler's background reconciliation loop, whose
+     * stop() only waits up to a bounded 5s for the in-flight pass to finish before giving up and
+     * returning anyway) was still legitimately mid-query on that exact Connection under its own
+     * properly-acquired lock, this method's unsynchronized PRAGMA/close call raced it on the same
+     * native sqlite3 connection handle from a second thread with no coordination. Concurrent,
+     * unsynchronized use of one sqlite3 connection handle from two threads is undefined behavior
+     * in the underlying C library and was observed to hang the process indefinitely (reproduced
+     * twice, same call site, via `sample`-captured stack traces and file-based instrumentation --
+     * see docs/superpowers/sdd/2026-08-07-slice4c-lifecycle-hardening/shutdown-hang-investigation-report.md).
+     * This is exactly the class of bug the "V17 - single connection per DB path, single mutex"
+     * design (see class doc comment) exists to prevent elsewhere in this file; resetAllConnections()
+     * was the one call site that bypassed it. Fix: acquire each path's own mutex (falling back to
+     * a fresh Mutex if none was ever registered) before touching its Connection, and always
+     * release it afterward (Haxe has no try/finally -- release happens both on the normal path
+     * and from the catch, per this codebase's documented no-finally pattern).
      */
     public static function resetAllConnections():Void {
         getGlobalMapMutex().acquire();
@@ -313,38 +335,49 @@ class SqliteDatabaseService implements IDatabaseService {
             }
             connections.clear();
             getConnectionMutexesMap().clear();
-            
+
             getGlobalStatsMutex().acquire();
             try {
                 getLastUsedAtMap().clear();
             } catch(e:Dynamic) {}
             getGlobalStatsMutex().release();
-            
+
             Sys.println('[SqliteDB] resetAllConnections: starting... (Map size: ' + paths.length + ')');
         } catch(e:Dynamic) {
             Sys.println('[DIAG] [SqliteDB] resetAllConnections copy error: ' + e);
         }
         getGlobalMapMutex().release();
-        
+
         // Now close the connections OUTSIDE of the global map mutex!
         for (i in 0...paths.length) {
             var path = paths[i];
             var conn = connsToClose[i];
             if (conn != null) {
-                try { 
+                // Acquire this path's own connection mutex before touching its Connection, so a
+                // thread still legitimately mid-query under acquireLock()/releaseLock() (e.g. a
+                // background reconciliation pass whose stop() gave up waiting) is fully finished
+                // and has released the mutex before we PRAGMA/close the same native handle it was
+                // using. Fall back to a fresh Mutex if this path was somehow never registered with
+                // one, so we never skip synchronization outright.
+                var mutex = mutexesToClose[i];
+                if (mutex == null) mutex = new Mutex();
+                mutex.acquire();
+                try {
                     // Reverting WAL mode can help release -shm and -wal file locks on some OSs
                     try { conn.request("PRAGMA journal_mode=DELETE;"); } catch(e:Dynamic) {}
-                    conn.close(); 
+                    conn.close();
+                    mutex.release();
                 } catch (e:Dynamic) {
                     Sys.println('[SqliteDB] resetAllConnections: ERROR closing ' + path + ': ' + e);
+                    mutex.release();
                 }
             }
         }
-        
+
         // Force a GC cycle to ensure HashLink/C-level handles are released
         #if hl
         // Sys.println('[DIAG] [SqliteDB] resetAllConnections: Triggering HL GC');
-        // hl.Gc.major(); 
+        // hl.Gc.major();
         #end
         Sys.println('[SqliteDB] resetAllConnections: finished.');
     }
@@ -435,7 +468,7 @@ class SqliteDatabaseService implements IDatabaseService {
     private function acquireLock(dbPath:String):Void {
         var tid = Thread.current();
         var tidStr = Std.string(tid);
-        
+
         getGlobalMapMutex().acquire();
         if (lockOwners.get(dbPath) == tid) {
             var count = lockCounts.get(dbPath);
@@ -444,10 +477,10 @@ class SqliteDatabaseService implements IDatabaseService {
             return;
         }
         getGlobalMapMutex().release();
-        
+
         var mutex = getSharedMutex();
         mutex.acquire();
-        
+
         getGlobalMapMutex().acquire();
         lockOwners.set(dbPath, tid);
         lockCounts.set(dbPath, 1);
@@ -458,24 +491,24 @@ class SqliteDatabaseService implements IDatabaseService {
     private function releaseLock(dbPath:String):Void {
         var tid = Thread.current();
         var tidStr = Std.string(tid);
-        
+
         getGlobalMapMutex().acquire();
         if (lockOwners.get(dbPath) != tid) {
             getGlobalMapMutex().release();
             return;
         }
-        
+
         var count = lockCounts.get(dbPath);
         if (count > 1) {
             lockCounts.set(dbPath, count - 1);
             getGlobalMapMutex().release();
             return;
         }
-        
+
         lockOwners.remove(dbPath);
         lockCounts.remove(dbPath);
         getGlobalMapMutex().release();
-        
+
         var mutex = getSharedMutex();
         mutex.release();
         // Sys.println('[L-] [$tidStr] $dbPath');
