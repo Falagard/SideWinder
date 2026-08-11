@@ -842,36 +842,80 @@ class SqliteDatabaseService implements IDatabaseService {
 
         for (file in sqlFiles) {
             if (!applied.exists(file)) {
-                Sys.println('[SqliteDB] Applying migration from: ' + file);
-                var sql = sys.io.File.getContent(dir + "/" + file);
+                applyOneMigrationAtomically(dir, file, table);
+            }
+        }
+    }
+
+    // SIDEWINDER-MIGRATION-ATOMICITY: a migration file's SQL statements and its migration-history
+    // INSERT must commit as one atomic unit, or a crash between the last statement's commit and
+    // the history INSERT leaves a durably-applied-but-unrecorded migration (next run re-applies
+    // it from statement 1 and fails on already-applied DDL). Mirrors the pattern already correct
+    // in app.services.local.LocalRuntimeDatabaseInitializer.applyOne().
+    //
+    // acquireLock/releaseLock are reentrant per-thread (see lockOwners/lockCounts above): holding
+    // the lock here for the whole BEGIN..COMMIT sequence, while execute() below also
+    // acquires/releases it per call, keeps the *underlying* mutex held continuously for this
+    // thread the entire time (nested acquires just increment a counter). Without this outer hold,
+    // each execute() call would only lock its own single statement, leaving a window for another
+    // thread's unrelated write to land inside this migration's still-open transaction --
+    // SQLite transactions are connection-wide, not per-statement.
+    function applyOneMigrationAtomically(dir:String, file:String, table:String):Void {
+        Sys.println('[SqliteDB] Applying migration from: ' + file);
+        var sql = sys.io.File.getContent(dir + "/" + file);
+
+        acquireLock(dbPath);
+        try {
+            runMigrationFileTransactionally(sql, file, table);
+            releaseLock(dbPath);
+        } catch (e:Dynamic) {
+            releaseLock(dbPath);
+            throw e;
+        }
+    }
+
+    // BEGIN/history-INSERT/COMMIT/ROLLBACK go through getConn().request(...) directly, NOT
+    // through execute(). Reason: execute() runs a `SELECT changes()` check after every DML
+    // statement (see the "Only run the changes() check for DML" comment a few hundred lines
+    // above in this file) specifically because running it after DDL/transaction-control left a
+    // dangling prepared statement and broke back-to-back execute() calls with "Cannot execute
+    // several SQL requests at the same time" -- that comment documents exactly the failure mode
+    // an INSERT immediately followed by a COMMIT (both via execute()) would risk reintroducing.
+    // Going through the raw connection for these specific statements sidesteps that check
+    // entirely. getConn()/acquireLock(dbPath) (held by the caller, applyOneMigrationAtomically)
+    // are both already private members of this same class.
+    function runMigrationFileTransactionally(sql:String, file:String, table:String):Void {
+        var conn = getConn();
+        conn.request("BEGIN");
+        try {
+            var statements = sql.split(';');
+            for (stmt in statements) {
+                stmt = StringTools.trim(stmt);
+                if (stmt.length == 0) continue;
                 try {
-                    var statements = sql.split(';');
-                    for (stmt in statements) {
-                        stmt = StringTools.trim(stmt);
-                        if (stmt.length == 0) continue;
-                        try {
-                            this.execute(stmt);
-                        } catch (e:Dynamic) {
-                            if (handleMigrationError(e, "statement", stmt)) continue;
-                            Sys.println('[SqliteDB] Migration failed for ' + file + ': ' + e + ' | SQL: ' + stmt);
-                            throw e;
-                        }
-                    }
-                    
-                    // Mark as successfully applied
-                    try {
-                        execute('INSERT INTO $table (name) VALUES (@name);', ["name" => file]);
-                    } catch (e2:Dynamic) {
-                        // Concurrent insert might fail if another process finished first
-                        if (Std.string(e2).indexOf("UNIQUE constraint failed") == -1) {
-                            throw e2;
-                        }
-                    }
+                    this.execute(stmt);
                 } catch (e:Dynamic) {
-                    Sys.println('[SqliteDB] Migration failed for ' + file + ': ' + e);
+                    if (handleMigrationError(e, "statement", stmt)) continue;
+                    Sys.println('[SqliteDB] Migration failed for ' + file + ': ' + e + ' | SQL: ' + stmt);
                     throw e;
                 }
             }
+
+            // Test-only deterministic crash-injection seam (SIDEWINDER-MIGRATION-ATOMICITY):
+            // simulates a real process dying after all migration SQL has executed but before
+            // COMMIT durably lands. Only ever set by test harnesses (see
+            // Server/tests/support/migration_crash_harness/Main.hx) -- never set in production.
+            if (Sys.getEnv("SIDEWINDER_TEST_CRASH_BEFORE_MIGRATION_COMMIT") == file) {
+                Sys.exit(137);
+            }
+
+            var insertSql = buildSqlStatic('INSERT INTO $table (name) VALUES (@name);', ["name" => file]);
+            conn.request(insertSql);
+            conn.request("COMMIT");
+        } catch (e:Dynamic) {
+            try { conn.request("ROLLBACK"); } catch (_:Dynamic) {}
+            Sys.println('[SqliteDB] Migration failed for ' + file + ': ' + e);
+            throw e;
         }
     }
 
