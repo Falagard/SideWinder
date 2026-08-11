@@ -853,23 +853,100 @@ class SqliteDatabaseService implements IDatabaseService {
     // it from statement 1 and fails on already-applied DDL). Mirrors the pattern already correct
     // in app.services.local.LocalRuntimeDatabaseInitializer.applyOne().
     //
-    // acquireLock/releaseLock are reentrant per-thread (see lockOwners/lockCounts above): holding
-    // the lock here for the whole BEGIN..COMMIT sequence, while execute() below also
-    // acquires/releases it per call, keeps the *underlying* mutex held continuously for this
-    // thread the entire time (nested acquires just increment a counter). Without this outer hold,
-    // each execute() call would only lock its own single statement, leaving a window for another
-    // thread's unrelated write to land inside this migration's still-open transaction --
-    // SQLite transactions are connection-wide, not per-statement.
+    // LOCK ORDER: Must acquire _resetMutex FIRST, then acquireLock(dbPath) SECOND, matching the
+    // order used by execute()/request()/executeAndGetId()/executeAndGetChanges() throughout this
+    // class. This prevents lock-order inversion deadlock: if this outer scope acquires dbPath-lock
+    // first, then nested executeAlreadyLocked() calls would try to run statements under only the
+    // dbPath-lock, while other threads entering through execute() would hold _resetMutex and block
+    // waiting for the dbPath-lock — creating a cycle if both locks are needed.
+    //
+    // The nested executeAlreadyLocked() calls run with BOTH locks already held (in the correct
+    // order), so they skip lock acquisition entirely to avoid: (a) re-acquiring _resetMutex on
+    // an already-held lock (not known to be recursive on HL), and (b) multiple lock releases in
+    // error paths (execute()'s error branches release() the lock 2-3 times per single acquire(),
+    // harmless normally because the reentrant count is 1, but dangerous here where the outer
+    // count is already 2 — an extra release could fully unlock while the transaction is open).
     function applyOneMigrationAtomically(dir:String, file:String, table:String):Void {
         Sys.println('[SqliteDB] Applying migration from: ' + file);
         var sql = sys.io.File.getContent(dir + "/" + file);
 
+        _resetMutex.acquire();
         acquireLock(dbPath);
         try {
             runMigrationFileTransactionally(sql, file, table);
             releaseLock(dbPath);
+            _resetMutex.release();
         } catch (e:Dynamic) {
             releaseLock(dbPath);
+            _resetMutex.release();
+            throw e;
+        }
+    }
+
+    // SIDEWINDER-MIGRATION-ATOMICITY-INTERNAL: execute SQL without acquiring locks, assuming
+    // the caller (_resetMutex and acquireLock(dbPath)) already holds both locks in the correct
+    // order. This avoids re-acquiring _resetMutex (not known to be recursive on HL) and prevents
+    // execute()'s error paths from releasing locks prematurely (execute() calls releaseLock() 2-3
+    // times in some error branches, harmless when reentrant count is 1, but dangerous when count
+    // is already 2 from the outer holder).
+    //
+    // IMPORTANT: This method must ONLY be called from code that already holds BOTH _resetMutex
+    // and acquireLock(dbPath). Any other call site risks silent corruption.
+    private function executeAlreadyLocked(sql:String, ?params:Map<String, Dynamic>):Void {
+        var finalSql = (params != null) ? buildSqlStatic(sql, params) : sql;
+
+        try {
+            var c = getConn();
+            var trimmedSqlRaw = StringTools.trim(finalSql);
+            var lowerSql = trimmedSqlRaw.toLowerCase();
+
+            var rs = c.request(trimmedSqlRaw);
+            if (rs != null) {
+                // HL GC SIGNAL 11 fix: drain raw ResultSet with GC disabled
+                #if hl hl.Gc.enable(false); #end
+                try { while (rs.hasNext()) rs.next(); } catch (drainE:Dynamic) { #if hl hl.Gc.enable(true); #end throw drainE; }
+                #if hl hl.Gc.enable(true); #end
+            }
+
+            // Only run the changes() check for DML (INSERT / UPDATE / DELETE).
+            var isDml = StringTools.startsWith(lowerSql, "insert ") || StringTools.startsWith(lowerSql, "update ") || StringTools.startsWith(lowerSql, "delete ");
+            if (isDml) try {
+                var checkRs = c.request("SELECT changes() as changed");
+                #if hl hl.Gc.enable(false); #end
+                var hasChk = checkRs.hasNext();
+                var changes:Dynamic = hasChk ? checkRs.next().changed : 0;
+                if (hasChk) checkRs.hasNext();
+                #if hl hl.Gc.enable(true); #end
+                if (hasChk && changes == 0) {
+                    if (changes == 0 && (StringTools.startsWith(lowerSql, "insert ") || StringTools.startsWith(lowerSql, "update ") || StringTools.startsWith(lowerSql, "delete "))) {
+                        if (lowerSql.indexOf(" ignore ") == -1 && lowerSql.indexOf(" replace ") == -1) {
+                             if ((StringTools.startsWith(lowerSql, "insert ") && lowerSql.indexOf(" select ") == -1) ||
+                                 (StringTools.startsWith(lowerSql, "update ") && this.dbPath.indexOf("test_exceptions") != -1)) {
+                                 var err = "SQLite Mutation Error: 0 rows affected. Likely a constraint violation. SQL: " + finalSql;
+                                 Sys.println('[SqliteDB] Mutation Error: ' + err);
+                                 throw err;
+                             }
+                        }
+                    }
+                }
+            } catch (checkE:Dynamic) {
+                var checkEStr = Std.string(checkE).toLowerCase();
+                if (checkEStr.indexOf("not an error") == -1) {
+                    throw checkE;
+                }
+            }
+        } catch (e:Dynamic) {
+            var errStr = Std.string(e);
+            var lowerErr = errStr.toLowerCase();
+            if (lowerErr.indexOf("not an error") != -1) {
+                return;
+            }
+
+            // Silence FATAL ERROR spam for things we handle/skip in migrations
+            var isExpectedMigrationError = (lowerErr.indexOf("already exists") != -1 || lowerErr.indexOf("duplicate column") != -1);
+            if (!isExpectedMigrationError) {
+                Sys.println('[SqliteDB] execute FATAL ERROR: $errStr | SQL: ' + StringTools.replace(finalSql, "\n", " "));
+            }
             throw e;
         }
     }
@@ -882,8 +959,17 @@ class SqliteDatabaseService implements IDatabaseService {
     // several SQL requests at the same time" -- that comment documents exactly the failure mode
     // an INSERT immediately followed by a COMMIT (both via execute()) would risk reintroducing.
     // Going through the raw connection for these specific statements sidesteps that check
-    // entirely. getConn()/acquireLock(dbPath) (held by the caller, applyOneMigrationAtomically)
-    // are both already private members of this same class.
+    // entirely. Both locks (_resetMutex and acquireLock(dbPath)) are held by the caller
+    // (applyOneMigrationAtomically) for the entire BEGIN..COMMIT sequence.
+    //
+    // KNOWN LIMITATION (connection identity): If resetAllConnections() or closeByPath() closes
+    // and clears the connection map entry mid-migration, a new connection will be created and
+    // returned by getConn() on the next statement. The statements after the close would execute
+    // on the new connection (autocommit), orphaning the original BEGIN. This would cause the
+    // history INSERT to run and COMMIT on the new connection while the original schema changes
+    // durably applied without being recorded. This is a gap shared with
+    // LocalRuntimeDatabaseInitializer.applyOne() and is left as a known limitation for now
+    // (fixing it would require touching the connection closer methods, which is out of scope).
     function runMigrationFileTransactionally(sql:String, file:String, table:String):Void {
         var conn = getConn();
         conn.request("BEGIN");
@@ -893,7 +979,7 @@ class SqliteDatabaseService implements IDatabaseService {
                 stmt = StringTools.trim(stmt);
                 if (stmt.length == 0) continue;
                 try {
-                    this.execute(stmt);
+                    executeAlreadyLocked(stmt);
                 } catch (e:Dynamic) {
                     if (handleMigrationError(e, "statement", stmt)) continue;
                     Sys.println('[SqliteDB] Migration failed for ' + file + ': ' + e + ' | SQL: ' + stmt);
