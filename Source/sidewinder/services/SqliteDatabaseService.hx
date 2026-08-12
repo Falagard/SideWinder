@@ -990,13 +990,37 @@ class SqliteDatabaseService implements IDatabaseService {
             // Test-only deterministic crash-injection seam (SIDEWINDER-MIGRATION-ATOMICITY):
             // simulates a real process dying after all migration SQL has executed but before
             // COMMIT durably lands. Only ever set by test harnesses (see
-            // Server/tests/support/migration_crash_harness/Main.hx) -- never set in production.
+            // Server/tests/support/migration_crash_harness/Main.hx) -- compiled out entirely
+            // unless -D sidewinder_test_seams is passed (only migration-crash-harness.hxml does),
+            // so the check + Sys.exit(137) call are not present in production bytecode at all.
+            #if sidewinder_test_seams
             if (Sys.getEnv("SIDEWINDER_TEST_CRASH_BEFORE_MIGRATION_COMMIT") == file) {
                 Sys.exit(137);
             }
+            #end
 
             var insertSql = buildSqlStatic('INSERT INTO $table (name) VALUES (@name);', ["name" => file]);
-            conn.request(insertSql);
+            try {
+                conn.request(insertSql);
+            } catch (insertE:Dynamic) {
+                // Concurrent-application tolerance (restored from the pre-atomicity runner, see
+                // SIDEWINDER-MIGRATION-ATOMICITY history): runMigrationsWithPath() reads the set
+                // of already-applied filenames ONCE, before its per-file loop, and the in-process
+                // acquireLock()/_resetMutex mutexes do not span separate OS processes -- so two
+                // processes racing this same migration file (e.g. a spawned server process and
+                // the process that spawned it, both migrating one data.db) can both decide the
+                // file is unapplied and both attempt it. Whichever loses the UNIQUE constraint on
+                // this INSERT already had its schema statements applied redundantly (idempotent
+                // migrations only -- see CLAUDE.md); the winner's row is the durable record. Treat
+                // this as "already applied by a concurrent process," not a real failure: roll back
+                // this process's redundant transaction and return normally instead of rethrowing.
+                if (Std.string(insertE).indexOf("UNIQUE constraint failed") != -1) {
+                    try { conn.request("ROLLBACK"); } catch (_:Dynamic) {}
+                    Sys.println('[SqliteDB] Migration ' + file + ' already applied by a concurrent process (history row exists) -- skipping.');
+                    return;
+                }
+                throw insertE;
+            }
             conn.request("COMMIT");
         } catch (e:Dynamic) {
             try { conn.request("ROLLBACK"); } catch (_:Dynamic) {}
