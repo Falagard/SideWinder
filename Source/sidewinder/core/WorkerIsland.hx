@@ -45,7 +45,15 @@ class WorkerIsland {
 		if (running) return;
 		running = true;
 
-		Thread.create(() -> {
+		// createWithEventLoop (not create): by default an event loop is only available on
+		// the main thread. Handlers dispatched onto this island's thread (see processor())
+		// can reach app code that uses Timer/EventLoop-backed APIs (e.g. background-worker
+		// polling triggered from a request), which throws "Event loop is not available" on
+		// a plain Thread.create()'d thread. Verified empirically: every request against a
+		// server started this way returned 500 with exactly that error, reproducing
+		// identically before this branch's changes too -- pre-existing, not a regression
+		// from this branch, but real and worth fixing here since it makes every request fail.
+		Thread.createWithEventLoop(() -> {
 			if (onThreadStart != null) {
 				onThreadStart();
 			}
