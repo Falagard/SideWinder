@@ -1,6 +1,6 @@
 package sidewinder.routing;
 
-import snake.http.HTTPStatus;
+import sidewinder.http.HTTPStatus;
 
 class StatusHelper {
     public static function getStatus(code:Int):HTTPStatus {

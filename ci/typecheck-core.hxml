@@ -13,7 +13,6 @@
 # A standalone consumer provably does not link them; see the closeout's
 # linked-class census.
 -cp Source
--lib snake-server
 -lib hxwell
 -lib haxe-injection
 -D disable_env

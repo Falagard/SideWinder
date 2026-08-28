@@ -1,5 +1,6 @@
 package sidewinder.logging;
 
+import sidewinder.interfaces.ILogProvider;
 import sidewinder.interfaces.ILogProvider.LogEntry;
 
 

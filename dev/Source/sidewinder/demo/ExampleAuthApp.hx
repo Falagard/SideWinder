@@ -10,7 +10,7 @@ import sidewinder.controllers.OAuthController;
 import sidewinder.routing.Router.Request;
 import sidewinder.routing.Router.Response;
 import sidewinder.logging.HybridLogger;
-import snake.http.HTTPStatus;
+import sidewinder.http.HTTPStatus;
 
 import haxe.Json;
 

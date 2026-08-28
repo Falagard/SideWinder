@@ -2,7 +2,7 @@ package sidewinder.controllers;
 
 import sidewinder.interfaces.IUserService;
 import sidewinder.interfaces.User;
-import snake.http.HTTPStatus;
+import sidewinder.http.HTTPStatus;
 
 interface IAdminService extends hx.injection.Service {
     @get("/admin/users")

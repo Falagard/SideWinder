@@ -3,7 +3,7 @@ package sidewinder.routing;
 import sidewinder.interfaces.User;
 import sidewinder.logging.HybridLogger;
 import sidewinder.routing.Router;
-import snake.http.HTTPStatus;
+import sidewinder.http.HTTPStatus;
 import haxe.macro.Expr;
 import haxe.macro.Context;
 import haxe.macro.Type;
@@ -324,7 +324,7 @@ class AutoRouter {
 										}
 
 										if ($v{requiresAuth} && __userId == null) {
-											__rtRes.sendResponse(snake.http.HTTPStatus.UNAUTHORIZED);
+											__rtRes.sendResponse(sidewinder.http.HTTPStatus.UNAUTHORIZED);
 											__rtRes.setHeader("Content-Type", "application/json");
 											__rtRes.endHeaders();
 											__rtRes.write(haxe.Json.stringify({error: "Unauthorized - Authentication required"}));
@@ -352,7 +352,7 @@ class AutoRouter {
 												} catch(e:Dynamic) {}
 											}
 											if (!__hasPerm) {
-												__rtRes.sendResponse(snake.http.HTTPStatus.FORBIDDEN);
+												__rtRes.sendResponse(sidewinder.http.HTTPStatus.FORBIDDEN);
 												__rtRes.setHeader("Content-Type", "application/json");
 												__rtRes.endHeaders();
 												__rtRes.write(haxe.Json.stringify({error: "Forbidden - Missing permission: " + $v{requiredPermission}}));

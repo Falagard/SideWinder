@@ -4,7 +4,6 @@
 -cp Source
 -cp tests
 -lib utest
--lib snake-server
 -lib hxwell
 -D disable_env
 -D no-deprecation-warnings

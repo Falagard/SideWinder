@@ -6,8 +6,7 @@ import sys.thread.Thread;
 import lime.app.Application;
 import lime.ui.WindowAttributes;
 import lime.ui.Window;
-import snake.http.HTTPStatus;
-import snake.http.BaseHTTPRequestHandler;
+import sidewinder.http.HTTPStatus;
 import sidewinder.interfaces.IWebServer;
 import sidewinder.interfaces.IUserService;
 import sidewinder.interfaces.IUserServiceHandler;
@@ -47,7 +46,7 @@ import sidewinder.adapters.CivetWebAdapter;
 import sidewinder.routing.Router;
 import sidewinder.routing.Router.Request;
 import sidewinder.routing.Router.Response;
-import sidewinder.routing.SideWinderRequestHandler;
+import sidewinder.routing.RouterRegistry;
 import sidewinder.routing.WebSocketRouter;
 import sidewinder.routing.AutoRouter;
 import sidewinder.logging.HybridLogger;
@@ -114,11 +113,10 @@ class Main extends Application {
 
 		var directory:String = "static";
 
-		// Configure SideWinderRequestHandler
-		BaseHTTPRequestHandler.protocolVersion = DEFAULT_PROTOCOL;
-		SideWinderRequestHandler.corsEnabled = false;
-		SideWinderRequestHandler.cacheEnabled = true;
-		SideWinderRequestHandler.silent = true;
+		// Configure the router registry
+		RouterRegistry.corsEnabled = false;
+		RouterRegistry.cacheEnabled = true;
+		RouterRegistry.silent = true;
 
 		DI.init(c -> {
 			// Database service - choose between SQLite and MySQL
@@ -168,15 +166,8 @@ class Main extends Application {
 		// Create singleton cookieJar for all async clients
 		var cookieJar:ICookieJar = new CookieJar();
 
-		// Create web server using factory pattern
-		// Can switch between SnakeServer, CivetWeb, and HxWell implementations
-		var serverTypeStr = Sys.getEnv("SIDEWINDER_SERVER");
+		// SIDEWINDER-SNAKE-REMOVAL-S1: HxWell is the only backend now.
 		var serverType = WebServerType.HxWell;
-		if (serverTypeStr == "civetweb") {
-			serverType = WebServerType.CivetWeb;
-		} else if (serverTypeStr == "snake") {
-			serverType = WebServerType.SnakeServer;
-		}
 
 		var numIslandsStr = Sys.getEnv("SIDEWINDER_ISLANDS");
 		var numIslands = numIslandsStr != null ? Std.parseInt(numIslandsStr) : 4;
@@ -184,34 +175,20 @@ class Main extends Application {
 
 		var islandManager = new IslandManager(numIslands);
 
-		webServer = WebServerFactory.create(serverType, DEFAULT_ADDRESS, DEFAULT_PORT, SideWinderRequestHandler, directory, islandManager);
+		webServer = WebServerFactory.create(serverType, DEFAULT_ADDRESS, DEFAULT_PORT, directory, islandManager);
 		HybridLogger.info('[Main] Server initialized with $numIslands logic islands (shared-state workers)');
 
-		// Setup WebSocket support if using CivetWeb
-		// Using WebSocketRouter to support multiple handlers on a single endpoint
-		// Client sends {"handler": "echo|chat|broadcast|auth"} as first message
-		if (Std.isOfType(webServer, CivetWebAdapter)) {
-			var civetAdapter:CivetWebAdapter = cast webServer;
-
-			// Use the WebSocket router for multi-handler support
-			var wsRouter = new WebSocketRouter(civetAdapter);
-			civetAdapter.setWebSocketHandler(wsRouter);
-
-			HybridLogger.info('[Main] WebSocket router enabled with handlers: echo, chat, broadcast, auth');
-			HybridLogger.info('[Main] Connect to ws://localhost:$DEFAULT_PORT/ws');
-			HybridLogger.info('[Main] Send {"handler": "<name>"} to select handler');
-			HybridLogger.info('[Main] Test pages:');
-			HybridLogger.info('[Main]   Echo: http://$DEFAULT_ADDRESS:$DEFAULT_PORT/websocket_test.html');
-			HybridLogger.info('[Main]   Chat: http://$DEFAULT_ADDRESS:$DEFAULT_PORT/chatroom_demo.html');
-			HybridLogger.info('[Main]   Broadcast: http://$DEFAULT_ADDRESS:$DEFAULT_PORT/broadcast_demo.html');
-		} else if (Std.isOfType(webServer, HxWellAdapter)) {
-			var hxwellAdapter:HxWellAdapter = cast webServer;
-			hxwellAdapter.router = SideWinderRequestHandler.router;
-			var wsRouter = new WebSocketRouter(hxwellAdapter);
-			hxwellAdapter.setWebSocketHandler(wsRouter);
-
-			HybridLogger.info('[Main] HxWell WebSocket router enabled with handlers: echo, chat, broadcast, auth');
-		}
+		// WebSocket support. Sample handlers now live in dev/ and are registered
+		// explicitly -- WebSocketRouter no longer bundles them.
+		var hxwellAdapter:HxWellAdapter = cast webServer;
+		hxwellAdapter.router = RouterRegistry.router;
+		var wsRouter = new WebSocketRouter(hxwellAdapter);
+		wsRouter.registerHandler("echo", new sidewinder.websocket.EchoWebSocketHandler(hxwellAdapter));
+		wsRouter.registerHandler("chat", new sidewinder.websocket.ChatRoomWebSocketHandler(hxwellAdapter));
+		wsRouter.registerHandler("broadcast", new sidewinder.websocket.BroadcastWebSocketHandler(hxwellAdapter));
+		wsRouter.registerHandler("auth", new sidewinder.websocket.AuthenticatedWebSocketHandler(hxwellAdapter, 30.0));
+		hxwellAdapter.setWebSocketHandler(wsRouter);
+		HybridLogger.info('[Main] HxWell WebSocket router enabled with handlers: echo, chat, broadcast, auth');
 
 		// Web server will be started at the end of constructor to avoid blocking route registration
 		// webServer.start();
@@ -234,7 +211,7 @@ class Main extends Application {
 
 		// Add file upload test route
 		router.add("POST", "/upload", function(req:Request, res:Response) {
-			res.sendResponse(snake.http.HTTPStatus.OK);
+			res.sendResponse(sidewinder.http.HTTPStatus.OK);
 			res.setHeader("Content-Type", "application/json");
 			res.endHeaders();
 
@@ -334,7 +311,7 @@ class Main extends Application {
 			});
 			
 			// 3. Return 202 immediately
-			res.sendResponse(snake.http.HTTPStatus.ACCEPTED);
+			res.sendResponse(sidewinder.http.HTTPStatus.ACCEPTED);
 			res.setHeader("Content-Type", "application/json");
 			res.endHeaders();
 			res.write(haxe.Json.stringify({
@@ -352,12 +329,12 @@ class Main extends Application {
 			var job = store.get(jobId);
 			
 			if (job == null) {
-				res.sendError(snake.http.HTTPStatus.NOT_FOUND);
+				res.sendError(sidewinder.http.HTTPStatus.NOT_FOUND);
 				res.end();
 				return;
 			}
 			
-			res.sendResponse(snake.http.HTTPStatus.OK);
+			res.sendResponse(sidewinder.http.HTTPStatus.OK);
 			res.setHeader("Content-Type", "application/json");
 			res.endHeaders();
 			res.write(haxe.Json.stringify(job));
@@ -367,7 +344,7 @@ class Main extends Application {
 		// Example route: /hello
 		App.get("/hello", (req, res) -> {
 			var html = "Hello, world!" + Sys.time();
-			res.sendResponse(snake.http.HTTPStatus.OK);
+			res.sendResponse(sidewinder.http.HTTPStatus.OK);
 			res.setHeader("Content-Type", "text/plain");
 			res.setHeader('Content-Length', Std.string(html.length));
 			res.endHeaders();
@@ -377,7 +354,7 @@ class Main extends Application {
 
 		// New route: /goodbye
 		App.get("/goodbye", (req, res) -> {
-			res.sendResponse(snake.http.HTTPStatus.OK);
+			res.sendResponse(sidewinder.http.HTTPStatus.OK);
 			res.setHeader("Content-Type", "text/plain");
 			res.endHeaders();
 			res.write("Goodbye, world!");
@@ -385,7 +362,7 @@ class Main extends Application {
 		});
 
 		App.get("/private", (req, res) -> {
-			res.sendResponse(snake.http.HTTPStatus.OK);
+			res.sendResponse(sidewinder.http.HTTPStatus.OK);
 			res.setHeader("Content-Type", "text/plain");
 			res.endHeaders();
 			res.write("Private content accessed!");
@@ -395,7 +372,7 @@ class Main extends Application {
 		App.get("/cookie", (req, res) -> {
 			// Read a cookie from the request
 			var sessionId = req.cookies.get("session_id");
-			res.sendResponse(snake.http.HTTPStatus.OK);
+			res.sendResponse(sidewinder.http.HTTPStatus.OK);
 			res.setHeader("Content-Type", "text/plain");
 			res.endHeaders();
 			res.write(sessionId != null ? "Cookie: " + sessionId : "No session_id cookie found");
@@ -412,7 +389,7 @@ class Main extends Application {
 				var isHtml:Bool = Reflect.field(req.jsonBody, "isHtml");
 
 				if (to == null || subject == null || body == null) {
-					res.sendResponse(snake.http.HTTPStatus.BAD_REQUEST);
+					res.sendResponse(sidewinder.http.HTTPStatus.BAD_REQUEST);
 					res.setHeader("Content-Type", "application/json");
 					res.endHeaders();
 					res.write(Json.stringify({error: "Missing required fields: to, subject, body"}));
@@ -426,7 +403,7 @@ class Main extends Application {
 					notificationService = DI.get(INotificationService);
 				} catch (e:Dynamic) {
 					HybridLogger.warn("Notification service not configured");
-					res.sendResponse(snake.http.HTTPStatus.SERVICE_UNAVAILABLE);
+					res.sendResponse(sidewinder.http.HTTPStatus.SERVICE_UNAVAILABLE);
 					res.setHeader("Content-Type", "application/json");
 					res.endHeaders();
 					res.write(Json.stringify({error: "Email service not configured. Please set SENDGRID_API_KEY and SENDGRID_FROM_EMAIL environment variables"}));
@@ -438,14 +415,14 @@ class Main extends Application {
 				notificationService.sendEmail(to, subject, body, isHtml, function(err:Dynamic) {
 					if (err != null) {
 						HybridLogger.error('Failed to send email: $err');
-						res.sendResponse(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR);
+						res.sendResponse(sidewinder.http.HTTPStatus.INTERNAL_SERVER_ERROR);
 						res.setHeader("Content-Type", "application/json");
 						res.endHeaders();
 						res.write(Json.stringify({error: "Failed to send email", details: Std.string(err)}));
 						res.end();
 					} else {
 						HybridLogger.info('Email sent successfully to: $to');
-						res.sendResponse(snake.http.HTTPStatus.OK);
+						res.sendResponse(sidewinder.http.HTTPStatus.OK);
 						res.setHeader("Content-Type", "application/json");
 						res.endHeaders();
 						res.write(Json.stringify({success: true, message: "Email sent successfully"}));
@@ -454,7 +431,7 @@ class Main extends Application {
 				});
 			} catch (e:Dynamic) {
 				HybridLogger.error('Exception in /send-email endpoint: $e');
-				res.sendResponse(snake.http.HTTPStatus.INTERNAL_SERVER_ERROR);
+				res.sendResponse(sidewinder.http.HTTPStatus.INTERNAL_SERVER_ERROR);
 				res.setHeader("Content-Type", "application/json");
 				res.endHeaders();
 				res.write(Json.stringify({error: "Internal server error", details: Std.string(e)}));

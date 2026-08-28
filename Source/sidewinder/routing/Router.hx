@@ -4,7 +4,7 @@ package sidewinder.routing;
 
 
 import haxe.ds.StringMap;
-import snake.http.*;
+import sidewinder.http.HTTPStatus;
 
 typedef Request = {
 	var method:String;

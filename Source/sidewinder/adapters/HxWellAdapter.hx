@@ -9,7 +9,7 @@ import sys.net.Host;
 import haxe.io.Bytes;
 import haxe.Http;
 import haxe.ds.StringMap;
-import snake.http.HTTPStatus;
+import sidewinder.http.HTTPStatus;
 import sidewinder.logging.HybridLogger;
 import sidewinder.core.WorkerIsland;
 import sidewinder.interfaces.IslandManager;
@@ -84,7 +84,7 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 
 	// Optional hook to classify thrown exceptions and override the HTTP response status.
 	// Return a non-null HTTPStatus to use instead of 500. Called before writing the response.
-	public static var onClassifyRequestError:Null<(e:Dynamic)->Null<snake.http.HTTPStatus>> = null;
+	public static var onClassifyRequestError:Null<(e:Dynamic)->Null<sidewinder.http.HTTPStatus>> = null;
 
 	// Invoked once, synchronously, from inside start() — after the listening socket is
 	// bound and set to listen, before the blocking accept loop begins. This is the
