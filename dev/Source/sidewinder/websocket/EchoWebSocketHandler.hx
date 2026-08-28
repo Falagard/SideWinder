@@ -31,7 +31,7 @@ class EchoWebSocketHandler implements IWebSocketHandler {
         this.adapter = adapter;
     }
     
-    public function onConnect():Bool {
+    public function onConnect(req:sidewinder.routing.Router.Request):Bool {
         HybridLogger.info('[EchoWebSocket] New connection request');
         return true; // Accept all connections
     }

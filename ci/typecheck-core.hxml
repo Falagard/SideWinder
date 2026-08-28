@@ -1,0 +1,26 @@
+# SIDEWINDER-CORE-HYGIENE-S1: type-check the REUSABLE CORE on a given target
+# without emitting code.
+#
+# `--macro include(...)` forces modules that nothing references to be typed --
+# which is precisely how the never-compiled defects survived (HxWellAdapter's
+# BytesData mismatch on cpp; WebSocketRouter's stale `onConnect()`).
+#
+# Deliberately EXCLUDED, because they are genuinely coupled to a host
+# application's `core.IServerConfig` and are not part of the reusable core:
+#   sidewinder.services.*                (SqliteDatabaseService et al.)
+#   sidewinder.logging.SqliteLogProvider (uses SqliteDatabaseService)
+#   sidewinder.controllers.*, sidewinder.messaging.*, sidewinder.middleware.*
+# A standalone consumer provably does not link them; see the closeout's
+# linked-class census.
+-cp Source
+-lib snake-server
+-lib hxwell
+-lib haxe-injection
+-D disable_env
+-D no-deprecation-warnings
+--macro include('sidewinder.routing')
+--macro include('sidewinder.http')
+--macro include('sidewinder.websocket')
+--macro include('sidewinder.interfaces')
+--macro include('sidewinder.adapters')
+--macro include('sidewinder.integration.injection')

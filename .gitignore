@@ -2,6 +2,9 @@
 Export
 uploads/
 
+# SIDEWINDER-CORE-HYGIENE-S1: test/CI build output
+bin/
+
 # Native library build artifacts in build directories
 native/civetweb/hl/*.obj
 native/civetweb/hl/*.o

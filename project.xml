@@ -6,6 +6,11 @@
 
 	<source path="Source" />
 	<source path="client/Source" />
+	<!-- SIDEWINDER-CORE-HYGIENE-S1: Main/LoadTest/TestDB and the demo+test
+	     packages moved here so they are NOT exported by haxelib.json's
+	     classPath ("Source"). A library must not put a root-level `Main` on
+	     every consumer's classpath. This project.xml still builds them. -->
+	<source path="dev/Source" />
 	
 	<haxelib name="lime" />
 	<haxelib name="snake-server" />

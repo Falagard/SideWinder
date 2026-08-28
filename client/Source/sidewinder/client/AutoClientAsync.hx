@@ -513,7 +513,23 @@ class AutoClientAsync {
 							var path = "";
 							var requiresAuth = false;
 							var authModeExpr = macro sidewinder.client.AutoClientAsync.AutoClientAuthMode.None;
-							
+
+							// SIDEWINDER-CORE-HYGIENE-S1: the client now reads the SAME
+							// @queryParam/@bodyParam vocabulary AutoRouter reads.
+							//
+							// Previously only the server honoured them, so the wire key was
+							// matched by convention: the client always sent the ARGUMENT name.
+							// For @queryParam("afterSequence", "after_sequence") the client sent
+							// `afterSequence=` while the server read `after_sequence` -- the value
+							// silently never arrived. Two live endpoints in HaxeStackPlatform's
+							// Shared/ were affected (IApplicationFollowUpExecutionApi's
+							// afterSequence pagination and IAuthService's `q` admin search).
+							//
+							// argName -> wire key. Absent metadata keeps the previous behaviour.
+							var queryWireNames = new Map<String, String>();
+							// explicit body argument, overriding "first non-path param".
+							var declaredBodyArg:Null<String> = null;
+
 							for (m in field.meta.get()) {
 								switch (m.name) {
 									case "get", "post", "put", "patch", "delete":
@@ -536,6 +552,18 @@ class AutoClientAsync {
 													authModeExpr = macro sidewinder.client.AutoClientAsync.AutoClientAuthMode.$s;
 												default: Context.error("Expected identifier in @auth", p.pos);
 											}
+										}
+									case "queryParam":
+										if (m.params.length == 2) {
+											var argName = switch (m.params[0].expr) { case EConst(CString(v)): v; default: null; };
+											var wireName = switch (m.params[1].expr) { case EConst(CString(v)): v; default: null; };
+											if (argName != null && wireName != null)
+												queryWireNames.set(argName, wireName);
+										}
+									case "bodyParam":
+										if (m.params.length == 1) {
+											var argName = switch (m.params[0].expr) { case EConst(CString(v)): v; default: null; };
+											if (argName != null) declaredBodyArg = argName;
 										}
 									default:
 								}
@@ -586,11 +614,16 @@ class AutoClientAsync {
 									// Determine body arg (first non-path param for POST/PUT/PATCH, skipping non-path userId)
 									var bodyArg:Null<String> = null;
 									if (httpMethod == "POST" || httpMethod == "PUT" || httpMethod == "PATCH") {
-										for (a in args) {
-											if (a.name == "userId" && !userIdIsPathParam) continue;
-											if (pathParamNames.indexOf(a.name) == -1) {
-												bodyArg = renamed.get(a.name);
-												break;
+										// An explicit @bodyParam wins over "first non-path param".
+										if (declaredBodyArg != null && renamed.exists(declaredBodyArg)) {
+											bodyArg = renamed.get(declaredBodyArg);
+										} else {
+											for (a in args) {
+												if (a.name == "userId" && !userIdIsPathParam) continue;
+												if (pathParamNames.indexOf(a.name) == -1) {
+													bodyArg = renamed.get(a.name);
+													break;
+												}
 											}
 										}
 									}
@@ -632,10 +665,13 @@ class AutoClientAsync {
 													}
 												});
 											} else {
+												// Wire key: @queryParam's second argument when declared,
+												// otherwise the Haxe argument name (previous behaviour).
+												var wireKey = queryWireNames.exists(a.name) ? queryWireNames.get(a.name) : a.name;
 												bodyExprs.push(macro {
 													var __v:Dynamic = $identExpr;
 													if (__v != null) {
-														_p += (_p.indexOf("?") == -1 ? "?" : "&") + $v{a.name} + "=" + StringTools.urlEncode(Std.string(__v));
+														_p += (_p.indexOf("?") == -1 ? "?" : "&") + $v{wireKey} + "=" + StringTools.urlEncode(Std.string(__v));
 													}
 												});
 											}

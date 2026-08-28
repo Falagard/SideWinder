@@ -38,7 +38,7 @@ class BroadcastWebSocketHandler implements IWebSocketHandler {
 		this.startTime = Date.now().getTime();
 	}
 
-	public function onConnect():Bool {
+	public function onConnect(req:sidewinder.routing.Router.Request):Bool {
 		HybridLogger.info('[Broadcast] New connection request');
 		return true;
 	}

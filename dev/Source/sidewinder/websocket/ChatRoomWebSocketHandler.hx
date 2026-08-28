@@ -35,7 +35,7 @@ class ChatRoomWebSocketHandler implements IWebSocketHandler {
 		this.nextUserId = 1;
 	}
 
-	public function onConnect():Bool {
+	public function onConnect(req:sidewinder.routing.Router.Request):Bool {
 		HybridLogger.info('[ChatRoom] New connection request');
 		return true;
 	}

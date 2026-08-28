@@ -1,0 +1,12 @@
+# SIDEWINDER-CORE-HYGIENE-S1: SideWinder's first automated test suite.
+# Covers the reusable core only -- deliberately NO database, cloud or auth, so
+# this runs anywhere with no services.
+-cp Source
+-cp tests
+-lib utest
+-lib snake-server
+-lib hxwell
+-D disable_env
+-D no-deprecation-warnings
+-main TestMain
+-cpp bin/tests-cpp

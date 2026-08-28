@@ -1,0 +1,101 @@
+# SIDEWINDER-CORE-HYGIENE-S1: SideWinder's first CI.
+#
+# Motivation, concretely: before this existed, nothing in the repository ever
+# compiled several library files. That let real defects sit indefinitely --
+#   * HxWellAdapter passed BytesData where IWebSocketHandler.onData expects
+#     haxe.io.Bytes: a hard error on every non-HashLink target.
+#   * WebSocketRouter and all four sample WebSocket handlers still declared
+#     `onConnect()` after the interface gained a `req` parameter.
+# Both were found only when someone finally built for cpp. The type-check
+# matrix below is the cheap, permanent version of that.
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  typecheck:
+    name: type-check (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [cpp, hl]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: krdlab/setup-haxe@v2
+        with:
+          haxe-version: 4.3.6
+      - name: Install dependencies
+        run: |
+          haxelib install hxcpp --always --quiet
+          haxelib install utest 1.13.2 --always --quiet
+          haxelib git snake-server https://github.com/Falagard/snake-server --always --quiet
+          haxelib git hxwell https://github.com/falagard/hxwell --always --quiet
+          haxelib git haxe-concurrent https://github.com/Falagard/haxe-concurrent --always --quiet
+          haxelib git haxe-injection https://github.com/Falagard/haxe-injection --always --quiet
+          haxelib install uuid --always --quiet
+          haxelib install crypto --always --quiet
+      # Type-check the library WITHOUT emitting code. This is the gate that
+      # would have caught both defects above.
+      - name: Type-check reusable core
+        run: haxe ci/typecheck-core.hxml -${{ matrix.target }} /tmp/out --no-output
+
+  unit-tests:
+    name: unit tests (cpp)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: krdlab/setup-haxe@v2
+        with:
+          haxe-version: 4.3.6
+      - name: Install dependencies
+        run: |
+          haxelib install hxcpp --always --quiet
+          haxelib install utest 1.13.2 --always --quiet
+          haxelib git snake-server https://github.com/Falagard/snake-server --always --quiet
+          haxelib git hxwell https://github.com/falagard/hxwell --always --quiet
+          haxelib git haxe-concurrent https://github.com/Falagard/haxe-concurrent --always --quiet
+          haxelib install uuid --always --quiet
+          haxelib install crypto --always --quiet
+      - run: haxe tests.hxml
+      - run: ./bin/tests-cpp/TestMain
+
+  core-boundary:
+    name: reusable-core boundary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The reusable core must stay consumable by a standalone hxcpp app.
+      # Regressions here are invisible to a normal Server build, because the
+      # Server has app.*/core.* on its classpath.
+      - name: No application imports, no DI in the transport
+        run: |
+          set -e
+          fail=0
+          echo "-- app.*/core.* imports in the reusable core --"
+          if grep -rn --include='*.hx' -E '^[[:space:]]*import[[:space:]]+(app|core)\.' \
+               Source/sidewinder/routing Source/sidewinder/http Source/sidewinder/adapters \
+             | grep -v 'routing/AutoRouter.hx'; then
+            echo "FAIL: application imports in the reusable core"; fail=1
+          else echo "ok"; fi
+          echo "-- hx-injection in the HTTP transport --"
+          if grep -rn --include='*.hx' -E '^[[:space:]]*import[[:space:]]+(hx\.injection|sidewinder\.core\.DI)' \
+               Source/sidewinder/adapters Source/sidewinder/http; then
+            echo "FAIL: transport must not depend on the DI container"; fail=1
+          else echo "ok"; fi
+          echo "-- 1ms busy-poll loops --"
+          if grep -rn --include='*.hx' -E 'Sys\.sleep\(0\.001\)' \
+               Source/sidewinder/adapters Source/sidewinder/core Source/sidewinder/http \
+             | grep -vE ':[[:space:]]*(//|\*|/\*)'; then
+            echo "FAIL: park on sys.thread.Lock instead of polling"; fail=1
+          else echo "ok"; fi
+          echo "-- root-level types on the exported classPath --"
+          if ls Source/*.hx 2>/dev/null; then
+            echo "FAIL: haxelib classPath is Source/; a library must not export root-level types"; fail=1
+          else echo "ok"; fi
+          exit $fail

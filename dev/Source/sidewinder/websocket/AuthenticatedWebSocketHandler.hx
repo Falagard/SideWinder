@@ -58,7 +58,7 @@ class AuthenticatedWebSocketHandler implements IWebSocketHandler {
 		});
 	}
 
-	public function onConnect():Bool {
+	public function onConnect(req:sidewinder.routing.Router.Request):Bool {
 		HybridLogger.info('[Auth] New connection request');
 		return true; // Accept connection, but require auth
 	}

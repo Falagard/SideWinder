@@ -47,7 +47,10 @@ class WebServerFactory {
 				new SnakeServerAdapter(host, port, requestHandlerClass, directory, islandManager);
 
 			case CivetWeb:
-				throw "CivetWeb support temporarily disabled";
+				// SIDEWINDER-CORE-HYGIENE-S1: kept as an explicit runtime error rather
+				// than silently falling back, but createDefault() no longer routes any
+				// target here -- see below.
+				throw "CivetWeb support is disabled in this build; use WebServerType.HxWell";
 
 			case HxWell:
 				var adapter = new HxWellAdapter(host, port, directory, islandManager);
@@ -67,10 +70,13 @@ class WebServerFactory {
 	 */
 	public static function createDefault(host:String, port:Int, ?requestHandlerClass:Class<BaseRequestHandler>, ?directory:String,
 			islandManager:IslandManager):IWebServer {
-		// Default to SnakeServer for hl target, could be extended for other targets
+		// SIDEWINDER-CORE-HYGIENE-S1: this used to select CivetWeb on cpp -- a backend
+		// whose constructor unconditionally throws, so every cpp consumer got a server
+		// that compiled and then died at startup. cpp now gets the HxWell transport,
+		// which is the only backend proven to run on that target.
 		#if cpp
-		trace("[WebServerFactory] Using CivetWeb for cpp target");
-		return create(CivetWeb, host, port, requestHandlerClass, directory, islandManager);
+		trace("[WebServerFactory] Using HxWell for cpp target");
+		return create(HxWell, host, port, requestHandlerClass, directory, islandManager);
 		#else
 		trace("[WebServerFactory] Using SnakeServer (default)");
 		return create(SnakeServer, host, port, requestHandlerClass, directory, islandManager);
