@@ -106,11 +106,45 @@ class SqliteDatabaseService implements IDatabaseService {
 
     private var dbPath:String;
 
+    /**
+     * ROOT CAUSE FIX (SIDEWINDER-CORE-DECOUPLING-S1 stall investigation): resolve via the PARENT
+     * DIRECTORY's canonical path, not the file's own existence.
+     *
+     * The old check (`if (sys.FileSystem.exists(p)) fullPath(p)`) meant the cache key for a given
+     * dbPath string depended on whether the FILE happened to exist YET. On macOS, `/var` is a
+     * symlink to `/private/var`: before the sqlite file is created, this returned the raw
+     * "/var/folders/.../local-runtime.db"; after creation, `exists()` flips true and the exact
+     * same logical path resolved to its symlink-expanded "/private/var/folders/.../local-runtime.db"
+     * instead. init() computes `this.dbPath` from this function's result (see below) and every
+     * later call -- including a completely separate SqliteDatabaseService instance for what the
+     * caller believes is the "same" path -- keys off that value. Two different map keys for one
+     * physical file means two independent cache entries, two independent native sqlite3
+     * connections, and two independent per-path Mutex objects for what the OS considers a single
+     * inode: the per-path mutex (acquireLock()/getSharedMutex()) silently stops serializing
+     * anything between them. SQLite's own WAL shared-memory locking then takes over -- a real,
+     * process-wide OS-level fcntl lock keyed by inode -- and the second connection blocks
+     * indefinitely inside sqlite3_step -> ... -> unixShmLock -> fcntl instead of getting a normal,
+     * fast per-path-mutex handoff. Confirmed via `sample` on a genuinely hung process: the exact
+     * native frame above, with the two live cache entries for one temp-dir local-runtime.db
+     * differing only by the `/var` vs `/private/var` prefix.
+     *
+     * Resolving via the parent directory instead is stable across the file's create/not-yet-
+     * created boundary: every caller in this class creates the parent directory before ever
+     * opening a connection (see init()'s directory-creation block, which runs BEFORE this
+     * function), so by the time a dbPath is first registered, its directory already exists and
+     * resolves identically on every subsequent call regardless of whether the file itself exists.
+     */
     public static function normalizePath(path:String):String {
         if (path == null) return null;
         var p = path;
         try {
-            if (sys.FileSystem.exists(p)) {
+            var dir = haxe.io.Path.directory(p);
+            var file = haxe.io.Path.withoutDirectory(p);
+            if (dir != "" && dir != "." && sys.FileSystem.exists(dir)) {
+                p = haxe.io.Path.addTrailingSlash(sys.FileSystem.fullPath(dir)) + file;
+            } else if (sys.FileSystem.exists(p)) {
+                // Fallback: no directory component (bare filename resolved against cwd) or the
+                // parent doesn't exist yet either -- match the previous behavior in that case.
                 p = sys.FileSystem.fullPath(p);
             }
             p = p.split("\\").join("/");
@@ -305,25 +339,61 @@ class SqliteDatabaseService implements IDatabaseService {
         return time;
     }
 
+    /**
+     * Hardening found alongside the normalizePath() root cause fix above (SIDEWINDER-CORE-
+     * DECOUPLING-S1 stall investigation) -- NOT itself the cause of that stall, verified by A/B:
+     * the stall reproduced identically with this fix applied on its own. Kept because it is a
+     * real, independent hazard: this method used to call conn.close() directly under only the
+     * global map mutex, exactly the class of bug documented and fixed on resetAllConnections()
+     * below -- if another thread was mid-query on this exact Connection under its own properly-
+     * acquired per-path mutex (see acquireLock()/getConn()), this method's unsynchronized close()
+     * raced it on the same native sqlite3 connection handle from a second thread. Concurrent,
+     * unsynchronized use of one sqlite3 connection handle from two threads is undefined behavior
+     * in the underlying C library and can hang the process indefinitely. closeByPath() is called
+     * by SqliteTenantDatabaseServiceFactory.closeTenant() (itself called from evictIdleInternal()
+     * and the 60s-interval background checkIdleTimeouts() thread) with no synchronization of its
+     * own, so this was reachable purely from normal tenant-DB idle eviction racing an in-flight
+     * query -- no test-only code path required.
+     *
+     * Fix: capture the connection and its per-path mutex under the global map mutex, release the
+     * global map mutex (matching acquireLock()'s own pattern of never blocking on a per-path mutex
+     * while holding the global one), then acquire the per-path mutex before touching the
+     * Connection, and always release it afterward.
+     */
     public static function closeByPath(path:String):Void {
         var mapKey = normalizePath(path);
+
         getGlobalMapMutex().acquire();
+        var conn:sys.db.Connection = null;
+        var pathMutex:Mutex = null;
+        var existed = false;
         try {
             if (getConnectionsMap().exists(mapKey)) {
-                var conn = getConnectionsMap().get(mapKey);
-                if (conn != null) {
-                    try { conn.close(); } catch (e:Dynamic) {}
-                }
-                getConnectionsMap().remove(mapKey);
-                getConnectionMutexesMap().remove(mapKey);
-                getGlobalStatsMutex().acquire();
-                getLastUsedAtMap().remove(mapKey);
-                getGlobalStatsMutex().release();
+                existed = true;
+                conn = getConnectionsMap().get(mapKey);
+                pathMutex = getConnectionMutexesMap().get(mapKey);
             }
-            getGlobalMapMutex().release();
-        } catch (e:Dynamic) {
-            getGlobalMapMutex().release();
+        } catch (e:Dynamic) {}
+        getGlobalMapMutex().release();
+
+        if (!existed) return;
+
+        if (pathMutex == null) pathMutex = new Mutex();
+        pathMutex.acquire();
+        if (conn != null) {
+            try { conn.close(); } catch (e:Dynamic) {}
         }
+        pathMutex.release();
+
+        getGlobalMapMutex().acquire();
+        try {
+            getConnectionsMap().remove(mapKey);
+            getConnectionMutexesMap().remove(mapKey);
+            getGlobalStatsMutex().acquire();
+            try { getLastUsedAtMap().remove(mapKey); } catch (e:Dynamic) {}
+            getGlobalStatsMutex().release();
+        } catch (e:Dynamic) {}
+        getGlobalMapMutex().release();
     }
 
     /**
