@@ -596,12 +596,24 @@ class SqliteDatabaseService implements IDatabaseService {
             var isDml = StringTools.startsWith(lowerSql, "insert ") || StringTools.startsWith(lowerSql, "update ") || StringTools.startsWith(lowerSql, "delete ");
             if (isDml) try {
                 var checkRs = c.request("SELECT changes() as changed");
-                // HL GC SIGNAL 11 fix: protect hasNext/next on raw ResultSet
+                // HL GC SIGNAL 11 fix: protect hasNext/next on raw ResultSet. Inner try-catch is
+                // required (not just the outer catch below) because hl.Gc.enable() is a process-
+                // global toggle: if hasNext()/next() throws here (e.g. the routinely-hit "not an
+                // error" case the outer catch swallows), the outer catch has no re-enable of its
+                // own, permanently disabling the GC process-wide and eventually wedging every
+                // thread that hits a GC blocking-section (Sys.sleep, allocation, etc.) forever.
                 #if hl hl.Gc.enable(false); #end
-                var hasChk = checkRs.hasNext();
-                var changes:Dynamic = hasChk ? checkRs.next().changed : 0;
-                // Drain checkRs fully so the SQLite prepared statement is finalized.
-                if (hasChk) checkRs.hasNext();
+                var hasChk = false;
+                var changes:Dynamic = 0;
+                try {
+                    hasChk = checkRs.hasNext();
+                    changes = hasChk ? checkRs.next().changed : 0;
+                    // Drain checkRs fully so the SQLite prepared statement is finalized.
+                    if (hasChk) checkRs.hasNext();
+                } catch (gcE:Dynamic) {
+                    #if hl hl.Gc.enable(true); #end
+                    throw gcE;
+                }
                 #if hl hl.Gc.enable(true); #end
                 if (hasChk && changes == 0) {
                     if (changes == 0 && (StringTools.startsWith(lowerSql, "insert ") || StringTools.startsWith(lowerSql, "update ") || StringTools.startsWith(lowerSql, "delete "))) {
@@ -662,16 +674,28 @@ class SqliteDatabaseService implements IDatabaseService {
 
             // Check if it actually worked
             var checkRs = c.request("SELECT changes() as changed");
-            // HL GC SIGNAL 11 fix: protect hasNext/next on raw ResultSet
+            // HL GC SIGNAL 11 fix: protect hasNext/next on raw ResultSet. Inner try-catch required
+            // -- see the matching comment in execute() above; a thrown exception here must not
+            // skip re-enabling the GC, since it is a process-global toggle.
             #if hl hl.Gc.enable(false); #end
-            var hasChkId = checkRs.hasNext();
-            var changedId:Dynamic = hasChkId ? checkRs.next().changed : -1;
+            var hasChkId = false;
+            var changedId:Dynamic = -1;
+            try {
+                hasChkId = checkRs.hasNext();
+                changedId = hasChkId ? checkRs.next().changed : -1;
+            } catch (gcE:Dynamic) {
+                #if hl hl.Gc.enable(true); #end
+                throw gcE;
+            }
             #if hl hl.Gc.enable(true); #end
             if (hasChkId && changedId == 0) {
                 var lowerSql = finalSql.toLowerCase();
                 if (lowerSql.indexOf(" ignore ") == -1 && lowerSql.indexOf(" replace ") == -1) {
-                    releaseLock(dbPath);
-                    _resetMutex.release();
+                    // Do NOT release here -- let this fall through to the catch block below.
+                    // _resetMutex is a plain sys.thread.Mutex with no reentrancy/ownership guard
+                    // (unlike releaseLock()'s tracked per-path lock): releasing it here and then
+                    // again in the outer catch is a genuine double-release that can hand another
+                    // thread's legitimately-held _resetMutex back to a third thread mid-use.
                     throw "SQLite Mutation Error: 0 rows affected by executeAndGetId. SQL: " + finalSql;
                 }
             }
@@ -718,9 +742,18 @@ class SqliteDatabaseService implements IDatabaseService {
             }
 
             var checkRs = c.request("SELECT changes() as changed");
+            // Inner try-catch required -- see the matching comment in execute() above; a thrown
+            // exception here must not skip re-enabling the GC, since it is a process-global toggle.
             #if hl hl.Gc.enable(false); #end
-            var hasChk = checkRs.hasNext();
-            var changed:Int = hasChk ? (checkRs.next().changed : Int) : 0;
+            var hasChk = false;
+            var changed:Int = 0;
+            try {
+                hasChk = checkRs.hasNext();
+                changed = hasChk ? (checkRs.next().changed : Int) : 0;
+            } catch (gcE:Dynamic) {
+                #if hl hl.Gc.enable(true); #end
+                throw gcE;
+            }
             #if hl hl.Gc.enable(true); #end
 
             releaseLock(dbPath);
@@ -912,10 +945,22 @@ class SqliteDatabaseService implements IDatabaseService {
             var isDml = StringTools.startsWith(lowerSql, "insert ") || StringTools.startsWith(lowerSql, "update ") || StringTools.startsWith(lowerSql, "delete ");
             if (isDml) try {
                 var checkRs = c.request("SELECT changes() as changed");
+                // Inner try-catch required -- see the matching comment in execute() above; a
+                // thrown exception here must not skip re-enabling the GC, since it is a
+                // process-global toggle. This method runs migration DML under
+                // applyOneMigrationAtomically, so a leaked GC-disable here wedges the whole
+                // process the next time any thread hits a GC blocking section.
                 #if hl hl.Gc.enable(false); #end
-                var hasChk = checkRs.hasNext();
-                var changes:Dynamic = hasChk ? checkRs.next().changed : 0;
-                if (hasChk) checkRs.hasNext();
+                var hasChk = false;
+                var changes:Dynamic = 0;
+                try {
+                    hasChk = checkRs.hasNext();
+                    changes = hasChk ? checkRs.next().changed : 0;
+                    if (hasChk) checkRs.hasNext();
+                } catch (gcE:Dynamic) {
+                    #if hl hl.Gc.enable(true); #end
+                    throw gcE;
+                }
                 #if hl hl.Gc.enable(true); #end
                 if (hasChk && changes == 0) {
                     if (changes == 0 && (StringTools.startsWith(lowerSql, "insert ") || StringTools.startsWith(lowerSql, "update ") || StringTools.startsWith(lowerSql, "delete "))) {
