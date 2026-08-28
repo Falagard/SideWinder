@@ -13,7 +13,6 @@ import snake.http.HTTPStatus;
 import sidewinder.logging.HybridLogger;
 import sidewinder.core.WorkerIsland;
 import sidewinder.interfaces.IslandManager;
-import sidewinder.core.DI;
 import sidewinder.interfaces.IWebSocketHandler;
 import sidewinder.interfaces.IWebSocketHandler.WebSocketOpcode;
 import sidewinder.logging.HybridLogger.LogLevel;
@@ -21,11 +20,14 @@ import sidewinder.interfaces.IWebServer;
 import sidewinder.interfaces.IWebSocketServer;
 import hx.well.websocket.WebSocketSession;
 import sidewinder.adapters.HxWellAdapterTypes;
-#if haxestack_platform_server
-import app.util.RequestId;
-import app.services.ProjectContext;
-import core.IServerConfig;
-#end
+import sidewinder.http.IHttpServerOptions;
+import sidewinder.http.HttpServerOptions;
+import sidewinder.http.IRequestIdFactory;
+import sidewinder.http.SequentialRequestIdFactory;
+import sidewinder.http.IRequestScope;
+import sidewinder.http.IRequestScopeFactory;
+import sidewinder.http.MapRequestScopeFactory;
+import sidewinder.http.WebSocketAdmissionPolicy;
 
 /**
  * Adapter for hxwell server.
@@ -40,19 +42,38 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 	var running:Bool = false;
 	var driver:sidewinder.adapters.CustomSocketDriver;
 	var islandManager:IslandManager;
-	#if haxestack_platform_server
-	var serverConfig:IServerConfig;
-	#else
-	private static inline var DEFAULT_MAX_HEADER_SIZE = 32768;
-	private static inline var DEFAULT_MAX_URL_LENGTH = 8192;
-	private static inline var DEFAULT_MAX_REQUEST_BODY_SIZE = 10485760;  // 10 MB
-	private static inline var DEFAULT_MAX_WS_MESSAGE_SIZE = 65536;  // 64 KB
-	#end
+
+	// SIDEWINDER-CORE-DECOUPLING-S1 (Tasks C/D/E/F/G).
+	//
+	// These three collaborators replace what used to be
+	// `#if haxestack_platform_server` branches naming
+	// `core.IServerConfig`, `app.util.RequestId` and `app.services.ProjectContext`.
+	// The adapter is now configured by composition and has no compile-time
+	// knowledge of any host application.
+	//
+	// Defaults are container-free, so a lightweight hxcpp application can host
+	// routes with neither hx-injection nor a UUID library linked in.
+	var options:IHttpServerOptions;
+	var requestIdFactory:IRequestIdFactory;
+	var requestScopeFactory:IRequestScopeFactory;
+
+	// Task K: hard ceiling on concurrent WebSocket connections.
+	var wsAdmission:WebSocketAdmissionPolicy;
 
 	// Hook invoked after a request is converted, so a host application can set up
 	// per-request scoped services (e.g. tenant context). Present in both platform
 	// and standalone (generated app) builds — must NOT be wrapped in #if.
 	public static var onScopeSetup:Null<(scope:Dynamic, request:Dynamic)->Void> = null;
+
+	// SIDEWINDER-CORE-DECOUPLING-S1 (Task E): typed form of the hook above.
+	// Receives the framework's `IRequestScope`, which carries the request id and
+	// (for container-backed scopes) `unwrap()`s to the container scope. Prefer
+	// this in new code; `onScopeSetup` is retained unchanged for existing
+	// callers such as StackServerSDK.
+	//
+	// Both hooks fire, `onRequestScope` first, once per request, immediately
+	// after the request is converted and before any route handler runs.
+	public static var onRequestScope:Null<(scope:IRequestScope, request:Dynamic)->Void> = null;
 
 	// Inject router to avoid circular dependency with SideWinderRequestHandler
 	public var router:Router = Router.instance;
@@ -76,21 +97,37 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 	var websocketHandler:IWebSocketHandler;
 	var wsEventQueue:Array<WebSocketEvent> = [];
 	var wsMutex = new sys.thread.Mutex();
+	// SIDEWINDER-CORE-DECOUPLING-S1 (Task L): the WebSocket event pump used to
+	// spin at 1ms. Park on a counting semaphore instead; `pushWebSocketEvent`
+	// releases it.
+	var wsSignal = new sys.thread.Lock();
 
-	public function new(host:String, port:Int, directory:String, islandManager:IslandManager) {
+	/**
+	 * @param options            Transport limits and worker sizing. Defaults to
+	 *                           `HttpServerOptions(host, port)`, whose defaults are
+	 *                           validated to be non-exhaustible (Task K).
+	 * @param requestIdFactory   Defaults to `SequentialRequestIdFactory` (no UUID
+	 *                           dependency). The Server supplies one wrapping its
+	 *                           own `app.util.RequestId`.
+	 * @param requestScopeFactory Defaults to `MapRequestScopeFactory` -- NO DI
+	 *                           container. Applications that use hx-injection pass
+	 *                           `sidewinder.integration.injection.DiRequestScopeFactory`.
+	 */
+	public function new(host:String, port:Int, directory:String, islandManager:IslandManager, ?options:IHttpServerOptions,
+			?requestIdFactory:IRequestIdFactory, ?requestScopeFactory:IRequestScopeFactory) {
 		this.islandManager = islandManager;
 		this.host = host;
 		this.port = port;
 		this.directory = directory;
 		this.numIslands = islandManager.getIslandCount();
-		#if haxestack_platform_server
-		this.serverConfig = DI.get(IServerConfig);
+
+		this.options = options != null ? options : new HttpServerOptions(host, port);
+		this.requestIdFactory = requestIdFactory != null ? requestIdFactory : new SequentialRequestIdFactory();
+		this.requestScopeFactory = requestScopeFactory != null ? requestScopeFactory : new MapRequestScopeFactory();
+		this.wsAdmission = new WebSocketAdmissionPolicy(this.options.maxWebSocketConnections);
 
 		// Synchronize message size limit with the driver
-		hx.well.http.driver.socket.SocketWebSocketHandler.maxMessageSize = this.serverConfig.maxWebSocketMessageSize;
-		#else
-		hx.well.http.driver.socket.SocketWebSocketHandler.maxMessageSize = DEFAULT_MAX_WS_MESSAGE_SIZE;
-		#end
+		hx.well.http.driver.socket.SocketWebSocketHandler.maxMessageSize = this.options.maxWebSocketMessageSize;
 
 		// Using sys.thread.Thread.create for HashLink reliability over MainLoop.addThread
 		sys.thread.Thread.create(processWebSocketEvents);
@@ -102,7 +139,11 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 		var config = new hx.well.http.driver.socket.SocketDriverConfig();
 		config.host = host;
 		config.port = port;
-		config.maxConnections = 512;
+		config.maxConnections = options.maxConnections;
+		// Task K: HxWell's own default is 10, which deadlocks at 10 concurrent
+		// WebSocket clients. `HttpServerOptions` validated this value against
+		// maxWebSocketConnections + httpWorkerHeadroom at construction.
+		config.poolSize = options.workerPoolSize;
 		config.onStart = () -> {
 			// FOOTNOTE-MEDIA-WORKER-S1 Task 11 (Failure B fix): mark every
 			// currently-open file descriptor (including the listening socket
@@ -132,7 +173,7 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			if (onStarted != null) onStarted();
 		};
 
-		driver = new sidewinder.adapters.CustomSocketDriver(config, this);
+		driver = new sidewinder.adapters.CustomSocketDriver(config, this, options, wsAdmission);
 
 		HybridLogger.info('[HxWellAdapter] Starting on $host:$port (Static: $directory)');
 		driver.start();
@@ -144,7 +185,10 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 
 	private function processWebSocketEvents():Void {
 		while (true) {
-			Sys.sleep(0.001); // Don't peg CPU
+			// Blocks until an event is queued, or 1s elapses. The timeout keeps
+			// the loop responsive to a websocketHandler being installed after
+			// the pump thread started.
+			wsSignal.wait(1.0);
 
 			if (websocketHandler == null)
 				continue;
@@ -170,10 +214,16 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 						case Open(session):
 							websocketHandler.onReady(session);
 						case Message(session, text):
+							// SIDEWINDER-CORE-DECOUPLING-S1: `IWebSocketHandler.onData`
+							// declares `hl.Bytes` on HashLink but `haxe.io.Bytes`
+							// everywhere else. Passing `getData()` unconditionally
+							// compiled only on HL and was a hard type error on hxcpp
+							// (`haxe.io.BytesData should be haxe.io.Bytes`) -- proof
+							// this branch had never been built for cpp.
 							var haxeBytes = haxe.io.Bytes.ofString(text);
-							websocketHandler.onData(session, WebSocketOpcode.TEXT, haxeBytes.getData(), haxeBytes.length);
+							websocketHandler.onData(session, WebSocketOpcode.TEXT, #if hl haxeBytes.getData() #else haxeBytes #end, haxeBytes.length);
 						case Binary(session, data):
-							websocketHandler.onData(session, WebSocketOpcode.BINARY, data.getData(), data.length);
+							websocketHandler.onData(session, WebSocketOpcode.BINARY, #if hl data.getData() #else data #end, data.length);
 						case Close(session):
 							websocketHandler.onClose(session);
 					}
@@ -185,33 +235,25 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 	}
 
 	public function processQueuedRequest(q:QueuedRequest):Void {
-		#if haxestack_platform_server
-		var requestId = RequestId.generate();
-		#else
-		var requestId = Std.string(Date.now().getTime()) + "_" + Std.string(Std.int(Math.random() * 1000000));
-		#end
-		var scope = DI.createScope();
-		DI.setThreadProvider(scope);
+		var requestId = requestIdFactory.generate();
 
-		#if haxestack_platform_server
-		var pctx = scope.getService(ProjectContext);
-		pctx.requestId = requestId;
-		pctx.nodeId = serverConfig.nodeId;
+		// The scope is whatever the host application's factory produced. For a
+		// DI application this installs the hx-injection thread provider exactly
+		// as the inline code used to; for a lightweight application it is a
+		// plain attribute bag and no container exists.
+		var scope:IRequestScope = requestScopeFactory.create(requestId);
 
-		var maxHeaderSize = serverConfig.maxHeaderSize;
-		var maxUrlLength = serverConfig.maxUrlLength;
-		var maxRequestBodySize = serverConfig.maxRequestBodySize;
-		#else
-		var maxHeaderSize = DEFAULT_MAX_HEADER_SIZE;
-		var maxUrlLength = DEFAULT_MAX_URL_LENGTH;
-		var maxRequestBodySize = DEFAULT_MAX_REQUEST_BODY_SIZE;
-		#end
+		var maxHeaderSize = options.maxHeaderSize;
+		var maxUrlLength = options.maxUrlLength;
+		var maxRequestBodySize = options.maxRequestBodySize;
 
 		var swRes = createResponse(q.socket, requestId);
 
 		var cleanup = function() {
-			DI.resetThreadProvider();
-			scope.destroy();
+			// `dispose()` is idempotent; for the DI-backed scope it resets the
+			// thread provider and destroys the container scope, which is what
+			// this used to do inline.
+			scope.dispose();
 		};
 
 		// Capture request context for crash reporting — populated after convertRequest succeeds.
@@ -230,13 +272,16 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			_crashMethod  = swReq.method;
 			_crashPath    = swReq.path;
 			_crashHeaders = swReq.headers;
-			#if haxestack_platform_server
-			pctx.ipAddress = swReq.ip;
-			pctx.userAgent = swReq.headers.get("user-agent");
-			#end
 
 			// Per-request scope setup hook (both platform and standalone builds).
-			if (onScopeSetup != null) onScopeSetup(scope, swReq);
+			// Hand the host application the container-specific scope object when
+			// there is one (preserving the existing `scope.getService(...)`
+			// contract used by StackServerSDK), otherwise the scope itself.
+			if (onRequestScope != null) onRequestScope(scope, swReq);
+			if (onScopeSetup != null) {
+				var raw = scope.unwrap();
+				onScopeSetup(raw != null ? raw : cast scope, swReq);
+			}
 
 			// Enforce Header Size Limit
 			var totalHeaderSize = 0;
@@ -730,5 +775,7 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 		wsMutex.acquire();
 		wsEventQueue.push(evt);
 		wsMutex.release();
+		// Wake the event pump (Task L: replaces its 1ms poll).
+		wsSignal.release();
 	}
 }

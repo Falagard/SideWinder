@@ -10,16 +10,28 @@ import hx.well.http.driver.socket.SocketWebSocketHandler;
 import hx.well.http.RequestStatic;
 import sys.net.Socket;
 import haxe.Http;
-import sidewinder.core.DI;
-import core.IServerConfig;
+import sidewinder.http.IHttpServerOptions;
+import sidewinder.http.WebSocketAdmissionPolicy;
 
 @:access(hx.well.http.driver.socket.SocketDriver)
 class CustomSocketDriver extends SocketDriver {
 	private var adapter:HxWellAdapter;
 
-	public function new(config, adapter) {
+	// SIDEWINDER-CORE-DECOUPLING-S1 (Task C): transport limits arrive by
+	// constructor injection instead of `DI.get(core.IServerConfig)` on every
+	// request. That removed this class's dependency on both the
+	// HaxeStackPlatform Server application AND on hx-injection.
+	private var options:IHttpServerOptions;
+
+	// Task K: refuses WebSocket upgrades past the configured ceiling so
+	// long-lived sockets can never consume the worker pool's HTTP headroom.
+	private var wsAdmission:WebSocketAdmissionPolicy;
+
+	public function new(config, adapter, options:IHttpServerOptions, wsAdmission:WebSocketAdmissionPolicy) {
 		super(config);
 		this.adapter = adapter;
+		this.options = options;
+		this.wsAdmission = wsAdmission;
 	}
 
 	override public function process(socket:Socket):Void {
@@ -40,15 +52,14 @@ class CustomSocketDriver extends SocketDriver {
 				}
 
 				var hxReq = hx.well.http.driver.socket.SocketRequestParser.parseFromSocket(socket);
-				var serverConfig = DI.get(IServerConfig);
 
 				// Enforce header size limit
 				var totalHeaderSize = 0;
 				for (k in hxReq.headers.keys()) {
 					totalHeaderSize += k.length + hxReq.headers.get(k).length + 4; // +4 for ": " and "\r\n"
 				}
-				if (totalHeaderSize > serverConfig.maxHeaderSize) {
-					HybridLogger.warn('[HxWellAdapter] Headers too large: $totalHeaderSize > ${serverConfig.maxHeaderSize}');
+				if (totalHeaderSize > options.maxHeaderSize) {
+					HybridLogger.warn('[HxWellAdapter] Headers too large: $totalHeaderSize > ${options.maxHeaderSize}');
 					// We can't easily send a 431 Request Header Fields Too Large here because we already parsed part of the request
 					// but we can at least abort.
 					try {
@@ -62,9 +73,32 @@ class CustomSocketDriver extends SocketDriver {
 				// Check for WebSocket upgrade
 				var upgrade = hxReq.header("Upgrade");
 				if (upgrade != null && upgrade.toLowerCase() == "websocket") {
+					// Task K: a WebSocket occupies this worker until it closes.
+					// Refuse rather than let sockets exhaust the pool -- at
+					// pool exhaustion the server stops answering HTTP *and*
+					// stops accepting connections.
+					if (!wsAdmission.tryAcquire()) {
+						HybridLogger.warn('[HxWellAdapter] WebSocket upgrade refused: at capacity ('
+							+ wsAdmission.getLimit() + ' concurrent connections)');
+						try {
+							socket.output.writeString("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+							socket.output.flush();
+							socket.close();
+						} catch (_) {}
+						return;
+					}
 					var bridge = new HxWellWebSocketBridge(adapter, hxReq);
 					// This blocks the background thread and handles the message loop
-					hx.well.http.driver.socket.SocketWebSocketHandler.upgrade(socket, hxReq, bridge);
+					try {
+						hx.well.http.driver.socket.SocketWebSocketHandler.upgrade(socket, hxReq, bridge);
+					} catch (e:Dynamic) {
+						HybridLogger.error('[HxWellAdapter] WebSocket session error: ' + e);
+					}
+					// Haxe has no `finally`; release on both paths. The policy
+					// itself floors at zero, and the bridge guards against
+					// HxWell's double-close, so this is safe to reach once per
+					// accepted upgrade.
+					wsAdmission.release();
 					return;
 				}
 				
@@ -76,8 +110,8 @@ class CustomSocketDriver extends SocketDriver {
 				
 				if (contentLen != null) {
 					var len = Std.parseInt(contentLen);
-					if (len > serverConfig.maxRequestBodySize) {
-						HybridLogger.warn('[HxWellAdapter] Content-Length too large: $len > ${serverConfig.maxRequestBodySize}');
+					if (len > options.maxRequestBodySize) {
+						HybridLogger.warn('[HxWellAdapter] Content-Length too large: $len > ${options.maxRequestBodySize}');
 						try {
 							socket.output.writeString("HTTP/1.1 413 Payload Too Large\r\nConnection: close\r\n\r\n");
 							socket.output.flush();

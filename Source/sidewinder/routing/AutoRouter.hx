@@ -64,7 +64,15 @@ class AutoRouter {
 						if (Reflect.hasField(body, "sortDir")) __sortDir = Std.string(Reflect.field(body, "sortDir"));
 					}
 
+					// SIDEWINDER-CORE-DECOUPLING-S1 (Task B): `ListQuery` is a
+					// HaxeStackPlatform application type. Gate it exactly as the
+					// ProjectContext reference below already is, so the routing
+					// core never emits an `app.*` reference into a standalone build.
+					#if haxestack_platform_server
 					new app.models.ListQuery(__page, __pageSize, __search, __sortBy, __sortDir);
+					#else
+					{ page: __page, pageSize: __pageSize, search: __search, sortBy: __sortBy, sortDir: __sortDir };
+					#end
 				};
 			} else {
 				// Complex type: parsing from body or JSON string
