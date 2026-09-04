@@ -26,6 +26,33 @@ class SqliteDatabaseService implements IDatabaseService {
     private static var _mapMutex:sys.thread.Mutex = new sys.thread.Mutex();
     private static var _statsMutex:sys.thread.Mutex = new sys.thread.Mutex();
     
+    /**
+     * SERVER-TEST-SUITE-RECOVERY-S1: open transaction depth per database path.
+     *
+     * `beginTransaction()` is just `execute("BEGIN TRANSACTION;")`, and execute() acquires and
+     * RELEASES the per-path lock around each statement -- so a transaction spans several separate
+     * lock acquisitions and holds no lock in between. Closing a connection in that window would
+     * silently roll the transaction back, which makes it the one thing idle eviction must never
+     * do. Tracked here so eviction can skip those paths.
+     */
+    private static var _txDepth:Map<String, Int> = new Map();
+
+    /**
+     * Maximum pooled connections retained before the least-recently-used IDLE ones are closed.
+     *
+     * The pool was previously unbounded: every database ever opened kept its connection, and with
+     * it three descriptors (.db, -wal, -shm), for the life of the process. Measured at 3.0
+     * descriptors per unclosed database over 60 cycles. Past FD_SETSIZE (1024 on macOS) select()
+     * cannot represent a descriptor at all, so libcurl started failing every request with
+     * CURLE_BAD_FUNCTION_ARGUMENT and NodeRouterServer's accept loop spun on a failing select --
+     * two unrelated-looking subsystems breaking for one reason.
+     *
+     * Set generously: this is a safety bound against unbounded growth, not a tuning knob. Reopening
+     * an evicted database is transparent (getConn() lazily reopens) and costs one open plus the
+     * PRAGMAs.
+     */
+    public static var maxPooledConnections:Int = 96;
+
     private static var lockOwners:Map<String, Thread> = new Map();
     private static var lockCounts:Map<String, Int> = new Map();
     
@@ -290,6 +317,9 @@ class SqliteDatabaseService implements IDatabaseService {
         Sys.println('[SqliteDB] FATAL ERROR during registration: ' + e + " (Path: " + this.dbPath + ")");
         throw e;
     }
+
+    // Bound the pool. Deliberately AFTER the map mutex is released -- closeByPath acquires it.
+    evictIdleOverBound(mapKey);
     }
 
     public static function hasOpenConnection(path:String):Bool {
@@ -451,6 +481,7 @@ class SqliteDatabaseService implements IDatabaseService {
             getGlobalStatsMutex().acquire();
             try {
                 getLastUsedAtMap().clear();
+                _txDepth = new Map();
             } catch(e:Dynamic) {}
             getGlobalStatsMutex().release();
 
@@ -602,6 +633,12 @@ class SqliteDatabaseService implements IDatabaseService {
         lockOwners.set(dbPath, tid);
         lockCounts.set(dbPath, 1);
         getGlobalMapMutex().release();
+
+        // SERVER-TEST-SUITE-RECOVERY-S1: mark real USE, not just open + explicit touchByPath().
+        // Without this `_lastUsedAt` reflects when a connection was OPENED, so LRU eviction would
+        // happily close the process's busiest long-lived database (the hub) while leaving idle
+        // ones alone -- correct, since reopening is transparent, but pointlessly wasteful.
+        touchByPath(dbPath);
         // Sys.println('[L+] [$tidStr] $dbPath');
     }
 
@@ -869,9 +906,77 @@ class SqliteDatabaseService implements IDatabaseService {
         }
     }
 
-    public function beginTransaction():Void execute("BEGIN TRANSACTION;");
-    public function commit():Void execute("COMMIT;");
-    public function rollback():Void execute("ROLLBACK;");
+    public function beginTransaction():Void {
+        execute("BEGIN TRANSACTION;");
+        adjustTxDepth(dbPath, 1);
+    }
+
+    public function commit():Void {
+        execute("COMMIT;");
+        adjustTxDepth(dbPath, -1);
+    }
+
+    public function rollback():Void {
+        execute("ROLLBACK;");
+        adjustTxDepth(dbPath, -1);
+    }
+
+    static function adjustTxDepth(path:String, delta:Int):Void {
+        getGlobalMapMutex().acquire();
+        try {
+            var cur = _txDepth.exists(path) ? _txDepth.get(path) : 0;
+            var next = cur + delta;
+            if (next <= 0) _txDepth.remove(path) else _txDepth.set(path, next);
+        } catch (e:Dynamic) {}
+        getGlobalMapMutex().release();
+    }
+
+    /**
+     * Closes least-recently-used IDLE connections when the pool exceeds `maxPooledConnections`.
+     *
+     * Runs inline at open time rather than from a background sweeper: this class has no sweeper
+     * thread and adding one would be a much larger change than the defect warrants.
+     *
+     * NEVER evicts a connection that is:
+     *   - the one just opened (`keepPath`),
+     *   - currently locked by a thread (`lockCounts` > 0, i.e. a statement is executing),
+     *   - inside an open transaction (`_txDepth` > 0, see that field's comment).
+     *
+     * Eviction itself is safe for idle connections because `closeByPath()` takes the same per-path
+     * mutex that `execute()`/`request()` take, `request()` materialises rows into a StaticResultSet
+     * inside that lock (so no cursor outlives it), and `getConn()` transparently reopens.
+     */
+    static function evictIdleOverBound(keepPath:String):Void {
+        var victims:Array<String> = [];
+        getGlobalMapMutex().acquire();
+        try {
+            var keys = [for (k in getConnectionsMap().keys()) k];
+            var over = keys.length - maxPooledConnections;
+            if (over > 0) {
+                var candidates = keys.filter(function(k) {
+                    if (k == keepPath) return false;
+                    var locked = lockCounts.exists(k) && lockCounts.get(k) > 0;
+                    var inTx = _txDepth.exists(k) && _txDepth.get(k) > 0;
+                    return !locked && !inTx;
+                });
+                candidates.sort(function(a, b) {
+                    var ta = getLastUsedAtMap().exists(a) ? getLastUsedAtMap().get(a) : 0.0;
+                    var tb = getLastUsedAtMap().exists(b) ? getLastUsedAtMap().get(b) : 0.0;
+                    return ta < tb ? -1 : (ta > tb ? 1 : 0);
+                });
+                for (i in 0...(over < candidates.length ? over : candidates.length)) victims.push(candidates[i]);
+            }
+        } catch (e:Dynamic) {}
+        getGlobalMapMutex().release();
+
+        // Outside the map mutex: closeByPath acquires it itself.
+        for (v in victims) {
+            try { closeByPath(v); } catch (e:Dynamic) {}
+        }
+        if (victims.length > 0) {
+            Sys.println('[SqliteDB] pool over bound (' + maxPooledConnections + '): closed ' + victims.length + ' idle connection(s)');
+        }
+    }
 
 
     public function runMigrations():Void {
