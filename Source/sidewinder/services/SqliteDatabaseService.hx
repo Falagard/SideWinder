@@ -276,6 +276,26 @@ class SqliteDatabaseService implements IDatabaseService {
     }
 
     // 2. Open connection (OUTSIDE of global mutex)
+    // SERVER-TEST-SUITE-RECOVERY-S1: trace the PRIMARY open -- this is where a tenant.db is
+    // actually brought into existence. (getConn() is only the lazy re-open path; instrumenting it
+    // alone produced zero traces while tenant.db was demonstrably being created here.)
+    if (Sys.getEnv("TENANT_DB_TRACE") == "1" && this.dbPath != null && StringTools.endsWith(this.dbPath, "tenant.db")) {
+        var existedBefore = try sys.FileSystem.exists(this.dbPath) catch (e:Dynamic) false;
+        var stack = try haxe.CallStack.toString(haxe.CallStack.callStack()) catch (e:Dynamic) "<no stack>";
+        var frames = [];
+        for (line in stack.split("\n")) {
+            var t = StringTools.trim(line);
+            if (t != "") frames.push(t);
+        }
+        Sys.println('[TENANT_DB_OPEN_TRACE] t=' + Date.now().toString()
+            + ' thread=' + Std.string(sys.thread.Thread.current())
+            + ' path=' + this.dbPath
+            + ' existedBefore=' + existedBefore
+            + ' op=' + (existedBefore ? "OPEN_EXISTING" : "CREATE"));
+        for (i in 0...(frames.length < 16 ? frames.length : 16)) {
+            Sys.println('[TENANT_DB_OPEN_TRACE]     ' + frames[i]);
+        }
+    }
     var newConn = sys.db.Sqlite.open(this.dbPath);
     HybridLogger.info('[SqliteDB] OPENED CONNECTION to: ' + this.dbPath);
     
@@ -572,6 +592,30 @@ class SqliteDatabaseService implements IDatabaseService {
         getGlobalMapMutex().release();
 
         if (c == null) {
+            // SERVER-TEST-SUITE-RECOVERY-S1: single central trace of every real SQLite open.
+            //
+            // This is the one place a database file can come into existence, so instrumenting here
+            // cannot miss a worker, pump, reconciler or repository factory the way guessing at
+            // individual call sites would. Gated by TENANT_DB_TRACE=1 and limited to tenant.db so a
+            // normal run is unaffected. Records whether the file existed IMMEDIATELY BEFORE the
+            // open -- that is what distinguishes "opened an existing DB" from "created it".
+            if (Sys.getEnv("TENANT_DB_TRACE") == "1" && this.dbPath != null && StringTools.endsWith(this.dbPath, "tenant.db")) {
+                var existedBefore = try sys.FileSystem.exists(this.dbPath) catch (e:Dynamic) false;
+                var stack = try haxe.CallStack.toString(haxe.CallStack.callStack()) catch (e:Dynamic) "<no stack>";
+                var frames = [];
+                for (line in stack.split("\n")) {
+                    var t = StringTools.trim(line);
+                    if (t != "") frames.push(t);
+                }
+                Sys.println('[TENANT_DB_OPEN_TRACE] t=' + Date.now().toString()
+                    + ' thread=' + Std.string(sys.thread.Thread.current())
+                    + ' path=' + this.dbPath
+                    + ' existedBefore=' + existedBefore
+                    + ' op=' + (existedBefore ? "OPEN_EXISTING" : "CREATE"));
+                for (i in 0...(frames.length < 14 ? frames.length : 14)) {
+                    Sys.println('[TENANT_DB_OPEN_TRACE]     ' + frames[i]);
+                }
+            }
             c = sys.db.Sqlite.open(this.dbPath);
             
             var config = null;
