@@ -583,12 +583,26 @@ class AutoClientAsync {
 										bodyExprs.push(macro _p = StringTools.replace(_p, ":*" + $v{pp}, Std.string($identExpr)));
 										bodyExprs.push(macro _p = StringTools.replace(_p, ":" + $v{pp}, Std.string($identExpr)));
 									}
-									// Determine body arg (first non-path param for POST/PUT/PATCH, skipping non-path userId)
+									// Determine body arg (first non-path, non-scalar param for POST/PUT/PATCH, skipping
+									// non-path userId). A real request body in this codebase is always a typedef/anon
+									// object (e.g. AcceptTimedChordRequest) -- a bare scalar/nullable-scalar trailing
+									// arg (e.g. expectedRowVersion:Null<Int> for optimistic-concurrency routes) is
+									// annotated @queryParam on the interface and must be sent as a query param, never
+									// silently swallowed as a raw-JSON-number POST body that the server's @queryParam
+									// binding can never see. See ISetlistService.addSong/archiveSetlist for the
+									// real-world bug this fixes: expectedRowVersion was being sent as the POST body,
+									// so the server always read expectedRowVersion as null from the query string and
+									// rejected the request with "expectedRowVersion is required."
+									function isScalarType(t:Type):Bool {
+										var s = TypeTools.toString(t);
+										s = ~/^Null<(.*)>$/.match(s) ? s.split("<")[1].split(">")[0] : s;
+										return s == "Int" || s == "Float" || s == "Bool" || s == "String";
+									}
 									var bodyArg:Null<String> = null;
 									if (httpMethod == "POST" || httpMethod == "PUT" || httpMethod == "PATCH") {
 										for (a in args) {
 											if (a.name == "userId" && !userIdIsPathParam) continue;
-											if (pathParamNames.indexOf(a.name) == -1) {
+											if (pathParamNames.indexOf(a.name) == -1 && !isScalarType(a.t)) {
 												bodyArg = renamed.get(a.name);
 												break;
 											}
