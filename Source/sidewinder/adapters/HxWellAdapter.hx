@@ -207,6 +207,14 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 				try {
 					switch (evt.type) {
 						case Connect(session, swReq):
+							// SECOND line of defence only. CustomSocketDriver now evaluates
+							// this same veto BEFORE the upgrade and answers 403 without ever
+							// creating a session, so on that path this branch is unreachable.
+							// It is kept for driver paths that do not go through
+							// CustomSocketDriver (e.g. Undertow), where the upgrade is granted
+							// by the container before SideWinder sees it and closing after the
+							// fact is the only remedy available. Handlers must therefore keep
+							// onConnect side-effect free -- it can legitimately run twice.
 							if (!websocketHandler.onConnect(swReq)) {
 								HybridLogger.warn('[HxWellAdapter] WebSocket connection rejected by handler for session ${session.id}');
 								session.close();

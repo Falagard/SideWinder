@@ -73,6 +73,55 @@ class CustomSocketDriver extends SocketDriver {
 				// Check for WebSocket upgrade
 				var upgrade = hxReq.header("Upgrade");
 				if (upgrade != null && upgrade.toLowerCase() == "websocket") {
+					// AUTHENTICATION BOUNDARY. The application's own veto --
+					// IWebSocketHandler.onConnect -- runs HERE, synchronously, on the request
+					// thread, BEFORE any 101 is written and before any WebSocketSession exists.
+					//
+					// It used to run far later: SocketWebSocketHandler.upgrade() writes and
+					// flushes 101 first, then constructs the session and calls onOpen, which only
+					// ENQUEUES Connect/Open for HxWellAdapter's WebSocket event thread. onConnect
+					// was evaluated there, after the upgrade had already been granted, so a
+					// rejected client held a live upgraded connection and the only remedy left was
+					// session.close() -- whose observability to the peer depends on OS
+					// socket-close timing rather than on the protocol (a HaxeStackPlatform Linux
+					// integration test failed 4/4 runs on exactly that). It also left the queued
+					// Open event free to dispatch onReady() for a connection that had just been
+					// refused, because nothing marks a session rejected.
+					//
+					// Refusing before the upgrade makes that class structurally impossible: no
+					// 101, no session, no onOpen, no Connect/Open events -- therefore no onReady
+					// and no subscription can exist for a rejected client.
+					//
+					// SideWinder learns nothing application-specific here: the decision is
+					// entirely the handler's, exactly as it already was. This mirrors the capacity
+					// refusal immediately below, which has always written its status pre-upgrade.
+					//
+					// 403 rather than 401: onConnect returns a bare Bool and cannot say WHY it
+					// refused -- the same `false` covers a bad credential and an application-level
+					// connection cap. 401 asserts specifically that authentication is required and
+					// is meant to carry a WWW-Authenticate challenge this boundary cannot
+					// construct. 403 ("understood, refusing to authorize") is the honest mapping.
+					var wsHandler = @:privateAccess adapter.websocketHandler;
+					if (wsHandler != null) {
+						var admitted = false;
+						try {
+							admitted = wsHandler.onConnect(@:privateAccess adapter.convertRequest(hxReq, null));
+						} catch (e:Dynamic) {
+							// Fail CLOSED. A veto that could not be evaluated is not consent.
+							HybridLogger.error('[HxWellAdapter] WebSocket onConnect threw; refusing upgrade: ' + e);
+							admitted = false;
+						}
+						if (!admitted) {
+							HybridLogger.warn('[HxWellAdapter] WebSocket upgrade refused by handler (403)');
+							try {
+								socket.output.writeString("HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+								socket.output.flush();
+								socket.close();
+							} catch (_) {}
+							return;
+						}
+					}
+
 					// Task K: a WebSocket occupies this worker until it closes.
 					// Refuse rather than let sockets exhaust the pool -- at
 					// pool exhaustion the server stops answering HTTP *and*
