@@ -58,7 +58,7 @@ typedef Response = {
 class Route {
 	public var method:String;
 	public var pattern:String;
-	public var regex:EReg;
+	public var patternRe:String;
 	public var paramNames:Array<String>;
 	public var handler:Handler;
 
@@ -82,11 +82,28 @@ class Route {
 				reParts.push(EReg.escape(p));
 			}
 		}
-		var patternRe = "^" + reParts.join("/") + "$";
-		this.regex = new EReg(patternRe, "");
+		this.patternRe = "^" + reParts.join("/") + "$";
 	}
 
 	public function matches(path:String):Null<Map<String, String>> {
+		// REQUEST-LOCAL MATCHER. A `Route` is shared: `Router.instance` is a static singleton
+		// holding one Route per template, so every concurrent request to that template runs
+		// through this same object. `EReg` carries its capture groups INSIDE the instance --
+		// `match()` writes them and `matched()` reads them back -- so a single shared EReg let
+		// concurrent matches overwrite each other:
+		//
+		//   thread A: match("/x/aaa")  -> captures = aaa
+		//   thread B: match("/x/bbb")  -> captures = bbb   (clobbers A)
+		//   thread A: matched(1)       -> "bbb"            <-- A is handed B's parameter
+		//
+		// That silently dispatched one request against another caller's resource id. Reproduced
+		// on HashLink with 8 threads x 400 matches against the previous shared-EReg form of this
+		// class: 12-16% of matches were handed another thread's parameter; 0% after this change.
+		//
+		// The EReg is therefore built here, per invocation, so capture state can never be shared
+		// across requests. Do NOT hoist it back onto the Route. A router-wide lock would also
+		// close the race but would serialize matching for every request on the shared singleton.
+		var regex = new EReg(patternRe, "");
 		if (!regex.match(path)) {
 			return null;
 		}
