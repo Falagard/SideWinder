@@ -62,6 +62,39 @@ class CustomSocketDriver extends SocketDriver {
 				// Check for WebSocket upgrade
 				var upgrade = hxReq.header("Upgrade");
 				if (upgrade != null && upgrade.toLowerCase() == "websocket") {
+					// ADMISSION BEFORE UPGRADE. The handler's onConnect() veto is an
+					// authorization decision, so it must be settled while this is still an
+					// ordinary HTTP request that can be answered with a status code.
+					//
+					// Previously the veto was only consulted on the adapter's event-loop
+					// thread, AFTER SocketWebSocketHandler.upgrade() had already written and
+					// flushed the 101 Switching Protocols response and created the session.
+					// A rejected client therefore observed a successful handshake and an
+					// established session that was closed afterwards -- and, depending on
+					// the handler, could be added to publisher/subscription bookkeeping in
+					// between. Rejecting here means no 101, no session, no onReady and no
+					// subscription can exist for an unauthorized upgrade.
+					//
+					// Fails CLOSED: a handler that throws is treated as a rejection.
+					var wsHandler = @:privateAccess adapter.websocketHandler;
+					if (wsHandler != null) {
+						var admitted = false;
+						try {
+							admitted = wsHandler.onConnect(@:privateAccess adapter.convertRequest(hxReq, null));
+						} catch (e:Dynamic) {
+							HybridLogger.error('[HxWellAdapter] WebSocket onConnect threw; refusing upgrade: ' + e);
+							admitted = false;
+						}
+						if (!admitted) {
+							HybridLogger.warn('[HxWellAdapter] WebSocket upgrade refused by handler for ' + hxReq.path);
+							try {
+								socket.output.writeString("HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+								socket.output.flush();
+								socket.close();
+							} catch (_) {}
+							return;
+						}
+					}
 					var bridge = new HxWellWebSocketBridge(adapter, hxReq);
 					// This blocks the background thread and handles the message loop
 					hx.well.http.driver.socket.SocketWebSocketHandler.upgrade(socket, hxReq, bridge);

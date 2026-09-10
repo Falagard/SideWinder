@@ -163,6 +163,13 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 				try {
 					switch (evt.type) {
 						case Connect(session, swReq):
+							// SECOND LINE OF DEFENCE ONLY. The authoritative admission
+							// decision is made pre-upgrade in CustomSocketDriver, before any
+							// 101 is written, so an unauthorized client never reaches this
+							// point. This check remains so that any future driver that does
+							// not perform pre-upgrade admission still closes the session --
+							// but a rejection observed HERE means the handshake already
+							// succeeded, which is not an acceptable authorization boundary.
 							if (!websocketHandler.onConnect(swReq)) {
 								HybridLogger.warn('[HxWellAdapter] WebSocket connection rejected by handler for session ${session.id}');
 								session.close();
