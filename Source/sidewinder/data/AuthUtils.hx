@@ -144,7 +144,7 @@ class AuthUtils {
 	 * Send JSON response with status
 	 */
 	public static function sendJson(res:Response, status:Int, data:Dynamic):Void {
-		res.sendResponse(cast(status, snake.http.HTTPStatus));
+		res.sendResponse(cast(status, sidewinder.http.HTTPStatus));
 		res.setHeader("Content-Type", "application/json");
 		res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
 		res.setHeader("Pragma", "no-cache");

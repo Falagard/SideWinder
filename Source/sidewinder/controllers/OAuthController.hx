@@ -67,7 +67,7 @@ class OAuthController {
 			var authUrl = oauthService.getAuthorizationUrl(state, codeChallenge);
 			
 			// Redirect to OAuth provider
-			res.sendResponse(snake.http.HTTPStatus.FOUND);
+			res.sendResponse(sidewinder.http.HTTPStatus.FOUND);
 			res.setHeader("Location", authUrl);
 			res.endHeaders();
 			res.end();
@@ -125,7 +125,7 @@ class OAuthController {
 			stateCache.remove(state);
 			
 			// Send response with session
-			res.sendResponse(snake.http.HTTPStatus.OK);
+			res.sendResponse(sidewinder.http.HTTPStatus.OK);
 			res.setHeader("Content-Type", "application/json");
 			
 			// Set auth token cookie
@@ -164,7 +164,7 @@ class OAuthController {
 			authService.revokeSession(authContext.session.sessionId);
 		}
 		
-		res.sendResponse(snake.http.HTTPStatus.OK);
+		res.sendResponse(sidewinder.http.HTTPStatus.OK);
 		res.setHeader("Content-Type", "application/json");
 		
 		// Clear auth cookie
@@ -194,7 +194,7 @@ class OAuthController {
 			return;
 		}
 		
-		res.sendResponse(snake.http.HTTPStatus.OK);
+		res.sendResponse(sidewinder.http.HTTPStatus.OK);
 		res.setHeader("Content-Type", "application/json");
 		res.endHeaders();
 		res.write(Json.stringify({
@@ -224,7 +224,7 @@ class OAuthController {
 				return;
 			}
 			
-			res.sendResponse(snake.http.HTTPStatus.OK);
+			res.sendResponse(sidewinder.http.HTTPStatus.OK);
 			res.setHeader("Content-Type", "application/json");
 			
 			// Update auth token cookie
@@ -283,7 +283,7 @@ class OAuthController {
 	}
 
 	private function sendJsonError(res:Response, status:Int, message:String):Void {
-		res.sendResponse((cast status : snake.http.HTTPStatus));
+		res.sendResponse((cast status : sidewinder.http.HTTPStatus));
 		res.setHeader("Content-Type", "application/json");
 		res.endHeaders();
 		res.write(Json.stringify({

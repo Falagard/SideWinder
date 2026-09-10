@@ -15,7 +15,7 @@ import sidewinder.core.*;
 
 
 import haxe.ds.StringMap;
-import snake.http.*;
+import sidewinder.http.HTTPStatus;
 
 
 /**
@@ -30,8 +30,8 @@ class BufferedResponse {
 	public var write:(String) -> Void;
 	public var writeBytes:(haxe.io.Bytes) -> Void;
 	public var setHeader:(String, String) -> Void;
-	public var sendError:(snake.http.HTTPStatus) -> Void;
-	public var sendResponse:(snake.http.HTTPStatus) -> Void;
+	public var sendError:(sidewinder.http.HTTPStatus) -> Void;
+	public var sendResponse:(sidewinder.http.HTTPStatus) -> Void;
 	public var endHeaders:() -> Void;
 	public var end:() -> Void;
 	public var setCookie:(name:String, value:String, ?options:{
@@ -57,11 +57,11 @@ class BufferedResponse {
 			headers.set(k, v);
 		};
 
-		sendError = function(code:snake.http.HTTPStatus):Void {
+		sendError = function(code:sidewinder.http.HTTPStatus):Void {
 			statusCode = code.code;
 		};
 
-		sendResponse = function(code:snake.http.HTTPStatus):Void {
+		sendResponse = function(code:sidewinder.http.HTTPStatus):Void {
 			statusCode = code.code;
 		};
 
@@ -93,16 +93,9 @@ class BufferedResponse {
 		};
 	}
 
-	public function toSimpleResponse():CivetWebAdapter.SimpleResponse {
-		var bodyStr = body.toString();
-		var contentType = headers.exists("Content-Type") ? headers.get("Content-Type") : "text/html";
-		return {
-			statusCode: statusCode,
-			contentType: contentType,
-			body: bodyStr,
-			headers: headers
-		};
-	}
+	// SIDEWINDER-SNAKE-REMOVAL-S1: toSimpleResponse() returned a CivetWebAdapter
+	// typedef and was referenced nowhere; removed with the CivetWeb backend.
+
 }
 
 

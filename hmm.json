@@ -18,13 +18,6 @@
             "version": null
         },
         {
-            "name": "snake-server",
-            "type": "git",
-            "dir": null,
-            "ref": "fc3a072e6f6e7480a84d674dd1f731b52d9752ac",
-            "url": "https://github.com/Falagard/snake-server"
-        },
-        {
             "name": "hxwell",
             "type": "git",
             "dir": null,

@@ -160,7 +160,7 @@ class AuthMiddleware {
 	}
 
 	private function sendUnauthorized(res:Response):Void {
-		res.sendResponse(snake.http.HTTPStatus.UNAUTHORIZED);
+		res.sendResponse(sidewinder.http.HTTPStatus.UNAUTHORIZED);
 		res.setHeader("Content-Type", "application/json");
 		res.endHeaders();
 		res.write(Json.stringify({
@@ -171,7 +171,7 @@ class AuthMiddleware {
 	}
 
 	private function sendForbidden(res:Response, ?message:String):Void {
-		res.sendResponse(snake.http.HTTPStatus.FORBIDDEN);
+		res.sendResponse(sidewinder.http.HTTPStatus.FORBIDDEN);
 		res.setHeader("Content-Type", "application/json");
 		res.endHeaders();
 		res.write(Json.stringify({

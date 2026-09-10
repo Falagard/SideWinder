@@ -18,7 +18,7 @@ import sidewinder.core.*;
 import haxe.Json;
 import sidewinder.routing.Router.Request;
 import sidewinder.routing.Router.Response;
-import snake.http.HTTPStatus;
+import sidewinder.http.HTTPStatus;
 
 class StripeSubscriptionController {
 	private var stripeService:IStripeService;

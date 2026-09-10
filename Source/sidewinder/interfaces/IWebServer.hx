@@ -5,7 +5,7 @@ package sidewinder.interfaces;
 
 /**
  * Web server abstraction interface.
- * Allows swapping between different HTTP server implementations (snake-server, CivetWeb, etc.)
+ * Allows swapping between different HTTP server implementations.
  */
 interface IWebServer {
 	/**

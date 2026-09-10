@@ -3,7 +3,7 @@ package sidewinder.routing;
 import sidewinder.interfaces.User;
 import sidewinder.logging.HybridLogger;
 import sidewinder.routing.Router;
-import snake.http.HTTPStatus;
+import sidewinder.http.HTTPStatus;
 import haxe.macro.Expr;
 import haxe.macro.Context;
 import haxe.macro.Type;
@@ -64,7 +64,15 @@ class AutoRouter {
 						if (Reflect.hasField(body, "sortDir")) __sortDir = Std.string(Reflect.field(body, "sortDir"));
 					}
 
+					// SIDEWINDER-CORE-DECOUPLING-S1 (Task B): `ListQuery` is a
+					// HaxeStackPlatform application type. Gate it exactly as the
+					// ProjectContext reference below already is, so the routing
+					// core never emits an `app.*` reference into a standalone build.
+					#if haxestack_platform_server
 					new app.models.ListQuery(__page, __pageSize, __search, __sortBy, __sortDir);
+					#else
+					{ page: __page, pageSize: __pageSize, search: __search, sortBy: __sortBy, sortDir: __sortDir };
+					#end
 				};
 			} else {
 				// Complex type: parsing from body or JSON string
@@ -316,7 +324,7 @@ class AutoRouter {
 										}
 
 										if ($v{requiresAuth} && __userId == null) {
-											__rtRes.sendResponse(snake.http.HTTPStatus.UNAUTHORIZED);
+											__rtRes.sendResponse(sidewinder.http.HTTPStatus.UNAUTHORIZED);
 											__rtRes.setHeader("Content-Type", "application/json");
 											__rtRes.endHeaders();
 											__rtRes.write(haxe.Json.stringify({error: "Unauthorized - Authentication required"}));
@@ -344,7 +352,7 @@ class AutoRouter {
 												} catch(e:Dynamic) {}
 											}
 											if (!__hasPerm) {
-												__rtRes.sendResponse(snake.http.HTTPStatus.FORBIDDEN);
+												__rtRes.sendResponse(sidewinder.http.HTTPStatus.FORBIDDEN);
 												__rtRes.setHeader("Content-Type", "application/json");
 												__rtRes.endHeaders();
 												__rtRes.write(haxe.Json.stringify({error: "Forbidden - Missing permission: " + $v{requiredPermission}}));

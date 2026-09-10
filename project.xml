@@ -6,35 +6,19 @@
 
 	<source path="Source" />
 	<source path="client/Source" />
+	<!-- SIDEWINDER-CORE-HYGIENE-S1: Main/LoadTest/TestDB and the demo+test
+	     packages moved here so they are NOT exported by haxelib.json's
+	     classPath ("Source"). A library must not put a root-level `Main` on
+	     every consumer's classpath. This project.xml still builds them. -->
+	<source path="dev/Source" />
 	
 	<haxelib name="lime" />
-	<haxelib name="snake-server" />
     <haxelib name="haxe-injection"/>
     <haxelib name="hxwell" />
     <haxedef name="disable_env" />
 	<assets path="static" />
     <assets path="migrations" />
 	
-	<section if="hl">
-		<!-- HashLink native library 'civetweb.hdll' -->
-		<!-- Windows: built by native/civetweb/hl/build_hdll.bat -->
-		<!-- Linux: built by native/civetweb/hl/build_hdll.sh -->
-		<postbuild command="scripts/copy-hl-hdll.bat" if="windows" />
-		<postbuild command="bash scripts/copy-hl-hdll.sh" if="linux" />
-	</section>
-
-	<section if="hlc">
-		<!-- For HLC on Windows, Lime only links .lib files found in the bin directory. -->
-		<!-- We use templates to copy our required native libraries there before the link step. -->
-		<template path="native/lib/sqlite.lib" rename="bin/sqlite.lib" if="windows" />
-		<template path="native/civetweb/hl/civetweb.lib" rename="bin/civetweb.lib" if="windows" />
-		
-		<!-- Also copy the runtime DLLs so the app can run -->
-		<template path="native/civetweb/hl/civetweb.hdll" rename="bin/civetweb.hdll" if="windows" />
-		
-		<postbuild command="scripts/copy-hl-hdll.bat" if="windows" />
-	</section>
-
 
 	
 </project>

@@ -26,6 +26,33 @@ class SqliteDatabaseService implements IDatabaseService {
     private static var _mapMutex:sys.thread.Mutex = new sys.thread.Mutex();
     private static var _statsMutex:sys.thread.Mutex = new sys.thread.Mutex();
     
+    /**
+     * SERVER-TEST-SUITE-RECOVERY-S1: open transaction depth per database path.
+     *
+     * `beginTransaction()` is just `execute("BEGIN TRANSACTION;")`, and execute() acquires and
+     * RELEASES the per-path lock around each statement -- so a transaction spans several separate
+     * lock acquisitions and holds no lock in between. Closing a connection in that window would
+     * silently roll the transaction back, which makes it the one thing idle eviction must never
+     * do. Tracked here so eviction can skip those paths.
+     */
+    private static var _txDepth:Map<String, Int> = new Map();
+
+    /**
+     * Maximum pooled connections retained before the least-recently-used IDLE ones are closed.
+     *
+     * The pool was previously unbounded: every database ever opened kept its connection, and with
+     * it three descriptors (.db, -wal, -shm), for the life of the process. Measured at 3.0
+     * descriptors per unclosed database over 60 cycles. Past FD_SETSIZE (1024 on macOS) select()
+     * cannot represent a descriptor at all, so libcurl started failing every request with
+     * CURLE_BAD_FUNCTION_ARGUMENT and NodeRouterServer's accept loop spun on a failing select --
+     * two unrelated-looking subsystems breaking for one reason.
+     *
+     * Set generously: this is a safety bound against unbounded growth, not a tuning knob. Reopening
+     * an evicted database is transparent (getConn() lazily reopens) and costs one open plus the
+     * PRAGMAs.
+     */
+    public static var maxPooledConnections:Int = 96;
+
     private static var lockOwners:Map<String, Thread> = new Map();
     private static var lockCounts:Map<String, Int> = new Map();
     
@@ -106,11 +133,45 @@ class SqliteDatabaseService implements IDatabaseService {
 
     private var dbPath:String;
 
+    /**
+     * ROOT CAUSE FIX (SIDEWINDER-CORE-DECOUPLING-S1 stall investigation): resolve via the PARENT
+     * DIRECTORY's canonical path, not the file's own existence.
+     *
+     * The old check (`if (sys.FileSystem.exists(p)) fullPath(p)`) meant the cache key for a given
+     * dbPath string depended on whether the FILE happened to exist YET. On macOS, `/var` is a
+     * symlink to `/private/var`: before the sqlite file is created, this returned the raw
+     * "/var/folders/.../local-runtime.db"; after creation, `exists()` flips true and the exact
+     * same logical path resolved to its symlink-expanded "/private/var/folders/.../local-runtime.db"
+     * instead. init() computes `this.dbPath` from this function's result (see below) and every
+     * later call -- including a completely separate SqliteDatabaseService instance for what the
+     * caller believes is the "same" path -- keys off that value. Two different map keys for one
+     * physical file means two independent cache entries, two independent native sqlite3
+     * connections, and two independent per-path Mutex objects for what the OS considers a single
+     * inode: the per-path mutex (acquireLock()/getSharedMutex()) silently stops serializing
+     * anything between them. SQLite's own WAL shared-memory locking then takes over -- a real,
+     * process-wide OS-level fcntl lock keyed by inode -- and the second connection blocks
+     * indefinitely inside sqlite3_step -> ... -> unixShmLock -> fcntl instead of getting a normal,
+     * fast per-path-mutex handoff. Confirmed via `sample` on a genuinely hung process: the exact
+     * native frame above, with the two live cache entries for one temp-dir local-runtime.db
+     * differing only by the `/var` vs `/private/var` prefix.
+     *
+     * Resolving via the parent directory instead is stable across the file's create/not-yet-
+     * created boundary: every caller in this class creates the parent directory before ever
+     * opening a connection (see init()'s directory-creation block, which runs BEFORE this
+     * function), so by the time a dbPath is first registered, its directory already exists and
+     * resolves identically on every subsequent call regardless of whether the file itself exists.
+     */
     public static function normalizePath(path:String):String {
         if (path == null) return null;
         var p = path;
         try {
-            if (sys.FileSystem.exists(p)) {
+            var dir = haxe.io.Path.directory(p);
+            var file = haxe.io.Path.withoutDirectory(p);
+            if (dir != "" && dir != "." && sys.FileSystem.exists(dir)) {
+                p = haxe.io.Path.addTrailingSlash(sys.FileSystem.fullPath(dir)) + file;
+            } else if (sys.FileSystem.exists(p)) {
+                // Fallback: no directory component (bare filename resolved against cwd) or the
+                // parent doesn't exist yet either -- match the previous behavior in that case.
                 p = sys.FileSystem.fullPath(p);
             }
             p = p.split("\\").join("/");
@@ -215,6 +276,26 @@ class SqliteDatabaseService implements IDatabaseService {
     }
 
     // 2. Open connection (OUTSIDE of global mutex)
+    // SERVER-TEST-SUITE-RECOVERY-S1: trace the PRIMARY open -- this is where a tenant.db is
+    // actually brought into existence. (getConn() is only the lazy re-open path; instrumenting it
+    // alone produced zero traces while tenant.db was demonstrably being created here.)
+    if (Sys.getEnv("TENANT_DB_TRACE") == "1" && this.dbPath != null && StringTools.endsWith(this.dbPath, "tenant.db")) {
+        var existedBefore = try sys.FileSystem.exists(this.dbPath) catch (e:Dynamic) false;
+        var stack = try haxe.CallStack.toString(haxe.CallStack.callStack()) catch (e:Dynamic) "<no stack>";
+        var frames = [];
+        for (line in stack.split("\n")) {
+            var t = StringTools.trim(line);
+            if (t != "") frames.push(t);
+        }
+        Sys.println('[TENANT_DB_OPEN_TRACE] t=' + Date.now().toString()
+            + ' thread=' + Std.string(sys.thread.Thread.current())
+            + ' path=' + this.dbPath
+            + ' existedBefore=' + existedBefore
+            + ' op=' + (existedBefore ? "OPEN_EXISTING" : "CREATE"));
+        for (i in 0...(frames.length < 16 ? frames.length : 16)) {
+            Sys.println('[TENANT_DB_OPEN_TRACE]     ' + frames[i]);
+        }
+    }
     var newConn = sys.db.Sqlite.open(this.dbPath);
     HybridLogger.info('[SqliteDB] OPENED CONNECTION to: ' + this.dbPath);
     
@@ -256,6 +337,9 @@ class SqliteDatabaseService implements IDatabaseService {
         Sys.println('[SqliteDB] FATAL ERROR during registration: ' + e + " (Path: " + this.dbPath + ")");
         throw e;
     }
+
+    // Bound the pool. Deliberately AFTER the map mutex is released -- closeByPath acquires it.
+    evictIdleOverBound(mapKey);
     }
 
     public static function hasOpenConnection(path:String):Bool {
@@ -305,25 +389,61 @@ class SqliteDatabaseService implements IDatabaseService {
         return time;
     }
 
+    /**
+     * Hardening found alongside the normalizePath() root cause fix above (SIDEWINDER-CORE-
+     * DECOUPLING-S1 stall investigation) -- NOT itself the cause of that stall, verified by A/B:
+     * the stall reproduced identically with this fix applied on its own. Kept because it is a
+     * real, independent hazard: this method used to call conn.close() directly under only the
+     * global map mutex, exactly the class of bug documented and fixed on resetAllConnections()
+     * below -- if another thread was mid-query on this exact Connection under its own properly-
+     * acquired per-path mutex (see acquireLock()/getConn()), this method's unsynchronized close()
+     * raced it on the same native sqlite3 connection handle from a second thread. Concurrent,
+     * unsynchronized use of one sqlite3 connection handle from two threads is undefined behavior
+     * in the underlying C library and can hang the process indefinitely. closeByPath() is called
+     * by SqliteTenantDatabaseServiceFactory.closeTenant() (itself called from evictIdleInternal()
+     * and the 60s-interval background checkIdleTimeouts() thread) with no synchronization of its
+     * own, so this was reachable purely from normal tenant-DB idle eviction racing an in-flight
+     * query -- no test-only code path required.
+     *
+     * Fix: capture the connection and its per-path mutex under the global map mutex, release the
+     * global map mutex (matching acquireLock()'s own pattern of never blocking on a per-path mutex
+     * while holding the global one), then acquire the per-path mutex before touching the
+     * Connection, and always release it afterward.
+     */
     public static function closeByPath(path:String):Void {
         var mapKey = normalizePath(path);
+
         getGlobalMapMutex().acquire();
+        var conn:sys.db.Connection = null;
+        var pathMutex:Mutex = null;
+        var existed = false;
         try {
             if (getConnectionsMap().exists(mapKey)) {
-                var conn = getConnectionsMap().get(mapKey);
-                if (conn != null) {
-                    try { conn.close(); } catch (e:Dynamic) {}
-                }
-                getConnectionsMap().remove(mapKey);
-                getConnectionMutexesMap().remove(mapKey);
-                getGlobalStatsMutex().acquire();
-                getLastUsedAtMap().remove(mapKey);
-                getGlobalStatsMutex().release();
+                existed = true;
+                conn = getConnectionsMap().get(mapKey);
+                pathMutex = getConnectionMutexesMap().get(mapKey);
             }
-            getGlobalMapMutex().release();
-        } catch (e:Dynamic) {
-            getGlobalMapMutex().release();
+        } catch (e:Dynamic) {}
+        getGlobalMapMutex().release();
+
+        if (!existed) return;
+
+        if (pathMutex == null) pathMutex = new Mutex();
+        pathMutex.acquire();
+        if (conn != null) {
+            try { conn.close(); } catch (e:Dynamic) {}
         }
+        pathMutex.release();
+
+        getGlobalMapMutex().acquire();
+        try {
+            getConnectionsMap().remove(mapKey);
+            getConnectionMutexesMap().remove(mapKey);
+            getGlobalStatsMutex().acquire();
+            try { getLastUsedAtMap().remove(mapKey); } catch (e:Dynamic) {}
+            getGlobalStatsMutex().release();
+        } catch (e:Dynamic) {}
+        getGlobalMapMutex().release();
     }
 
     /**
@@ -381,6 +501,7 @@ class SqliteDatabaseService implements IDatabaseService {
             getGlobalStatsMutex().acquire();
             try {
                 getLastUsedAtMap().clear();
+                _txDepth = new Map();
             } catch(e:Dynamic) {}
             getGlobalStatsMutex().release();
 
@@ -471,6 +592,30 @@ class SqliteDatabaseService implements IDatabaseService {
         getGlobalMapMutex().release();
 
         if (c == null) {
+            // SERVER-TEST-SUITE-RECOVERY-S1: single central trace of every real SQLite open.
+            //
+            // This is the one place a database file can come into existence, so instrumenting here
+            // cannot miss a worker, pump, reconciler or repository factory the way guessing at
+            // individual call sites would. Gated by TENANT_DB_TRACE=1 and limited to tenant.db so a
+            // normal run is unaffected. Records whether the file existed IMMEDIATELY BEFORE the
+            // open -- that is what distinguishes "opened an existing DB" from "created it".
+            if (Sys.getEnv("TENANT_DB_TRACE") == "1" && this.dbPath != null && StringTools.endsWith(this.dbPath, "tenant.db")) {
+                var existedBefore = try sys.FileSystem.exists(this.dbPath) catch (e:Dynamic) false;
+                var stack = try haxe.CallStack.toString(haxe.CallStack.callStack()) catch (e:Dynamic) "<no stack>";
+                var frames = [];
+                for (line in stack.split("\n")) {
+                    var t = StringTools.trim(line);
+                    if (t != "") frames.push(t);
+                }
+                Sys.println('[TENANT_DB_OPEN_TRACE] t=' + Date.now().toString()
+                    + ' thread=' + Std.string(sys.thread.Thread.current())
+                    + ' path=' + this.dbPath
+                    + ' existedBefore=' + existedBefore
+                    + ' op=' + (existedBefore ? "OPEN_EXISTING" : "CREATE"));
+                for (i in 0...(frames.length < 14 ? frames.length : 14)) {
+                    Sys.println('[TENANT_DB_OPEN_TRACE]     ' + frames[i]);
+                }
+            }
             c = sys.db.Sqlite.open(this.dbPath);
             
             var config = null;
@@ -532,6 +677,12 @@ class SqliteDatabaseService implements IDatabaseService {
         lockOwners.set(dbPath, tid);
         lockCounts.set(dbPath, 1);
         getGlobalMapMutex().release();
+
+        // SERVER-TEST-SUITE-RECOVERY-S1: mark real USE, not just open + explicit touchByPath().
+        // Without this `_lastUsedAt` reflects when a connection was OPENED, so LRU eviction would
+        // happily close the process's busiest long-lived database (the hub) while leaving idle
+        // ones alone -- correct, since reopening is transparent, but pointlessly wasteful.
+        touchByPath(dbPath);
         // Sys.println('[L+] [$tidStr] $dbPath');
     }
 
@@ -596,12 +747,24 @@ class SqliteDatabaseService implements IDatabaseService {
             var isDml = StringTools.startsWith(lowerSql, "insert ") || StringTools.startsWith(lowerSql, "update ") || StringTools.startsWith(lowerSql, "delete ");
             if (isDml) try {
                 var checkRs = c.request("SELECT changes() as changed");
-                // HL GC SIGNAL 11 fix: protect hasNext/next on raw ResultSet
+                // HL GC SIGNAL 11 fix: protect hasNext/next on raw ResultSet. Inner try-catch is
+                // required (not just the outer catch below) because hl.Gc.enable() is a process-
+                // global toggle: if hasNext()/next() throws here (e.g. the routinely-hit "not an
+                // error" case the outer catch swallows), the outer catch has no re-enable of its
+                // own, permanently disabling the GC process-wide and eventually wedging every
+                // thread that hits a GC blocking-section (Sys.sleep, allocation, etc.) forever.
                 #if hl hl.Gc.enable(false); #end
-                var hasChk = checkRs.hasNext();
-                var changes:Dynamic = hasChk ? checkRs.next().changed : 0;
-                // Drain checkRs fully so the SQLite prepared statement is finalized.
-                if (hasChk) checkRs.hasNext();
+                var hasChk = false;
+                var changes:Dynamic = 0;
+                try {
+                    hasChk = checkRs.hasNext();
+                    changes = hasChk ? checkRs.next().changed : 0;
+                    // Drain checkRs fully so the SQLite prepared statement is finalized.
+                    if (hasChk) checkRs.hasNext();
+                } catch (gcE:Dynamic) {
+                    #if hl hl.Gc.enable(true); #end
+                    throw gcE;
+                }
                 #if hl hl.Gc.enable(true); #end
                 if (hasChk && changes == 0) {
                     if (changes == 0 && (StringTools.startsWith(lowerSql, "insert ") || StringTools.startsWith(lowerSql, "update ") || StringTools.startsWith(lowerSql, "delete "))) {
@@ -662,16 +825,28 @@ class SqliteDatabaseService implements IDatabaseService {
 
             // Check if it actually worked
             var checkRs = c.request("SELECT changes() as changed");
-            // HL GC SIGNAL 11 fix: protect hasNext/next on raw ResultSet
+            // HL GC SIGNAL 11 fix: protect hasNext/next on raw ResultSet. Inner try-catch required
+            // -- see the matching comment in execute() above; a thrown exception here must not
+            // skip re-enabling the GC, since it is a process-global toggle.
             #if hl hl.Gc.enable(false); #end
-            var hasChkId = checkRs.hasNext();
-            var changedId:Dynamic = hasChkId ? checkRs.next().changed : -1;
+            var hasChkId = false;
+            var changedId:Dynamic = -1;
+            try {
+                hasChkId = checkRs.hasNext();
+                changedId = hasChkId ? checkRs.next().changed : -1;
+            } catch (gcE:Dynamic) {
+                #if hl hl.Gc.enable(true); #end
+                throw gcE;
+            }
             #if hl hl.Gc.enable(true); #end
             if (hasChkId && changedId == 0) {
                 var lowerSql = finalSql.toLowerCase();
                 if (lowerSql.indexOf(" ignore ") == -1 && lowerSql.indexOf(" replace ") == -1) {
-                    releaseLock(dbPath);
-                    _resetMutex.release();
+                    // Do NOT release here -- let this fall through to the catch block below.
+                    // _resetMutex is a plain sys.thread.Mutex with no reentrancy/ownership guard
+                    // (unlike releaseLock()'s tracked per-path lock): releasing it here and then
+                    // again in the outer catch is a genuine double-release that can hand another
+                    // thread's legitimately-held _resetMutex back to a third thread mid-use.
                     throw "SQLite Mutation Error: 0 rows affected by executeAndGetId. SQL: " + finalSql;
                 }
             }
@@ -718,9 +893,18 @@ class SqliteDatabaseService implements IDatabaseService {
             }
 
             var checkRs = c.request("SELECT changes() as changed");
+            // Inner try-catch required -- see the matching comment in execute() above; a thrown
+            // exception here must not skip re-enabling the GC, since it is a process-global toggle.
             #if hl hl.Gc.enable(false); #end
-            var hasChk = checkRs.hasNext();
-            var changed:Int = hasChk ? (checkRs.next().changed : Int) : 0;
+            var hasChk = false;
+            var changed:Int = 0;
+            try {
+                hasChk = checkRs.hasNext();
+                changed = hasChk ? (checkRs.next().changed : Int) : 0;
+            } catch (gcE:Dynamic) {
+                #if hl hl.Gc.enable(true); #end
+                throw gcE;
+            }
             #if hl hl.Gc.enable(true); #end
 
             releaseLock(dbPath);
@@ -766,9 +950,77 @@ class SqliteDatabaseService implements IDatabaseService {
         }
     }
 
-    public function beginTransaction():Void execute("BEGIN TRANSACTION;");
-    public function commit():Void execute("COMMIT;");
-    public function rollback():Void execute("ROLLBACK;");
+    public function beginTransaction():Void {
+        execute("BEGIN TRANSACTION;");
+        adjustTxDepth(dbPath, 1);
+    }
+
+    public function commit():Void {
+        execute("COMMIT;");
+        adjustTxDepth(dbPath, -1);
+    }
+
+    public function rollback():Void {
+        execute("ROLLBACK;");
+        adjustTxDepth(dbPath, -1);
+    }
+
+    static function adjustTxDepth(path:String, delta:Int):Void {
+        getGlobalMapMutex().acquire();
+        try {
+            var cur = _txDepth.exists(path) ? _txDepth.get(path) : 0;
+            var next = cur + delta;
+            if (next <= 0) _txDepth.remove(path) else _txDepth.set(path, next);
+        } catch (e:Dynamic) {}
+        getGlobalMapMutex().release();
+    }
+
+    /**
+     * Closes least-recently-used IDLE connections when the pool exceeds `maxPooledConnections`.
+     *
+     * Runs inline at open time rather than from a background sweeper: this class has no sweeper
+     * thread and adding one would be a much larger change than the defect warrants.
+     *
+     * NEVER evicts a connection that is:
+     *   - the one just opened (`keepPath`),
+     *   - currently locked by a thread (`lockCounts` > 0, i.e. a statement is executing),
+     *   - inside an open transaction (`_txDepth` > 0, see that field's comment).
+     *
+     * Eviction itself is safe for idle connections because `closeByPath()` takes the same per-path
+     * mutex that `execute()`/`request()` take, `request()` materialises rows into a StaticResultSet
+     * inside that lock (so no cursor outlives it), and `getConn()` transparently reopens.
+     */
+    static function evictIdleOverBound(keepPath:String):Void {
+        var victims:Array<String> = [];
+        getGlobalMapMutex().acquire();
+        try {
+            var keys = [for (k in getConnectionsMap().keys()) k];
+            var over = keys.length - maxPooledConnections;
+            if (over > 0) {
+                var candidates = keys.filter(function(k) {
+                    if (k == keepPath) return false;
+                    var locked = lockCounts.exists(k) && lockCounts.get(k) > 0;
+                    var inTx = _txDepth.exists(k) && _txDepth.get(k) > 0;
+                    return !locked && !inTx;
+                });
+                candidates.sort(function(a, b) {
+                    var ta = getLastUsedAtMap().exists(a) ? getLastUsedAtMap().get(a) : 0.0;
+                    var tb = getLastUsedAtMap().exists(b) ? getLastUsedAtMap().get(b) : 0.0;
+                    return ta < tb ? -1 : (ta > tb ? 1 : 0);
+                });
+                for (i in 0...(over < candidates.length ? over : candidates.length)) victims.push(candidates[i]);
+            }
+        } catch (e:Dynamic) {}
+        getGlobalMapMutex().release();
+
+        // Outside the map mutex: closeByPath acquires it itself.
+        for (v in victims) {
+            try { closeByPath(v); } catch (e:Dynamic) {}
+        }
+        if (victims.length > 0) {
+            Sys.println('[SqliteDB] pool over bound (' + maxPooledConnections + '): closed ' + victims.length + ' idle connection(s)');
+        }
+    }
 
 
     public function runMigrations():Void {
@@ -912,10 +1164,22 @@ class SqliteDatabaseService implements IDatabaseService {
             var isDml = StringTools.startsWith(lowerSql, "insert ") || StringTools.startsWith(lowerSql, "update ") || StringTools.startsWith(lowerSql, "delete ");
             if (isDml) try {
                 var checkRs = c.request("SELECT changes() as changed");
+                // Inner try-catch required -- see the matching comment in execute() above; a
+                // thrown exception here must not skip re-enabling the GC, since it is a
+                // process-global toggle. This method runs migration DML under
+                // applyOneMigrationAtomically, so a leaked GC-disable here wedges the whole
+                // process the next time any thread hits a GC blocking section.
                 #if hl hl.Gc.enable(false); #end
-                var hasChk = checkRs.hasNext();
-                var changes:Dynamic = hasChk ? checkRs.next().changed : 0;
-                if (hasChk) checkRs.hasNext();
+                var hasChk = false;
+                var changes:Dynamic = 0;
+                try {
+                    hasChk = checkRs.hasNext();
+                    changes = hasChk ? checkRs.next().changed : 0;
+                    if (hasChk) checkRs.hasNext();
+                } catch (gcE:Dynamic) {
+                    #if hl hl.Gc.enable(true); #end
+                    throw gcE;
+                }
                 #if hl hl.Gc.enable(true); #end
                 if (hasChk && changes == 0) {
                     if (changes == 0 && (StringTools.startsWith(lowerSql, "insert ") || StringTools.startsWith(lowerSql, "update ") || StringTools.startsWith(lowerSql, "delete "))) {

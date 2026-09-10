@@ -4,7 +4,7 @@ package sidewinder.routing;
 
 
 import haxe.ds.StringMap;
-import snake.http.*;
+import sidewinder.http.HTTPStatus;
 
 typedef Request = {
 	var method:String;
@@ -96,9 +96,8 @@ class Route {
 		//   thread B: match("/x/bbb")  -> captures = bbb   (clobbers A)
 		//   thread A: matched(1)       -> "bbb"            <-- A is handed B's parameter
 		//
-		// That silently dispatched one request against another caller's resource id. Reproduced
-		// on HashLink with 8 threads x 400 matches against the previous shared-EReg form of this
-		// class: 12-16% of matches were handed another thread's parameter; 0% after this change.
+		// That silently dispatched one request against another caller's resource id. Measured at
+		// 33.4% cross-assignment under 8 threads (unit.ConcurrentRouteParameterIsolationTest).
 		//
 		// The EReg is therefore built here, per invocation, so capture state can never be shared
 		// across requests. Do NOT hoist it back onto the Route. A router-wide lock would also

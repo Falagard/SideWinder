@@ -19,6 +19,17 @@ class WorkerIsland {
 
 	private var requestQueue:Array<IslandRequest> = [];
 	private var queueMutex:Mutex = new Mutex();
+	// SIDEWINDER-CORE-DECOUPLING-S1 (Task L): the idle loop used to
+	// `Sys.sleep(0.001)`, i.e. ~1000 wakeups/second per island, forever. On an
+	// SBC sharing a core with a realtime audio thread that is a real
+	// scheduling-jitter source. `sys.thread.Lock` is a counting semaphore on
+	// every threaded sys target, so an enqueue that happens while the worker is
+	// not parked still wakes the next wait() -- no lost wakeups. The 1s timeout
+	// bounds the cost of any missed signal and keeps `running` polled for
+	// shutdown.
+	#if !html5
+	private var taskSignal:sys.thread.Lock = new sys.thread.Lock();
+	#end
 	private var running:Bool = false;
 	private var processor:IslandRequest->Void;
 
@@ -34,7 +45,15 @@ class WorkerIsland {
 		if (running) return;
 		running = true;
 
-		Thread.create(() -> {
+		// createWithEventLoop (not create): by default an event loop is only available on
+		// the main thread. Handlers dispatched onto this island's thread (see processor())
+		// can reach app code that uses Timer/EventLoop-backed APIs (e.g. background-worker
+		// polling triggered from a request), which throws "Event loop is not available" on
+		// a plain Thread.create()'d thread. Verified empirically: every request against a
+		// server started this way returned 500 with exactly that error, reproducing
+		// identically before this branch's changes too -- pre-existing, not a regression
+		// from this branch, but real and worth fixing here since it makes every request fail.
+		Thread.createWithEventLoop(() -> {
 			if (onThreadStart != null) {
 				onThreadStart();
 			}
@@ -48,9 +67,10 @@ class WorkerIsland {
 						HybridLogger.error('[WorkerIsland $id] Error processing request: ' + e);
 					}
 				} else {
-					// Sleep briefly to prevent tight loop when idle
+					// Block until work arrives (or 1s elapses) rather than
+					// spinning -- see taskSignal's declaration.
 					#if !html5
-					Sys.sleep(0.001);
+					taskSignal.wait(1.0);
 					#end
 				}
 			}
@@ -59,6 +79,10 @@ class WorkerIsland {
 
 	public function stop():Void {
 		running = false;
+		// Wake the worker so it observes !running and exits promptly.
+		#if !html5
+		taskSignal.release();
+		#end
 	}
 
 	/**
@@ -68,6 +92,9 @@ class WorkerIsland {
 		queueMutex.acquire();
 		requestQueue.push(req);
 		queueMutex.release();
+		#if !html5
+		taskSignal.release();
+		#end
 	}
 
 	private function nextRequest():Null<IslandRequest> {

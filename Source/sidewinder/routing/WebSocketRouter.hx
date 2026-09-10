@@ -6,10 +6,6 @@ import hx.well.websocket.WebSocketSession;
 
 import sidewinder.logging.HybridLogger;
 import sidewinder.interfaces.IWebSocketHandler;
-import sidewinder.websocket.EchoWebSocketHandler;
-import sidewinder.websocket.ChatRoomWebSocketHandler;
-import sidewinder.websocket.BroadcastWebSocketHandler;
-import sidewinder.websocket.AuthenticatedWebSocketHandler;
 
 
 
@@ -34,18 +30,24 @@ class WebSocketRouter implements IWebSocketHandler {
 	// Store connections with their state - using class instances for proper reference semantics
 	private var connections:Array<RouterConnection>;
 
+	/**
+	 * SIDEWINDER-CORE-HYGIENE-S1: this constructor used to register four bundled
+	 * sample handlers (echo/chat/broadcast/auth) unconditionally, so every
+	 * consumer link-time depended on a chat room and a demo auth handler.
+	 *
+	 * Those samples were also silently STALE -- their `onConnect()` had not been
+	 * updated when the interface gained a `req` parameter, and nothing in the
+	 * repository ever compiled them. They now live under `dev/` (outside the
+	 * haxelib classPath) and are registered explicitly by the dev entry point.
+	 *
+	 * Register your own handlers with `registerHandler(name, handler)`.
+	 */
 	public function new(adapter:IWebSocketServer) {
 		this.adapter = adapter;
 		this.handlers = new Map();
 		this.connections = [];
 
-		// Register default handlers
-		registerHandler("echo", new EchoWebSocketHandler(adapter));
-		registerHandler("chat", new ChatRoomWebSocketHandler(adapter));
-		registerHandler("broadcast", new BroadcastWebSocketHandler(adapter));
-		registerHandler("auth", new AuthenticatedWebSocketHandler(adapter, 30.0));
-
-		HybridLogger.info('[WebSocketRouter] Initialized with handlers: echo, chat, broadcast, auth');
+		HybridLogger.info('[WebSocketRouter] Initialized with no handlers; call registerHandler(name, handler)');
 	}
 
 	/**
@@ -76,7 +78,10 @@ class WebSocketRouter implements IWebSocketHandler {
 		});
 	}
 
-	public function onConnect():Bool {
+	public function onConnect(req:sidewinder.routing.Router.Request):Bool {
+		// SIDEWINDER-CORE-HYGIENE-S1: this was `onConnect()` -- stale since the
+		// interface gained `req`, and never caught because nothing in the
+		// repository compiled this file.
 		HybridLogger.info('[WebSocketRouter] New connection');
 		return true; // Accept all connections
 	}
@@ -91,7 +96,7 @@ class WebSocketRouter implements IWebSocketHandler {
 		var instructions = Json.stringify({
 			type: "router_init",
 			message: "Send {\"handler\": \"<name>\"} to select handler",
-			available: ["echo", "chat", "broadcast", "auth"]
+			available: [for (k in handlers.keys()) k]
 		});
 		adapter.websocketSendText(conn, instructions);
 	}
@@ -149,7 +154,7 @@ class WebSocketRouter implements IWebSocketHandler {
 				adapter.websocketSendText(conn, Json.stringify({
 					type: "error",
 					message: "Invalid request. Send {\"handler\": \"<name>\"}",
-					available: ["echo", "chat", "broadcast", "auth"]
+					available: [for (k in handlers.keys()) k]
 				}));
 			}
 			return;
