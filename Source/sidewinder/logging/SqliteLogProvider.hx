@@ -58,26 +58,26 @@ class SqliteLogProvider implements ILogProvider {
 		// before re-throwing. Haxe has no finally, so a distant outer catch would
 		// re-enable GC after the heap is already in an inconsistent state.
 		try {
-			#if hl hl.Gc.enable(false); #end
-			try { conn.request("BEGIN TRANSACTION"); } catch (e:Dynamic) { #if hl hl.Gc.enable(true); #end throw e; }
-			#if hl hl.Gc.enable(true); #end
+			#if hl sidewinder.util.HlGcGuard.disable(); #end
+			try { conn.request("BEGIN TRANSACTION"); } catch (e:Dynamic) { #if hl sidewinder.util.HlGcGuard.restore(); #end throw e; }
+			#if hl sidewinder.util.HlGcGuard.restore(); #end
 			for (entry in batch) {
-				#if hl hl.Gc.enable(false); #end
+				#if hl sidewinder.util.HlGcGuard.disable(); #end
 				var ts = Date.now().getTime() / 1000.0;
 				var sql = 'INSERT INTO internal_logs (created_at, level, message) VALUES ($ts, ${quoteString(entry.level)}, ${quoteString(entry.message)})';
-				try { conn.request(sql); } catch (e:Dynamic) { #if hl hl.Gc.enable(true); #end throw e; }
-				#if hl hl.Gc.enable(true); #end
+				try { conn.request(sql); } catch (e:Dynamic) { #if hl sidewinder.util.HlGcGuard.restore(); #end throw e; }
+				#if hl sidewinder.util.HlGcGuard.restore(); #end
 			}
-			#if hl hl.Gc.enable(false); #end
-			try { conn.request("COMMIT"); } catch (e:Dynamic) { #if hl hl.Gc.enable(true); #end throw e; }
+			#if hl sidewinder.util.HlGcGuard.disable(); #end
+			try { conn.request("COMMIT"); } catch (e:Dynamic) { #if hl sidewinder.util.HlGcGuard.restore(); #end throw e; }
 			batch = [];
-			#if hl hl.Gc.enable(true); #end
+			#if hl sidewinder.util.HlGcGuard.restore(); #end
 		} catch (e:Dynamic) {
 			trace('SqliteLogProvider: Batch insert failed: $e');
 			try {
-				#if hl hl.Gc.enable(false); #end
-				try { conn.request("ROLLBACK"); } catch (err:Dynamic) { #if hl hl.Gc.enable(true); #end }
-				#if hl hl.Gc.enable(true); #end
+				#if hl sidewinder.util.HlGcGuard.disable(); #end
+				try { conn.request("ROLLBACK"); } catch (err:Dynamic) { #if hl sidewinder.util.HlGcGuard.restore(); #end }
+				#if hl sidewinder.util.HlGcGuard.restore(); #end
 			} catch (err:Dynamic) {}
 		}
 	}

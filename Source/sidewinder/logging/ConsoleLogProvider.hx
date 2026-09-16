@@ -13,16 +13,16 @@ class ConsoleLogProvider implements ILogProvider {
 		var msg = entry.message;
 		var time = entry.time;
 		
-		#if hl hl.Gc.enable(false); #end
+		#if hl sidewinder.util.HlGcGuard.disable(); #end
 		var line = '[$time] [$levelStr] $msg';
-		#if hl hl.Gc.enable(true); #end
+		#if hl sidewinder.util.HlGcGuard.restore(); #end
 		Sys.println(line);
 
 		if (entry.properties != null) {
 			for (k in entry.properties.keys()) {
-				#if hl hl.Gc.enable(false); #end
+				#if hl sidewinder.util.HlGcGuard.disable(); #end
 				var propLine = '  $k: ${entry.properties.get(k)}';
-				#if hl hl.Gc.enable(true); #end
+				#if hl sidewinder.util.HlGcGuard.restore(); #end
 				Sys.println(propLine);
 			}
 		}

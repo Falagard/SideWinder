@@ -732,9 +732,9 @@ class SqliteDatabaseService implements IDatabaseService {
             var rs = c.request(trimmedSqlRaw);
             if (rs != null) {
                 // HL GC SIGNAL 11 fix: drain raw ResultSet with GC disabled
-                #if hl hl.Gc.enable(false); #end
-                try { while (rs.hasNext()) rs.next(); } catch (drainE:Dynamic) { #if hl hl.Gc.enable(true); #end throw drainE; }
-                #if hl hl.Gc.enable(true); #end
+                #if hl sidewinder.util.HlGcGuard.disable(); #end
+                try { while (rs.hasNext()) rs.next(); } catch (drainE:Dynamic) { #if hl sidewinder.util.HlGcGuard.restore(); #end throw drainE; }
+                #if hl sidewinder.util.HlGcGuard.restore(); #end
             }
 
             // Only run the changes() check for DML (INSERT / UPDATE / DELETE).
@@ -753,7 +753,7 @@ class SqliteDatabaseService implements IDatabaseService {
                 // error" case the outer catch swallows), the outer catch has no re-enable of its
                 // own, permanently disabling the GC process-wide and eventually wedging every
                 // thread that hits a GC blocking-section (Sys.sleep, allocation, etc.) forever.
-                #if hl hl.Gc.enable(false); #end
+                #if hl sidewinder.util.HlGcGuard.disable(); #end
                 var hasChk = false;
                 var changes:Dynamic = 0;
                 try {
@@ -762,10 +762,10 @@ class SqliteDatabaseService implements IDatabaseService {
                     // Drain checkRs fully so the SQLite prepared statement is finalized.
                     if (hasChk) checkRs.hasNext();
                 } catch (gcE:Dynamic) {
-                    #if hl hl.Gc.enable(true); #end
+                    #if hl sidewinder.util.HlGcGuard.restore(); #end
                     throw gcE;
                 }
-                #if hl hl.Gc.enable(true); #end
+                #if hl sidewinder.util.HlGcGuard.restore(); #end
                 if (hasChk && changes == 0) {
                     if (changes == 0 && (StringTools.startsWith(lowerSql, "insert ") || StringTools.startsWith(lowerSql, "update ") || StringTools.startsWith(lowerSql, "delete "))) {
                         if (lowerSql.indexOf(" ignore ") == -1 && lowerSql.indexOf(" replace ") == -1) {
@@ -818,9 +818,9 @@ class SqliteDatabaseService implements IDatabaseService {
             var rs = c.request(trimmedForId);
             if (rs != null) {
                 // HL GC SIGNAL 11 fix: drain raw ResultSet with GC disabled
-                #if hl hl.Gc.enable(false); #end
-                try { while (rs.hasNext()) rs.next(); } catch (drainE:Dynamic) { #if hl hl.Gc.enable(true); #end throw drainE; }
-                #if hl hl.Gc.enable(true); #end
+                #if hl sidewinder.util.HlGcGuard.disable(); #end
+                try { while (rs.hasNext()) rs.next(); } catch (drainE:Dynamic) { #if hl sidewinder.util.HlGcGuard.restore(); #end throw drainE; }
+                #if hl sidewinder.util.HlGcGuard.restore(); #end
             }
 
             // Check if it actually worked
@@ -828,17 +828,17 @@ class SqliteDatabaseService implements IDatabaseService {
             // HL GC SIGNAL 11 fix: protect hasNext/next on raw ResultSet. Inner try-catch required
             // -- see the matching comment in execute() above; a thrown exception here must not
             // skip re-enabling the GC, since it is a process-global toggle.
-            #if hl hl.Gc.enable(false); #end
+            #if hl sidewinder.util.HlGcGuard.disable(); #end
             var hasChkId = false;
             var changedId:Dynamic = -1;
             try {
                 hasChkId = checkRs.hasNext();
                 changedId = hasChkId ? checkRs.next().changed : -1;
             } catch (gcE:Dynamic) {
-                #if hl hl.Gc.enable(true); #end
+                #if hl sidewinder.util.HlGcGuard.restore(); #end
                 throw gcE;
             }
-            #if hl hl.Gc.enable(true); #end
+            #if hl sidewinder.util.HlGcGuard.restore(); #end
             if (hasChkId && changedId == 0) {
                 var lowerSql = finalSql.toLowerCase();
                 if (lowerSql.indexOf(" ignore ") == -1 && lowerSql.indexOf(" replace ") == -1) {
@@ -887,25 +887,25 @@ class SqliteDatabaseService implements IDatabaseService {
             var trimmedSql = StringTools.trim(finalSql);
             var rs = c.request(trimmedSql);
             if (rs != null) {
-                #if hl hl.Gc.enable(false); #end
-                try { while (rs.hasNext()) rs.next(); } catch (drainE:Dynamic) { #if hl hl.Gc.enable(true); #end throw drainE; }
-                #if hl hl.Gc.enable(true); #end
+                #if hl sidewinder.util.HlGcGuard.disable(); #end
+                try { while (rs.hasNext()) rs.next(); } catch (drainE:Dynamic) { #if hl sidewinder.util.HlGcGuard.restore(); #end throw drainE; }
+                #if hl sidewinder.util.HlGcGuard.restore(); #end
             }
 
             var checkRs = c.request("SELECT changes() as changed");
             // Inner try-catch required -- see the matching comment in execute() above; a thrown
             // exception here must not skip re-enabling the GC, since it is a process-global toggle.
-            #if hl hl.Gc.enable(false); #end
+            #if hl sidewinder.util.HlGcGuard.disable(); #end
             var hasChk = false;
             var changed:Int = 0;
             try {
                 hasChk = checkRs.hasNext();
                 changed = hasChk ? (checkRs.next().changed : Int) : 0;
             } catch (gcE:Dynamic) {
-                #if hl hl.Gc.enable(true); #end
+                #if hl sidewinder.util.HlGcGuard.restore(); #end
                 throw gcE;
             }
-            #if hl hl.Gc.enable(true); #end
+            #if hl sidewinder.util.HlGcGuard.restore(); #end
 
             releaseLock(dbPath);
             _resetMutex.release();
@@ -1155,9 +1155,9 @@ class SqliteDatabaseService implements IDatabaseService {
             var rs = c.request(trimmedSqlRaw);
             if (rs != null) {
                 // HL GC SIGNAL 11 fix: drain raw ResultSet with GC disabled
-                #if hl hl.Gc.enable(false); #end
-                try { while (rs.hasNext()) rs.next(); } catch (drainE:Dynamic) { #if hl hl.Gc.enable(true); #end throw drainE; }
-                #if hl hl.Gc.enable(true); #end
+                #if hl sidewinder.util.HlGcGuard.disable(); #end
+                try { while (rs.hasNext()) rs.next(); } catch (drainE:Dynamic) { #if hl sidewinder.util.HlGcGuard.restore(); #end throw drainE; }
+                #if hl sidewinder.util.HlGcGuard.restore(); #end
             }
 
             // Only run the changes() check for DML (INSERT / UPDATE / DELETE).
@@ -1169,7 +1169,7 @@ class SqliteDatabaseService implements IDatabaseService {
                 // process-global toggle. This method runs migration DML under
                 // applyOneMigrationAtomically, so a leaked GC-disable here wedges the whole
                 // process the next time any thread hits a GC blocking section.
-                #if hl hl.Gc.enable(false); #end
+                #if hl sidewinder.util.HlGcGuard.disable(); #end
                 var hasChk = false;
                 var changes:Dynamic = 0;
                 try {
@@ -1177,10 +1177,10 @@ class SqliteDatabaseService implements IDatabaseService {
                     changes = hasChk ? checkRs.next().changed : 0;
                     if (hasChk) checkRs.hasNext();
                 } catch (gcE:Dynamic) {
-                    #if hl hl.Gc.enable(true); #end
+                    #if hl sidewinder.util.HlGcGuard.restore(); #end
                     throw gcE;
                 }
-                #if hl hl.Gc.enable(true); #end
+                #if hl sidewinder.util.HlGcGuard.restore(); #end
                 if (hasChk && changes == 0) {
                     if (changes == 0 && (StringTools.startsWith(lowerSql, "insert ") || StringTools.startsWith(lowerSql, "update ") || StringTools.startsWith(lowerSql, "delete "))) {
                         if (lowerSql.indexOf(" ignore ") == -1 && lowerSql.indexOf(" replace ") == -1) {
@@ -1386,17 +1386,17 @@ class StaticResultSet implements sys.db.ResultSet {
             // HL GC SIGNAL 11 fix: SqliteResultSet.hasNext() calls List.push() to prefetch
             // the next row. If the GC fires during that allocation the heap is corrupted.
             // Disable GC for the entire iteration; each rs.next() row is small.
-            #if hl hl.Gc.enable(false); #end
+            #if hl sidewinder.util.HlGcGuard.disable(); #end
             try {
                 for (r in rs) {
                     rows.push(r);
                     count++;
                 }
             } catch (e:Dynamic) {
-                #if hl hl.Gc.enable(true); #end
+                #if hl sidewinder.util.HlGcGuard.restore(); #end
                 throw e;
             }
-            #if hl hl.Gc.enable(true); #end
+            #if hl sidewinder.util.HlGcGuard.restore(); #end
             // Sys.println('[DIAG] [StaticResultSet] Iterated ' + count + ' rows');
         }
     }
