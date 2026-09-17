@@ -180,7 +180,24 @@ class SqliteDatabaseService implements IDatabaseService {
     }
 
     public static function createWithPath(config:core.IServerConfig, dbPath:String):SqliteDatabaseService {
-        var svc = Type.createEmptyInstance(SqliteDatabaseService);
+        // HL GC GUARD. `Type.createEmptyInstance()` is a reflective heap allocation -- the EXACT
+        // documented crash mechanism already fixed once in haxe-injection's
+        // ServiceProvider.getServiceArgs() (see HaxeStackPlatform's CLAUDE.md, hx-injection Fix 1:
+        // "ServiceProvider.getServiceArgs() calls Type.createEmptyInstance(type) ... under
+        // HL/Rosetta in background threads, the GC fires during this heap allocation and corrupts
+        // memory -> SIGSEGV"). This call site is the same operation, unguarded, and is on the
+        // hottest possible path: every single project/tenant database open, from every concurrent
+        // request thread, goes through here. Found by HASHLINK-PROJECT-DB-SIGSEGV-REPRO-S1 while
+        // auditing the createProject -> SQLite-open path for exactly this class of gap.
+        #if hl sidewinder.util.HlGcGuard.disable(); #end
+        var svc;
+        try {
+            svc = Type.createEmptyInstance(SqliteDatabaseService);
+        } catch (e:Dynamic) {
+            #if hl sidewinder.util.HlGcGuard.restore(); #end
+            throw e;
+        }
+        #if hl sidewinder.util.HlGcGuard.restore(); #end
         svc.init(config, dbPath);
         return svc;
     }
