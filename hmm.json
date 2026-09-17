@@ -9,8 +9,8 @@
             "name": "haxe-injection",
             "type": "git",
             "dir": null,
-            "ref": "7bb93913446ce60cacac1fb695038d8c204aec0f",
-            "url": "https://github.com/paulsgcross/haxe-injection"
+            "ref": "329aa9a",
+            "url": "https://github.com/Falagard/haxe-injection"
         },
         {
             "name": "lime",
