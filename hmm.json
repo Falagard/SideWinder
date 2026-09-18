@@ -6,10 +6,17 @@
             "version": null
         },
         {
+            "name": "hl-gc-guard",
+            "type": "git",
+            "dir": null,
+            "ref": "8cbd827e9093beb6c799250147386ca6b5feaaa8",
+            "url": "https://github.com/Falagard/hl-gc-guard"
+        },
+        {
             "name": "haxe-injection",
             "type": "git",
             "dir": null,
-            "ref": "329aa9a",
+            "ref": "0ee65bd",
             "url": "https://github.com/Falagard/haxe-injection"
         },
         {
@@ -21,7 +28,7 @@
             "name": "hxwell",
             "type": "git",
             "dir": null,
-            "ref": "3b83d68d9fff00d1397f1d246aea151cda4957fe",
+            "ref": "1752dc0476824cd67e1244a32a95a7752de1b7d0",
             "url": "https://github.com/falagard/hxwell"
         }
     ]
