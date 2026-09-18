@@ -6,7 +6,7 @@ REM Change to the project root (one level up from scripts directory)
 cd /d "%~dp0.."
 
 set SRC=native\civetweb\hl\civetweb.hdll
-set PREBUILT=native\civetweb\prebuilt\windows\civetweb.hdll
+set PREBUILT=native\prebuilt\windows\civetweb.hdll
 set DEST=Export\hl\bin\civetweb.hdll
 set DEST_HLC=Export\hlc\bin\civetweb.hdll
 
@@ -34,7 +34,7 @@ if exist "%SRC%" (
 REM Copy sqlite.hdll - prefer prebuilt from git, fallback to HashLink installation
 set SQLITE_DEST=Export\hl\bin\sqlite.hdll
 set SQLITE_DEST_HLC=Export\hlc\bin\sqlite.hdll
-set SQLITE_PREBUILT=native\civetweb\prebuilt\windows\sqlite.hdll
+set SQLITE_PREBUILT=native\prebuilt\windows\sqlite.hdll
 
 if not exist "%SQLITE_DEST%" (
 	REM Try 1: Use prebuilt from git (preferred)

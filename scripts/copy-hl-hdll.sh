@@ -5,7 +5,7 @@
 cd "$(dirname "$0")/.."
 
 SRC="native/civetweb/hl/civetweb.hdll"
-PREBUILT="native/civetweb/prebuilt/linux/civetweb.hdll"
+PREBUILT="native/prebuilt/linux/civetweb.hdll"
 DEST="Export/hl/bin/civetweb.hdll"
 
 # Ensure destination directory exists

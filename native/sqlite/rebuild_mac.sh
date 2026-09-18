@@ -36,9 +36,9 @@ if [ $? -eq 0 ]; then
     echo "Build Success: sqlite.hdll"
     echo ""
     echo "Copying to SideWinder prebuilt locations..."
-    mkdir -p ../civetweb/prebuilt/mac
-    cp sqlite.hdll ../civetweb/prebuilt/mac/sqlite.hdll
-    echo "Copied to ../civetweb/prebuilt/mac/sqlite.hdll"
+    mkdir -p ../prebuilt/mac
+    cp sqlite.hdll ../prebuilt/mac/sqlite.hdll
+    echo "Copied to ../prebuilt/mac/sqlite.hdll"
 else
     echo "Build Failed!"
     exit 1
