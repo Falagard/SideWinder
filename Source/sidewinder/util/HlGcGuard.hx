@@ -2,40 +2,33 @@ package sidewinder.util;
 
 #if hl
 /**
- * `hl.Gc.enable(bool)` sets a single process-global flag (`gc_is_active` in HashLink's
- * src/gc.c) with no reentrancy, no thread-local scoping, and no getter. Any two call sites
- * that each do their own "disable, do risky allocation, re-enable" span will stomp on each
- * other the moment they nest OR run concurrently on different threads: whichever one finishes
- * first calls `hl.Gc.enable(true)` and re-enables the GC globally, even while another thread
- * (or an outer caller on the same thread) is still mid-way through an allocation it believed
- * was protected.
+ * Thin delegating wrapper around the shared `hlgcguard.HlGcGuard` (see
+ * https://github.com/Falagard/hl-gc-guard, package `hlgcguard`).
  *
- * This is a real, evidenced bug: SqliteApplicationDataRelocationRepository.readRows() disables
- * the GC, calls into SqliteDatabaseService.request(), which constructs a StaticResultSet whose
- * constructor did its own disable/iterate/unconditional-enable -- re-enabling the GC globally
- * before control returned to the outer caller's still-executing drain loop.
+ * `hl.Gc.enable(bool)` sets a single, process-global, non-reentrant flag with no getter
+ * (`gc_is_active` in HashLink's own `src/gc.c`). This class used to maintain its OWN
+ * mutex-protected depth counter, entirely independent from the structurally identical copies
+ * that accumulated in `hx.injection.HlGcGuard` (haxe-injection fork) and hxwell's own copy.
+ * Two *different* counters don't know about each other, so whenever two of them were
+ * concurrently active in the same process (SideWinder DB work overlapping a DI resolution, or
+ * hxwell's TemplateData static-init overlapping either), the exact cross-boundary version of
+ * the race this pattern exists to prevent could still happen: whichever guard's counter hit
+ * zero first would call `hl.Gc.enable(true)`, re-enabling the GC globally while the OTHER
+ * guard's caller was still mid-allocation under the assumption it was still protected.
  *
- * Fix: route every disable/restore through this counted, mutex-protected guard instead of
- * calling hl.Gc.enable directly. The GC is only actually turned off on the transition into the
- * first concurrently-held guard, and only turned back on when the last holder (across every
- * thread) releases it.
+ * Fixed (HLC-BOOT-MIGRATION-GC-SIGSEGV-S1) by extracting the counter itself into a standalone,
+ * zero-dependency package (`hl-gc-guard`) that every one of these libraries now delegates to,
+ * so there is exactly one depth counter per process. Every existing call site in this repo
+ * (`sidewinder.util.HlGcGuard.disable()`/`.restore()`, ~65+ files) keeps working unchanged --
+ * only this class's own implementation changed.
  */
 class HlGcGuard {
-    static var _mutex = new sys.thread.Mutex();
-    static var _depth:Int = 0;
-
-    public static function disable():Void {
-        _mutex.acquire();
-        _depth++;
-        if (_depth == 1) hl.Gc.enable(false);
-        _mutex.release();
+    public static inline function disable():Void {
+        hlgcguard.HlGcGuard.disable();
     }
 
-    public static function restore():Void {
-        _mutex.acquire();
-        if (_depth > 0) _depth--;
-        if (_depth == 0) hl.Gc.enable(true);
-        _mutex.release();
+    public static inline function restore():Void {
+        hlgcguard.HlGcGuard.restore();
     }
 }
 #end

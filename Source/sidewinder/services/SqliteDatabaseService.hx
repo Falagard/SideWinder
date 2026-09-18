@@ -1166,8 +1166,21 @@ class SqliteDatabaseService implements IDatabaseService {
 
         try {
             var c = getConn();
-            var trimmedSqlRaw = StringTools.trim(finalSql);
-            var lowerSql = trimmedSqlRaw.toLowerCase();
+            // HLC boot/migration SIGSEGV fix (HLC-BOOT-MIGRATION-GC-SIGSEGV-S1): these two String
+            // allocations (StringTools.trim -> String.substr, toLowerCase) were unguarded while
+            // every other allocation-heavy site in this method already routes through HlGcGuard.
+            // Observed crashing directly at this call site under hlc (hl_gc_alloc_gen ->
+            // hl_alloc_obj -> String_substr, called from executeAlreadyLocked), with the faulting
+            // address decoding as raw UTF-16LE string character data rather than a real pointer --
+            // the signature of a corrupted allocation result. No inner try-catch is needed here
+            // (unlike the ResultSet-draining blocks elsewhere in this file) because neither
+            // StringTools.trim nor toLowerCase can throw.
+            var trimmedSqlRaw:String;
+            var lowerSql:String;
+            #if hl sidewinder.util.HlGcGuard.disable(); #end
+            trimmedSqlRaw = StringTools.trim(finalSql);
+            lowerSql = trimmedSqlRaw.toLowerCase();
+            #if hl sidewinder.util.HlGcGuard.restore(); #end
 
             var rs = c.request(trimmedSqlRaw);
             if (rs != null) {
@@ -1255,9 +1268,23 @@ class SqliteDatabaseService implements IDatabaseService {
         var conn = getConn();
         conn.request("BEGIN");
         try {
-            var statements = sql.split(';');
+            // HLC boot/migration SIGSEGV fix (HLC-BOOT-MIGRATION-GC-SIGSEGV-S1): sql.split(';')
+            // and the per-statement StringTools.trim() below were unguarded String allocations.
+            // Observed crashing directly here under hlc (hl_gc_alloc_gen -> hl_alloc_obj ->
+            // String_split / String_substr, called from this method), with the faulting address
+            // decoding as raw UTF-16LE string character data -- the signature of a corrupted
+            // allocation result, not a random wild pointer. Guard the split itself; the
+            // StringTools.trim() inside the loop is guarded per-iteration since it runs once per
+            // migration statement and the loop body between trims (executeAlreadyLocked) already
+            // manages its own GC-guarded sections and must not be nested inside this one.
+            var statements:Array<String>;
+            #if hl sidewinder.util.HlGcGuard.disable(); #end
+            statements = sql.split(';');
+            #if hl sidewinder.util.HlGcGuard.restore(); #end
             for (stmt in statements) {
+                #if hl sidewinder.util.HlGcGuard.disable(); #end
                 stmt = StringTools.trim(stmt);
+                #if hl sidewinder.util.HlGcGuard.restore(); #end
                 if (stmt.length == 0) continue;
                 try {
                     executeAlreadyLocked(stmt);
