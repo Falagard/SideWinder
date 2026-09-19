@@ -86,7 +86,21 @@ static void HL_NAME(finalize_database)( sqlite_database *db ) {
 HL_PRIM sqlite_database *HL_NAME(connect)( vbyte *filename ) {
 	sqlite_database *db;
 	sqlite3 *sqlite;
-	if( sqlite3_open16(filename, &sqlite) != SQLITE_OK ) {
+	int openResult;
+	// HLC-COMPANION-STABILITY-S1 experimental patch: sqlite3_open16() is genuinely blocking
+	// (filesystem I/O -- creating/opening the db file, WAL/journal sidecar checks). Bracket ONLY
+	// the native call itself with hl_blocking(true/false) -- narrower than the whole function --
+	// so HashLink's stop-the-world GC (gc_stop_world's `while(t->gc_blocking==0){}` spinwait,
+	// gc.c) can proceed without waiting on this thread while it's inside libsqlite. No Haxe
+	// callback/hook is registered anywhere in this binding (grepped: no sqlite3_busy_handler/
+	// sqlite3_create_function/sqlite3_trace/etc. call sites), so sqlite3_open16 cannot re-enter
+	// managed code -- safe to mark blocking across it. `filename` is only READ here, not
+	// allocated, matching the same pattern HL's own socket.c/file.c use for passing managed
+	// buffers into blocking native calls.
+	hl_blocking(true);
+	openResult = sqlite3_open16(filename, &sqlite);
+	hl_blocking(false);
+	if( openResult != SQLITE_OK ) {
 		HL_NAME(error)(sqlite, true);
 	}
 	db = (sqlite_database*)hl_gc_alloc_finalizer(sizeof(sqlite_database));
@@ -113,11 +127,21 @@ HL_PRIM sqlite_result *HL_NAME(request)(sqlite_database *db, vbyte *sql ) {
 	const char *tl;
 	int i,j;
 
+	int prepareResult;
+
 	r = (sqlite_result*)hl_gc_alloc_finalizer(sizeof(sqlite_result));
 	r->finalize = HL_NAME(finalize_result);
 	r->db = NULL;
 
-	if( sqlite3_prepare16_v2(db->db, sql, -1, &r->r, (const void**)&tl) != SQLITE_OK ) {
+	// HLC-COMPANION-STABILITY-S1 experimental patch: sqlite3_prepare16_v2() can block on SQLite's
+	// internal schema/table locks (contention with another connection/transaction), not just pure
+	// CPU parsing. Bracket only the native call -- the Haxe allocation above (hl_gc_alloc_finalizer)
+	// and the error path below (HL_NAME(error), which allocates via hl_buffer/hl_error) stay
+	// outside the blocking window, matching this patch's narrow-scope convention throughout.
+	hl_blocking(true);
+	prepareResult = sqlite3_prepare16_v2(db->db, sql, -1, &r->r, (const void**)&tl);
+	hl_blocking(false);
+	if( prepareResult != SQLITE_OK ) {
 		HL_NAME(error)(db->db, false);
 	}
 
@@ -205,9 +229,23 @@ HL_PRIM varray *HL_NAME(result_get_fields)( sqlite_result *r ) {
 	<doc>Returns the next row in the result or [null] if no more result.</doc>
 **/
 HL_PRIM varray *HL_NAME(result_next)( sqlite_result *r ) {
+	int stepResult;
 	if( r->done )
 		return NULL;
-	switch( sqlite3_step(r->r) ) {
+	// HLC-COMPANION-STABILITY-S1 experimental patch: sqlite3_step() is the primary suspect --
+	// genuinely blocking on filesystem I/O, SQLite's own busy-retry lock contention, and WAL
+	// checkpoint/locking interactions, called from nearly every thread in this application. No
+	// Haxe callback is registered anywhere in this binding (no sqlite3_busy_handler/
+	// sqlite3_create_function/sqlite3_trace/sqlite3_commit_hook/sqlite3_update_hook call sites
+	// exist), so sqlite3_step() cannot re-enter managed Haxe code -- safe to mark this thread
+	// blocking across it. Deliberately narrow: hl_blocking(false) returns BEFORE the switch below,
+	// so every downstream branch that allocates Haxe objects (hl_alloc_array/hl_make_dyn/
+	// hl_copy_bytes for a fetched row, hl_error for SQLITE_BUSY/SQLITE_ERROR,
+	// HL_NAME(finalize_request) for SQLITE_DONE) runs with GC cooperation already restored.
+	hl_blocking(true);
+	stepResult = sqlite3_step(r->r);
+	hl_blocking(false);
+	switch( stepResult ) {
 	case SQLITE_ROW:
 		r->first = 0;
 		varray *a = hl_alloc_array(&hlt_dyn, r->ncols);
