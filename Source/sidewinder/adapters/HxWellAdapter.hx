@@ -401,6 +401,26 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 	}
 
 	private function convertRequest(hxReq:hx.well.http.Request, socket:Socket):Request {
+		#if hl sidewinder.util.HlGcGuard.disable(); #end
+		try {
+			var req = convertRequestUnguarded(hxReq, socket);
+			#if hl sidewinder.util.HlGcGuard.restore(); #end
+			return req;
+		} catch (e:Dynamic) {
+			#if hl sidewinder.util.HlGcGuard.restore(); #end
+			throw e;
+		}
+	}
+
+	// HLC-COMPANION-STABILITY-S1-follow-up: this whole body is String.split/substr/toString and
+	// Map allocation over already-received bytes -- no I/O, no blocking call -- and none of it
+	// was guarded. Crashed directly at `rawPath.split("?")` (SIGNAL 11,
+	// hl_gc_alloc_gen -> hl_alloc_obj -> String_split/String_substr) on a background WorkerIsland
+	// thread the very first time a request exercised this path under real load. Same class of bug
+	// as the migration-path fix in SqliteDatabaseService.hx (52a9355) -- guard the whole
+	// allocation-heavy block via the shared, reentrant HlGcGuard rather than picking individual
+	// call sites, since nearly every line here allocates.
+	private function convertRequestUnguarded(hxReq:hx.well.http.Request, socket:Socket):Request {
 		var headers = new Map<String, String>();
 		@:privateAccess {
             var keys = [];
