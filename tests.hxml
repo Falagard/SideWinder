@@ -5,6 +5,7 @@
 -cp tests
 -lib utest
 -lib hxwell
+-lib haxe-injection
 -D disable_env
 -D no-deprecation-warnings
 -main TestMain
