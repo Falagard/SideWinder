@@ -37,6 +37,9 @@ jobs:
           haxelib git hxwell https://github.com/falagard/hxwell --always --quiet
           haxelib git haxe-concurrent https://github.com/Falagard/haxe-concurrent --always --quiet
           haxelib git haxe-injection https://github.com/Falagard/haxe-injection --always --quiet
+          # haxe-injection's extraParams.hxml adds -lib json2object
+          haxelib install json2object 3.11.0 --always --quiet
+          haxelib git hl-gc-guard https://github.com/Falagard/hl-gc-guard --always --quiet
           haxelib install uuid --always --quiet
           haxelib install crypto --always --quiet
       # Type-check the library WITHOUT emitting code. This is the gate that
@@ -59,6 +62,8 @@ jobs:
           haxelib git hxwell https://github.com/falagard/hxwell --always --quiet
           haxelib git haxe-concurrent https://github.com/Falagard/haxe-concurrent --always --quiet
           haxelib git haxe-injection https://github.com/Falagard/haxe-injection --always --quiet
+          # haxe-injection's extraParams.hxml adds -lib json2object
+          haxelib install json2object 3.11.0 --always --quiet
           haxelib install uuid --always --quiet
           haxelib install crypto --always --quiet
       - run: haxe tests.hxml
