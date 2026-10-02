@@ -58,6 +58,7 @@ jobs:
           haxelib install utest 1.13.2 --always --quiet
           haxelib git hxwell https://github.com/falagard/hxwell --always --quiet
           haxelib git haxe-concurrent https://github.com/Falagard/haxe-concurrent --always --quiet
+          haxelib git haxe-injection https://github.com/Falagard/haxe-injection --always --quiet
           haxelib install uuid --always --quiet
           haxelib install crypto --always --quiet
       - run: haxe tests.hxml
