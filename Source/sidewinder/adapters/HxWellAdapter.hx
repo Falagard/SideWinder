@@ -339,8 +339,8 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 			}
 
 			HybridLogger.info('[HxWellAdapter] [$requestId] ${swReq.method} ${swReq.path}');
-            var headerSummary = [for (k in swReq.headers.keys()) '$k: ${swReq.headers.get(k)}'].join(", ");
-            HybridLogger.debug('[HxWellAdapter] [$requestId] Request Headers: $headerSummary');
+            if (HybridLogger.isEnabled(LogLevel.DEBUG))
+                HybridLogger.debug('[HxWellAdapter] [$requestId] Request Headers: ' + sidewinder.logging.LogRedaction.headerSummary(swReq.headers));
 
 			if (router != null) {
 				var match = router.find(swReq.method, swReq.path);
@@ -428,16 +428,16 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 				headers.set(k, hxReq.headers.get(k));
                 keys.push(k);
 			}
-            HybridLogger.info('[HxWellAdapter] Incoming Header Keys: ' + keys.join(", "));
+            HybridLogger.debug('[HxWellAdapter] Incoming Header Keys: ' + keys.join(", "));
 		}
 
 		var body = hxReq.bodyBytes != null ? hxReq.bodyBytes.toString() : "";
 
-		if (hxReq.requestBytes != null) {
+		if (hxReq.requestBytes != null && HybridLogger.isEnabled(LogLevel.DEBUG)) {
 			var raw = hxReq.requestBytes.toString();
 			var firstLine = raw.split("\r\n")[0];
 			HybridLogger.debug('[HxWellAdapter] Raw Request Line: ' + firstLine);
-			HybridLogger.debug('[HxWellAdapter] Full Raw Headers:\n' + raw.split("\r\n\r\n")[0]);
+			HybridLogger.debug('[HxWellAdapter] Full Raw Headers:\n' + sidewinder.logging.LogRedaction.rawHeaderBlock(raw.split("\r\n\r\n")[0]));
 		}
 
 		HybridLogger.debug('[HxWellAdapter] hxReq fields: ' + Reflect.fields(hxReq).join(", "));
@@ -679,20 +679,11 @@ class HxWellAdapter implements IWebServer implements IWebSocketServer {
 	}
 
 	private function serveStatic(path:String, res:Response, socket:Socket):Bool {
-		var pathOnly = path.split("?")[0];
-		if (pathOnly == "/" || pathOnly == "")
-			pathOnly = "/index.html";
-
-		var fileToServe = pathOnly;
-		if (StringTools.startsWith(pathOnly, "/static/")) {
-			fileToServe = pathOnly.substr("/static".length);
-		}
-
-		var baseDir = directory;
-		if (!haxe.io.Path.isAbsolute(baseDir)) {
-			baseDir = haxe.io.Path.join([Sys.getCwd(), directory]);
-		}
-		var fullPath = haxe.io.Path.join([baseDir, fileToServe]);
+		// Containment, dot-file and sensitive-extension rules live in StaticPathPolicy (the old
+		// plain Path.join allowed `/../` traversal and served database files from the root).
+		var fullPath = sidewinder.http.StaticPathPolicy.resolve(directory, path);
+		if (fullPath == null)
+			return false;
 
 		if (sys.FileSystem.exists(fullPath) && !sys.FileSystem.isDirectory(fullPath)) {
 			try {
