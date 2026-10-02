@@ -9,6 +9,7 @@ class TestMain {
 		runner.addCase(new sidewinder.http.RequestScopeTest());
 		runner.addCase(new sidewinder.routing.RouterMatchTest());
 		runner.addCase(new sidewinder.websocket.WebSocketApplicationHandlerTest());
+		runner.addCase(new sidewinder.services.SqlParameterBinderTest());
 		Report.create(runner);
 		runner.run();
 	}

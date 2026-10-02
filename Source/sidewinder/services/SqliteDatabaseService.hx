@@ -1337,44 +1337,13 @@ class SqliteDatabaseService implements IDatabaseService {
         }
     }
 
+    /**
+     * Substitutes `@name` placeholders with SQL literals. Single-pass and quote-aware - see
+     * `SqlParameterBinder` for the rules and for the corruption bug the old multi-pass
+     * `StringTools.replace` implementation had with values containing `@`.
+     */
     public static function buildSqlStatic(sql:String, params:Map<String, Dynamic>):String {
-        if (params == null || !params.keys().hasNext()) return sql;
-        var result = sql;
-        var keys = [];
-        for (k in params.keys()) keys.push(k);
-        keys.sort((a, b) -> b.length - a.length);
-
-        for (key in keys) {
-            var val = params.get(key);
-            var escapedVal = "";
-            if (val == null) {
-                escapedVal = "NULL";
-            } else if (Std.isOfType(val, String)) {
-                escapedVal = "'" + StringTools.replace(Std.string(val), "'", "''") + "'";
-            } else if (Std.isOfType(val, Bool)) {
-                escapedVal = val ? "1" : "0";
-            } else if (Std.isOfType(val, Date)) {
-                var time = val.getTime() / 1000.0;
-                escapedVal = Std.string(time);
-            } else if (Std.isOfType(val, sidewinder.interfaces.IDatabaseService.RawSql)) {
-                escapedVal = cast(val, sidewinder.interfaces.IDatabaseService.RawSql).value;
-            } else if (Std.isOfType(val, Float)) {
-                var s = Std.string(val);
-                if (s.indexOf("e") != -1 || s.indexOf("E") != -1) {
-                    // Manual formatting for large floats (timestamps) to avoid scientific notation
-                    escapedVal = haxe.format.JsonPrinter.print(val);
-                } else {
-                    escapedVal = s;
-                }
-            } else {
-                escapedVal = Std.string(val);
-            }
-            if (escapedVal == null) {
-                escapedVal = "NULL";
-            }
-            result = StringTools.replace(result, "@" + key, escapedVal);
-        }
-        return result;
+        return SqlParameterBinder.bind(sql, params);
     }
 
     public function buildSql(sql:String, params:Map<String, Dynamic>):String return buildSqlStatic(sql, params);
