@@ -78,6 +78,17 @@ class HybridLogger {
 				if (entry == null)
 					continue;
 
+				// No provider registered: write to the console rather than silently discarding
+				// the entry (previously every log line vanished until an app added a provider).
+				if (providers.length == 0) {
+					// Same GC guard as ConsoleLogProvider: string building on this background thread.
+					#if hl sidewinder.util.HlGcGuard.disable(); #end
+					var line = '[${entry.time}] [${entry.level}] ${entry.message}';
+					#if hl sidewinder.util.HlGcGuard.restore(); #end
+					Sys.println(line);
+					continue;
+				}
+
 				// Send to all registered providers
 				for (provider in providers) {
 					try {
@@ -140,6 +151,11 @@ class HybridLogger {
 	 */
 	public static function getProviderCount():Int {
 		return providers.length;
+	}
+
+	/** True when a message at `level` would be recorded - lets callers skip building it. */
+	public static function isEnabled(level:LogLevel):Bool {
+		return cast(level, Int) >= cast(minLevel, Int);
 	}
 
 	public static inline function debug(msg:String)

@@ -152,9 +152,9 @@ class CustomSocketDriver extends SocketDriver {
 				}
 				
 				// Handle body parsing if Content-Length is present
-                var headersStr = "";
-                for (k in hxReq.headers.keys()) headersStr += k + ": " + hxReq.headers.get(k) + ", ";
-                HybridLogger.info('[HxWellAdapter] Request Headers: ' + headersStr);
+                // DEBUG only, credentials masked (this used to log Cookie/Authorization at INFO).
+                if (HybridLogger.isEnabled(sidewinder.logging.HybridLogger.LogLevel.DEBUG))
+                    HybridLogger.debug('[HxWellAdapter] Request Headers: ' + sidewinder.logging.LogRedaction.headerSummary(hxReq.headers));
 				var contentLen = hxReq.header("Content-Length");
 				
 				if (contentLen != null) {

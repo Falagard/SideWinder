@@ -10,6 +10,8 @@ class TestMain {
 		runner.addCase(new sidewinder.routing.RouterMatchTest());
 		runner.addCase(new sidewinder.websocket.WebSocketApplicationHandlerTest());
 		runner.addCase(new sidewinder.services.SqlParameterBinderTest());
+		runner.addCase(new sidewinder.http.StaticPathPolicyTest());
+		runner.addCase(new sidewinder.logging.LogRedactionTest());
 		Report.create(runner);
 		runner.run();
 	}
